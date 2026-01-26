@@ -9,6 +9,9 @@ A production-ready Node.js backend built with Express, TypeScript, and multi-dat
 npm install
 cp .env.example .env
 
+# Setup database (creates all tables)
+npm run migrate:up
+
 # Start development server
 npm run dev
 
@@ -24,10 +27,13 @@ curl http://localhost:3000/api/hello
 **Getting Started**:
 - [Setup Guide](documentation/SETUP_GUIDE.md) - Environment configuration and database setup
 - [Local Development](documentation/LOCAL_DEVELOPMENT.md) - Running and developing locally
+- [Database Migrations](documentation/MIGRATIONS.md) - Schema versioning and management
 
 **Understanding the Project**:
 - [File Structure](documentation/FILE_STRUCTURE.md) - Folder organization and purpose
 - [Error Handling](documentation/ERROR_HANDLING.md) - Error system (13 error types, patterns, usage)
+- [Authentication System](documentation/AUTHENTICATION.md) - JWT-based authentication with refresh tokens
+- [Authentication Quick Start](documentation/AUTHENTICATION_QUICK_START.md) - Quick reference for using auth APIs
 
 **Database Setup**:
 - [MongoDB Setup](documentation/mongo-db-setup.md) - Installation and configuration

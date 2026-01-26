@@ -29,7 +29,17 @@ export async function connectMySQL() {
   }
 }
 
-export function getPool() {
-  if (!pool) throw new Error('MySQL pool not initialized. Call connectMySQL first.');
+export function getPool(): mysql.Pool {
+  if (!pool) {
+    throw new Error('MySQL pool not initialized. Call connectMySQL first.');
+  }
   return pool;
 }
+
+export const db = {
+  query: async (sql: string, values?: any[]) => {
+    const pool = getPool();
+    return pool.query(sql, values);
+  }
+};
+

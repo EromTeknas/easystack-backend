@@ -1,4 +1,6 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
 import { app as appConfig } from './config/index';
 import logger from './utils/logger';
 import requestContextMiddleware from './middlewares/request-context.middleware';
@@ -12,7 +14,22 @@ async function start() {
 
     const app = express();
 
-    // Request context middleware (must be first)
+    // CORS configuration
+    app.use(cors({
+      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      credentials: true, // Allow cookies to be sent
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    }));
+
+    // Body parser middleware
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+
+    // Cookie parser middleware (for refresh token cookie)
+    app.use(cookieParser());
+
+    // Request context middleware (must be after cookie parser)
     app.use(requestContextMiddleware);
 
     // Routes
