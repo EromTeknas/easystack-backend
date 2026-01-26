@@ -262,3 +262,14 @@ mongorestore ./backup
 - https://www.mongodb.com/docs/
 - https://www.mongodb.com/security
 - https://www.mongodb.com/try/download/compass
+---
+
+## Next Steps
+
+- [Setup Guide](SETUP_GUIDE.md) - Back to complete setup guide
+- [MySQL Setup](my-sql-setup.md) - Set up MySQL as well
+- [Local Development](LOCAL_DEVELOPMENT.md) - Start developing
+
+---
+
+[← Back to README](../README.md)

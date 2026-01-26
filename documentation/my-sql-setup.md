@@ -215,3 +215,15 @@ Update your `.env` file with the new password.
 ---
 
 MySQL is now ready for use with easystack-backend.
+
+---
+
+## Next Steps
+
+- [Setup Guide](SETUP_GUIDE.md) - Back to complete setup guide
+- [MongoDB Setup](mongo-db-setup.md) - Set up MongoDB as well
+- [Local Development](LOCAL_DEVELOPMENT.md) - Start developing
+
+---
+
+[← Back to README](../README.md)

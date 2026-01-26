@@ -1,0 +1,481 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "EasyStack Backend API",
+    "description": "A robust and scalable Node.js backend application with Express, TypeScript, and multi-database support (MongoDB and MySQL)",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Sanket More",
+      "email": "contact@easystack.dev"
+    },
+    "license": {
+      "name": "ISC"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server",
+      "variables": {
+        "port": {
+          "default": "3000",
+          "description": "API server port"
+        }
+      }
+    },
+    {
+      "url": "https://api-dev.easystack.dev",
+      "description": "Development server"
+    },
+    {
+      "url": "https://api-stage.easystack.dev",
+      "description": "Staging server"
+    },
+    {
+      "url": "https://api.easystack.dev",
+      "description": "Production server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Application health and status endpoints"
+    },
+    {
+      "name": "General",
+      "description": "General utility endpoints"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health Check",
+        "description": "Check the health status of the application and its connections",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Application is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hello": {
+      "get": {
+        "tags": ["General"],
+        "summary": "Hello World",
+        "description": "Returns a greeting message - useful for testing API connectivity",
+        "operationId": "getHello",
+        "responses": {
+          "200": {
+            "description": "Greeting message returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelloResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indicates if the request was successful"
+          },
+          "data": {
+            "type": "object",
+            "required": ["status", "timestamp"],
+            "properties": {
+              "status": {
+                "type": "string",
+                "example": "healthy",
+                "description": "Health status of the application",
+                "enum": ["healthy", "unhealthy", "degraded"]
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "example": "2026-01-26T10:30:45.123Z",
+                "description": "ISO 8601 timestamp of when health check was performed"
+              }
+            }
+          }
+        }
+      },
+      "HelloResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indicates if the request was successful"
+          },
+          "data": {
+            "type": "object",
+            "required": ["message", "timestamp"],
+            "properties": {
+              "message": {
+                "type": "string",
+                "example": "Hello, World!",
+                "description": "Greeting message"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "example": "2026-01-26T10:30:45.123Z",
+                "description": "ISO 8601 timestamp"
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["success", "error"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false,
+            "description": "Indicates the request failed"
+          },
+          "error": {
+            "type": "object",
+            "required": ["message", "code", "statusCode", "requestId"],
+            "properties": {
+              "message": {
+                "type": "string",
+                "example": "User not found",
+                "description": "Human-readable error message"
+              },
+              "code": {
+                "type": "string",
+                "example": "NOT_FOUND",
+                "description": "Machine-readable error code",
+                "enum": [
+                  "BAD_REQUEST",
+                  "UNAUTHORIZED",
+                  "FORBIDDEN",
+                  "NOT_FOUND",
+                  "CONFLICT",
+                  "VALIDATION_ERROR",
+                  "TOO_MANY_REQUESTS",
+                  "INTERNAL_SERVER_ERROR",
+                  "NOT_IMPLEMENTED",
+                  "SERVICE_UNAVAILABLE",
+                  "DATABASE_CONNECTION_ERROR",
+                  "DATABASE_OPERATION_ERROR"
+                ]
+              },
+              "statusCode": {
+                "type": "integer",
+                "example": 404,
+                "description": "HTTP status code"
+              },
+              "requestId": {
+                "type": "string",
+                "example": "abc123def456",
+                "description": "Unique request identifier for tracing"
+              },
+              "details": {
+                "type": "object",
+                "description": "Additional context about the error (optional)",
+                "example": {
+                  "userId": "123",
+                  "field": "id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "BadRequestError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "BAD_REQUEST"
+                  },
+                  "statusCode": {
+                    "example": 400
+                  },
+                  "message": {
+                    "example": "Invalid email format"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "UnauthorizedError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "UNAUTHORIZED"
+                  },
+                  "statusCode": {
+                    "example": 401
+                  },
+                  "message": {
+                    "example": "Missing authentication token"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ForbiddenError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "FORBIDDEN"
+                  },
+                  "statusCode": {
+                    "example": 403
+                  },
+                  "message": {
+                    "example": "Only administrators can delete users"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "NotFoundError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "NOT_FOUND"
+                  },
+                  "statusCode": {
+                    "example": 404
+                  },
+                  "message": {
+                    "example": "User not found"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ConflictError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "CONFLICT"
+                  },
+                  "statusCode": {
+                    "example": 409
+                  },
+                  "message": {
+                    "example": "Email already registered"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ValidationError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "VALIDATION_ERROR"
+                  },
+                  "statusCode": {
+                    "example": 422
+                  },
+                  "message": {
+                    "example": "Age must be at least 18"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "TooManyRequestsError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "TOO_MANY_REQUESTS"
+                  },
+                  "statusCode": {
+                    "example": 429
+                  },
+                  "message": {
+                    "example": "Too many login attempts"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "InternalServerError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "INTERNAL_SERVER_ERROR"
+                  },
+                  "statusCode": {
+                    "example": 500
+                  },
+                  "message": {
+                    "example": "Internal server error"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "NotImplementedError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "NOT_IMPLEMENTED"
+                  },
+                  "statusCode": {
+                    "example": 501
+                  },
+                  "message": {
+                    "example": "Feature not implemented"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ServiceUnavailableError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "example": "SERVICE_UNAVAILABLE"
+                  },
+                  "statusCode": {
+                    "example": 503
+                  },
+                  "message": {
+                    "example": "Service temporarily unavailable"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

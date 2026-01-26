@@ -2,7 +2,9 @@ import express from 'express';
 import { app as appConfig } from './config/index';
 import logger from './utils/logger';
 import requestContextMiddleware from './middlewares/request-context.middleware';
+import { errorHandlerMiddleware, notFoundMiddleware } from './middlewares/error-handler.middleware';
 import { initDatabases } from './db/index';
+import router from './routes/index';
 
 async function start() {
   try {
@@ -10,8 +12,17 @@ async function start() {
 
     const app = express();
 
+    // Request context middleware (must be first)
     app.use(requestContextMiddleware);
-    app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+    // Routes
+    app.use('/api', router);
+
+    // 404 handler (must be after all routes)
+    app.use(notFoundMiddleware);
+
+    // Error handler (must be last)
+    app.use(errorHandlerMiddleware);
 
     const port = appConfig.port;
     app.listen(port, () => {
