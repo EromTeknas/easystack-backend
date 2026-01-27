@@ -48,16 +48,82 @@ Production-ready authentication system for EasyStack Backend with Next.js fronte
 
 ## Token Flow Diagrams
 
-### 1. Initial Login Flow
+### 1. Registration & Email Verification Flow
 
 ```
 Client                          Backend                      Database
   │                              │                               │
-  ├─ POST /auth/login ────────→  │                               │
+  ├─ POST /auth/register ───────→ │                               │
+  │  {email, password, names}    │                               │
+  │                              ├─ Validate input              │
+  │                              │  ├─ Check email format       │
+  │                              │  ├─ Check password strength  │
+  │                              │  └─ Check email unique ──────→ │
+  │                              │                              │
+  │                              │ ←─ User doesn't exist ───────┤
+  │                              │                               │
+  │                              ├─ Hash password               │
+  │                              │  (bcrypt, 12 rounds)          │
+  │                              │                               │
+  │                              ├─ Create user record ─────────→ │
+  │                              │  (email_verified = FALSE)     │
+  │                              │                              │
+  │                              │ ←─ User created ──────────────┤
+  │                              │                               │
+  │                              ├─ Generate OTP (6 digits)     │
+  │                              │  ├─ Hash OTP                 │
+  │                              │  └─ Set 10 min expiry ──────→ │
+  │                              │     (store in DB)             │
+  │                              │                              │
+  │                              ├─ Send OTP via email          │
+  │                              │  (async, doesn't block)       │
+  │                              │                               │
+  │ ←─ 201 Created ────────────  │                               │
+  │  Body: {userId, email, names} │                               │
+  │  (NO accessToken)            │                               │
+  │                              │                               │
+  │ User receives email with OTP  │                               │
+  │                              │                               │
+  ├─ POST /auth/verify-email ───→ │                               │
+  │  {userId, otpCode}           │                               │
+  │                              ├─ Validate OTP                │
+  │                              ├─ Query OTP record ───────────→ │
+  │                              │                              │
+  │                              │ ←─ OTP data ──────────────────┤
+  │                              │                               │
+  │                              ├─ Check expiration            │
+  │                              │  └─ Verify hash               │
+  │                              │                               │
+  │                              ├─ Generate tokens             │
+  │                              │  • access: 15 min            │
+  │                              │  • refresh: 7 days           │
+  │                              │                               │
+  │                              ├─ Hash refresh token ─────────→
+  │                              │  (save in DB)                 │
+  │                              │                               │
+  │                              ├─ Mark email verified ────────→
+  │                              │  (UPDATE users)               │
+  │                              │                              │
+  │                              ├─ Send welcome email           │
+  │                              │                               │
+  │ ←─ 200 OK ─────────────────  │                               │
+  │  Body: {user, accessToken}   │                               │
+  │  Cookie: refreshToken=...    │                               │
+  │
+```
+
+### 2. Initial Login Flow
+
+```
+Client                          Backend                      Database
+  │                              │                               │
+  ├─ POST /auth/login ──────────→ │                               │
   │  {email, password}           │                               │
   │                              ├─ Query user by email ────────→ │
   │                              │                              │
   │                              │ ←─ User data ────────────────┤
+  │                              │                               │
+  │                              ├─ Check email verified        │
   │                              │                               │
   │                              ├─ bcrypt.compare() ────────── │
   │                              │  (verify password)            │
@@ -75,7 +141,7 @@ Client                          Backend                      Database
   │
 ```
 
-### 2. Authenticated Request Flow
+### 3. Authenticated Request Flow
 
 ```
 Client                          Backend                      Database
@@ -96,7 +162,7 @@ Client                          Backend                      Database
   │
 ```
 
-### 3. Token Refresh Flow
+### 4. Token Refresh Flow
 
 ```
 Client                          Backend                      Database
@@ -143,7 +209,7 @@ Client                          Backend                      Database
   │
 ```
 
-### 4. Logout Flow
+### 5. Logout Flow
 
 ```
 Client                          Backend                      Database
@@ -240,15 +306,15 @@ CREATE TABLE audit_logs (
 
 ### 1. POST /auth/register
 
-**Purpose**: Create a new user account
+**Purpose**: Create a new user account and send OTP for email verification
 
 **Request**:
 ```json
 {
   "email": "john@example.com",
   "password": "SecurePassword123!",
-  "first_name": "John",
-  "last_name": "Doe"
+  "firstName": "John",
+  "lastName": "Doe"
 }
 ```
 
@@ -263,18 +329,22 @@ CREATE TABLE audit_logs (
 {
   "success": true,
   "data": {
-    "user": {
-      "id": 1,
-      "email": "john@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
-      "role": "USER"
-    },
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 900
+    "userId": "1",
+    "email": "john@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "message": "Registration successful. Please verify your email to continue.",
+    "nextStep": "verify-email"
   }
 }
 ```
+
+**Notes**:
+- No access token is returned at registration
+- OTP is sent to the provided email address
+- User receives a 6-digit OTP code valid for 10 minutes
+- User must verify email using the OTP before login
+- A default workspace is created for the user
 
 **Response (400 Bad Request)**:
 ```json
@@ -298,16 +368,151 @@ CREATE TABLE audit_logs (
 }
 ```
 
+---
+
+### 2. POST /auth/verify-email
+
+**Purpose**: Verify user's email using OTP code and grant access
+
+**Request**:
+```json
+{
+  "userId": "1",
+  "otpCode": "123456"
+}
+```
+
+**Validation**:
+- userId must be valid UUID
+- otpCode must be exactly 6 digits
+- OTP must not be expired (10 minute window)
+- OTP must not exceed max attempts (5 attempts)
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "1",
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe"
+    },
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": 900,
+    "verified": true,
+    "message": "Email verified successfully"
+  }
+}
+```
+
+**Notes**:
+- Access token is returned upon successful verification
+- Refresh token is set as HttpOnly cookie
+- Email is marked as verified in the database
+- User can now login with email/password
+- Welcome email is sent to user
+
 **Cookies Set**:
 ```
 Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
 ```
 
+**Response (401 Unauthorized)** (invalid or expired OTP):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Invalid OTP code"
+  }
+}
+```
+
+**Response (401 Unauthorized)** (too many attempts):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Too many failed attempts. Please request a new OTP."
+  }
+}
+```
+
+**Response (404 Not Found)** (user not found):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "User not found"
+  }
+}
+```
+
 ---
 
-### 2. POST /auth/login
+### 3. POST /auth/resend-otp
 
-**Purpose**: Authenticate user and establish session
+**Purpose**: Resend OTP code to user's email
+
+**Request**:
+```json
+{
+  "userId": "1"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "message": "OTP sent successfully",
+    "email": "john@example.com"
+  }
+}
+```
+
+**Notes**:
+- Invalidates previous OTP
+- Sends new 6-digit code via email
+- New OTP is valid for 10 minutes
+- Reset attempt counter to 0
+
+**Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "User not found"
+  }
+}
+```
+
+**Response (400 Bad Request)** (already verified):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Email already verified"
+  }
+}
+```
+
+---
+
+### 4. POST /auth/login
+
+**Purpose**: Authenticate user with verified email and password
+
+**Requirements**:
+- Email must be verified (via OTP)
+- Password must be correct
 
 **Request**:
 ```json
@@ -323,10 +528,10 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
   "success": true,
   "data": {
     "user": {
-      "id": 1,
+      "id": "1",
       "email": "john@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
+      "firstName": "John",
+      "lastName": "Doe",
       "role": "USER"
     },
     "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -335,13 +540,29 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
 }
 ```
 
+**Cookies Set**:
+```
+Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
+```
+
 **Response (401 Unauthorized)**:
 ```json
 {
   "success": false,
   "error": {
-    "code": "INVALID_CREDENTIALS",
+    "code": "UNAUTHORIZED",
     "message": "Invalid email or password"
+  }
+}
+```
+
+**Response (403 Forbidden)** (email not verified):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Email not verified. Please verify your email first."
   }
 }
 ```
@@ -357,14 +578,9 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
 }
 ```
 
-**Cookies Set**:
-```
-Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
-```
-
 ---
 
-### 3. POST /auth/refresh
+### 5. POST /auth/refresh
 
 **Purpose**: Obtain new access token without re-authentication
 
@@ -380,10 +596,10 @@ Headers:
   "success": true,
   "data": {
     "user": {
-      "id": 1,
+      "id": "1",
       "email": "john@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
+      "firstName": "John",
+      "lastName": "Doe",
       "role": "USER"
     },
     "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -397,7 +613,7 @@ Headers:
 {
   "success": false,
   "error": {
-    "code": "REFRESH_TOKEN_INVALID",
+    "code": "UNAUTHORIZED",
     "message": "Please login again"
   }
 }
@@ -410,7 +626,7 @@ Set-Cookie: refreshToken=<newJwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60
 
 ---
 
-### 4. POST /auth/logout
+### 6. POST /auth/logout
 
 **Purpose**: Invalidate the user session
 
@@ -437,7 +653,7 @@ Set-Cookie: refreshToken=; HttpOnly; Secure; SameSite=Strict; Max-Age=0
 
 ---
 
-### 5. GET /auth/me
+### 7. GET /auth/me
 
 **Purpose**: Get current authenticated user
 
@@ -453,13 +669,13 @@ Headers:
   "success": true,
   "data": {
     "user": {
-      "id": 1,
+      "id": "1",
       "email": "john@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
+      "firstName": "John",
+      "lastName": "Doe",
       "role": "USER",
-      "email_verified": true,
-      "last_login_at": "2026-01-26T10:30:00Z"
+      "emailVerified": true,
+      "lastLoginAt": "2026-01-26T10:30:00Z"
     }
   }
 }

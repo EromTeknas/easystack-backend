@@ -358,20 +358,129 @@ Make sure migration is:
 
 ## Current Migrations
 
-### 001-auth-schema ✅
-**Status**: Automatically created on first `npm run migrate:up`
+### 001-create-users ✅
+**Status**: Created on `npm run migrate:up`
 
-**Creates**:
-- `users` table with authentication fields
-- `refresh_tokens` table for JWT refresh tokens
-- `audit_logs` table for tracking user actions
+**Creates**: `users` table for user authentication and profiles
 
 **Fields**:
 ```sql
-users: id, email, password_hash, role, status, timestamps...
-refresh_tokens: id, user_id, token_hash, ip_address, device_name...
-audit_logs: id, user_id, action, status, created_at...
+id              BIGINT PRIMARY KEY AUTO_INCREMENT
+email           VARCHAR(255) UNIQUE NOT NULL
+password_hash   VARCHAR(255) NOT NULL
+first_name      VARCHAR(100)
+last_name       VARCHAR(100)
+role            ENUM('USER', 'ADMIN', 'MODERATOR') DEFAULT 'USER'
+status          ENUM('active', 'inactive', 'suspended') DEFAULT 'active'
+email_verified  BOOLEAN DEFAULT FALSE
+created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ```
+
+---
+
+### 002-create-refresh-tokens ✅
+**Status**: Created on `npm run migrate:up`
+
+**Creates**: `refresh_tokens` table for JWT refresh token management
+
+**Fields**:
+```sql
+id                    BIGINT PRIMARY KEY AUTO_INCREMENT
+user_id               BIGINT NOT NULL (FK -> users.id)
+token_hash            VARCHAR(255) UNIQUE NOT NULL
+expires_at            TIMESTAMP NOT NULL
+revoked_at            TIMESTAMP NULL
+ip_address            VARCHAR(45)
+user_agent            TEXT
+device_name           VARCHAR(255)
+created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+```
+
+**Purpose**: Stores hashed refresh tokens for token rotation and revocation management.
+
+---
+
+### 002-create-workspaces ✅
+**Status**: Created on `npm run migrate:up`
+
+**Creates**: `workspaces` table for multi-workspace support
+
+**Fields**:
+```sql
+id              BIGINT PRIMARY KEY AUTO_INCREMENT
+name            VARCHAR(255) NOT NULL
+slug            VARCHAR(255) UNIQUE NOT NULL
+owner_id        BIGINT NOT NULL (FK -> users.id)
+status          ENUM('active', 'inactive') DEFAULT 'active'
+created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+```
+
+**Purpose**: Enables users to create and manage multiple workspaces.
+
+---
+
+### 003-create-audit-logs ✅
+**Status**: Created on `npm run migrate:up`
+
+**Creates**: `audit_logs` table for tracking user actions
+
+**Fields**:
+```sql
+id              BIGINT PRIMARY KEY AUTO_INCREMENT
+user_id         BIGINT (FK -> users.id, ON DELETE SET NULL)
+action          VARCHAR(50)
+resource        VARCHAR(100)
+ip_address      VARCHAR(45)
+user_agent      TEXT
+status          ENUM('success', 'failure')
+error_message   TEXT
+created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+```
+
+**Purpose**: Maintains an audit trail of important user actions for security and compliance.
+
+---
+
+### 003-create-workspace-members ✅
+**Status**: Created on `npm run migrate:up`
+
+**Creates**: `workspace_members` table for workspace access control
+
+**Fields**:
+```sql
+id              BIGINT PRIMARY KEY AUTO_INCREMENT
+workspace_id    BIGINT NOT NULL (FK -> workspaces.id)
+user_id         BIGINT NOT NULL (FK -> users.id)
+role            ENUM('OWNER', 'ADMIN', 'MEMBER') DEFAULT 'MEMBER'
+created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+UNIQUE KEY      (workspace_id, user_id)
+```
+
+**Purpose**: Manages user roles and permissions within each workspace.
+
+---
+
+### 004-create-email-otps ✅
+**Status**: Created on `npm run migrate:up`
+
+**Creates**: `email_otps` table for email verification via OTP
+
+**Fields**:
+```sql
+id              BIGINT PRIMARY KEY AUTO_INCREMENT
+user_id         BIGINT NOT NULL (FK -> users.id)
+otp_code_hash   VARCHAR(255) NOT NULL
+expires_at      TIMESTAMP NOT NULL
+attempts        INT DEFAULT 0
+max_attempts    INT DEFAULT 5
+verified_at     TIMESTAMP NULL
+created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+```
+
+**Purpose**: Stores OTP codes for email verification during registration and password reset.
 
 ---
 
@@ -412,6 +521,6 @@ A: Migrations should not delete data. Use `ALTER TABLE` not `DROP TABLE`.
 
 ## Links
 
-- [001 Auth Schema](001-auth-schema.ts) - First migration (authentication tables)
-- [Full Authentication Guide](../AUTHENTICATION.md) - System design
+- [Authentication Documentation](../AUTHENTICATION.md) - Authentication system design and email verification flow
 - [Setup Guide](../SETUP_GUIDE.md) - Initial project setup
+- [Files Reference](../FILES_REFERENCE.md) - Project file structure

@@ -15,13 +15,7 @@
   "servers": [
     {
       "url": "http://localhost:3000",
-      "description": "Local development server",
-      "variables": {
-        "port": {
-          "default": "3000",
-          "description": "API server port"
-        }
-      }
+      "description": "Local development server"
     },
     {
       "url": "https://api-dev.easystack.dev",
@@ -38,6 +32,10 @@
   ],
   "tags": [
     {
+      "name": "Authentication",
+      "description": "User authentication endpoints (register, login, email verification, token management)"
+    },
+    {
       "name": "Health",
       "description": "Application health and status endpoints"
     },
@@ -47,25 +45,65 @@
     }
   ],
   "paths": {
-    "/api/health": {
-      "get": {
-        "tags": ["Health"],
-        "summary": "Health Check",
-        "description": "Check the health status of the application and its connections",
-        "operationId": "getHealth",
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Register a new user",
+        "description": "Create a new user account. Sends OTP to email for verification. No access token is returned until email is verified.",
+        "operationId": "registerUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password", "firstName", "lastName"],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "john@example.com"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "SecurePassword123!"
+                  },
+                  "firstName": {
+                    "type": "string",
+                    "example": "John"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "example": "Doe"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {
-            "description": "Application is healthy",
+          "201": {
+            "description": "User created successfully. OTP sent to email.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
+                  "$ref": "#/components/schemas/RegisterResponse"
                 }
               }
             }
           },
-          "503": {
-            "description": "Service unavailable",
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Email already registered",
             "content": {
               "application/json": {
                 "schema": {
@@ -77,15 +115,274 @@
         }
       }
     },
+    "/api/auth/verify-email": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Verify email with OTP",
+        "description": "Verify user email using OTP code. Returns access token upon successful verification.",
+        "operationId": "verifyEmail",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId", "otpCode"],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "example": "1"
+                  },
+                  "otpCode": {
+                    "type": "string",
+                    "example": "123456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified successfully",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired OTP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/resend-otp": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Resend OTP code",
+        "description": "Resend OTP code to user email",
+        "operationId": "resendOtp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId"],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "example": "1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP resent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login user",
+        "description": "Authenticate user with email and password",
+        "operationId": "loginUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "john@example.com"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "SecurePassword123!"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Refresh access token",
+        "description": "Get a new access token using refresh token from cookie",
+        "operationId": "refreshToken",
+        "responses": {
+          "200": {
+            "description": "Token refreshed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid refresh token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Logout user",
+        "description": "Invalidate current session",
+        "operationId": "logoutUser",
+        "responses": {
+          "200": {
+            "description": "Logout successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Get current user",
+        "description": "Get authenticated user's profile",
+        "operationId": "getCurrentUser",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User profile retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health Check",
+        "description": "Check application health status",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Application is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/hello": {
       "get": {
         "tags": ["General"],
         "summary": "Hello World",
-        "description": "Returns a greeting message - useful for testing API connectivity",
+        "description": "Test endpoint",
         "operationId": "getHello",
         "responses": {
           "200": {
-            "description": "Greeting message returned successfully",
+            "description": "Hello message",
             "content": {
               "application/json": {
                 "schema": {
@@ -99,31 +396,160 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
     "schemas": {
-      "HealthResponse": {
+      "RegisterResponse": {
         "type": "object",
-        "required": ["success", "data"],
         "properties": {
           "success": {
             "type": "boolean",
-            "example": true,
-            "description": "Indicates if the request was successful"
+            "example": true
           },
           "data": {
             "type": "object",
-            "required": ["status", "timestamp"],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "example": "1"
+              },
+              "email": {
+                "type": "string",
+                "example": "john@example.com"
+              },
+              "firstName": {
+                "type": "string",
+                "example": "John"
+              },
+              "lastName": {
+                "type": "string",
+                "example": "Doe"
+              },
+              "message": {
+                "type": "string",
+                "example": "Registration successful. Please verify your email to continue."
+              },
+              "nextStep": {
+                "type": "string",
+                "example": "verify-email"
+              }
+            }
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "example": "1"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john@example.com"
+                  },
+                  "firstName": {
+                    "type": "string",
+                    "example": "John"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "example": "Doe"
+                  }
+                }
+              },
+              "accessToken": {
+                "type": "string",
+                "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              },
+              "expiresIn": {
+                "type": "integer",
+                "example": 900
+              }
+            }
+          }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "example": "1"
+              },
+              "email": {
+                "type": "string",
+                "example": "john@example.com"
+              },
+              "firstName": {
+                "type": "string",
+                "example": "John"
+              },
+              "lastName": {
+                "type": "string",
+                "example": "Doe"
+              }
+            }
+          }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
             "properties": {
               "status": {
                 "type": "string",
-                "example": "healthy",
-                "description": "Health status of the application",
-                "enum": ["healthy", "unhealthy", "degraded"]
+                "example": "healthy"
               },
               "timestamp": {
                 "type": "string",
                 "format": "date-time",
-                "example": "2026-01-26T10:30:45.123Z",
-                "description": "ISO 8601 timestamp of when health check was performed"
+                "example": "2026-01-27T10:30:45.123Z"
               }
             }
           }
@@ -131,27 +557,21 @@
       },
       "HelloResponse": {
         "type": "object",
-        "required": ["success", "data"],
         "properties": {
           "success": {
             "type": "boolean",
-            "example": true,
-            "description": "Indicates if the request was successful"
+            "example": true
           },
           "data": {
             "type": "object",
-            "required": ["message", "timestamp"],
             "properties": {
               "message": {
                 "type": "string",
-                "example": "Hello, World!",
-                "description": "Greeting message"
+                "example": "Hello, World!"
               },
               "timestamp": {
                 "type": "string",
-                "format": "date-time",
-                "example": "2026-01-26T10:30:45.123Z",
-                "description": "ISO 8601 timestamp"
+                "format": "date-time"
               }
             }
           }
@@ -159,322 +579,29 @@
       },
       "ErrorResponse": {
         "type": "object",
-        "required": ["success", "error"],
         "properties": {
           "success": {
             "type": "boolean",
-            "example": false,
-            "description": "Indicates the request failed"
+            "example": false
           },
           "error": {
             "type": "object",
-            "required": ["message", "code", "statusCode", "requestId"],
             "properties": {
               "message": {
                 "type": "string",
-                "example": "User not found",
-                "description": "Human-readable error message"
+                "example": "Error message"
               },
               "code": {
                 "type": "string",
-                "example": "NOT_FOUND",
-                "description": "Machine-readable error code",
-                "enum": [
-                  "BAD_REQUEST",
-                  "UNAUTHORIZED",
-                  "FORBIDDEN",
-                  "NOT_FOUND",
-                  "CONFLICT",
-                  "VALIDATION_ERROR",
-                  "TOO_MANY_REQUESTS",
-                  "INTERNAL_SERVER_ERROR",
-                  "NOT_IMPLEMENTED",
-                  "SERVICE_UNAVAILABLE",
-                  "DATABASE_CONNECTION_ERROR",
-                  "DATABASE_OPERATION_ERROR"
-                ]
+                "example": "BAD_REQUEST"
               },
               "statusCode": {
                 "type": "integer",
-                "example": 404,
-                "description": "HTTP status code"
-              },
-              "requestId": {
-                "type": "string",
-                "example": "abc123def456",
-                "description": "Unique request identifier for tracing"
-              },
-              "details": {
-                "type": "object",
-                "description": "Additional context about the error (optional)",
-                "example": {
-                  "userId": "123",
-                  "field": "id"
-                }
+                "example": 400
               }
             }
           }
         }
-      },
-      "BadRequestError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "BAD_REQUEST"
-                  },
-                  "statusCode": {
-                    "example": 400
-                  },
-                  "message": {
-                    "example": "Invalid email format"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "UnauthorizedError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "UNAUTHORIZED"
-                  },
-                  "statusCode": {
-                    "example": 401
-                  },
-                  "message": {
-                    "example": "Missing authentication token"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ForbiddenError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "FORBIDDEN"
-                  },
-                  "statusCode": {
-                    "example": 403
-                  },
-                  "message": {
-                    "example": "Only administrators can delete users"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "NotFoundError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "NOT_FOUND"
-                  },
-                  "statusCode": {
-                    "example": 404
-                  },
-                  "message": {
-                    "example": "User not found"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ConflictError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "CONFLICT"
-                  },
-                  "statusCode": {
-                    "example": 409
-                  },
-                  "message": {
-                    "example": "Email already registered"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ValidationError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "VALIDATION_ERROR"
-                  },
-                  "statusCode": {
-                    "example": 422
-                  },
-                  "message": {
-                    "example": "Age must be at least 18"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "TooManyRequestsError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "TOO_MANY_REQUESTS"
-                  },
-                  "statusCode": {
-                    "example": 429
-                  },
-                  "message": {
-                    "example": "Too many login attempts"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "InternalServerError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "INTERNAL_SERVER_ERROR"
-                  },
-                  "statusCode": {
-                    "example": 500
-                  },
-                  "message": {
-                    "example": "Internal server error"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "NotImplementedError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "NOT_IMPLEMENTED"
-                  },
-                  "statusCode": {
-                    "example": 501
-                  },
-                  "message": {
-                    "example": "Feature not implemented"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ServiceUnavailableError": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/ErrorResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "error": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "example": "SERVICE_UNAVAILABLE"
-                  },
-                  "statusCode": {
-                    "example": 503
-                  },
-                  "message": {
-                    "example": "Service temporarily unavailable"
-                  }
-                }
-              }
-            }
-          }
-        ]
       }
     }
   }
