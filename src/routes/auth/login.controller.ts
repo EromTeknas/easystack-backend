@@ -57,7 +57,7 @@ export const loginController = asyncHandler(async (req, res) => {
     }
 
     // Check user status
-    if (user.status !== 'active') {
+    if (user.status !== 'ACTIVE') {
       logger.warn('Login attempt with inactive account', {
         userId: user.id,
         email: email.toLowerCase(),
@@ -108,6 +108,12 @@ export const loginController = asyncHandler(async (req, res) => {
       email: user.email,
       ipAddress: getClientIP(req)
     });
+
+    // Update last login timestamp
+    await db.query(
+      'UPDATE users SET last_login_at = NOW() WHERE id = ?',
+      [userId]
+    );
 
     // Set refresh token cookie
     res.cookie(auth.cookies.refreshTokenName, refreshToken, {
