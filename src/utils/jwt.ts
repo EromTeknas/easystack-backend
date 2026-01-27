@@ -1,17 +1,12 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
-
-// Default token expiries
-const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY = '7d';
+import { auth } from '../config/auth';
 
 /**
  * Generate access token (short-lived, for API requests)
  */
 export const generateAccessToken = (userId: string, email: string, role: string): string => {
+  const signOptions: SignOptions = { expiresIn: auth.accessTokenExpiry as any };
   return jwt.sign(
     {
       sub: userId,
@@ -20,8 +15,8 @@ export const generateAccessToken = (userId: string, email: string, role: string)
       type: 'access',
       iat: Math.floor(Date.now() / 1000)
     },
-    JWT_SECRET,
-    { expiresIn: ACCESS_TOKEN_EXPIRY }
+    auth.jwtSecret,
+    signOptions
   );
 };
 
@@ -29,6 +24,7 @@ export const generateAccessToken = (userId: string, email: string, role: string)
  * Generate refresh token (long-lived, for obtaining new access tokens)
  */
 export const generateRefreshToken = (userId: string): string => {
+  const signOptions: SignOptions = { expiresIn: auth.refreshTokenExpiry as any };
   return jwt.sign(
     {
       sub: userId,
@@ -36,8 +32,8 @@ export const generateRefreshToken = (userId: string): string => {
       type: 'refresh',
       iat: Math.floor(Date.now() / 1000)
     },
-    JWT_REFRESH_SECRET,
-    { expiresIn: REFRESH_TOKEN_EXPIRY }
+    auth.jwtRefreshSecret,
+    signOptions
   );
 };
 
@@ -46,7 +42,7 @@ export const generateRefreshToken = (userId: string): string => {
  */
 export const verifyAccessToken = (token: string) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as {
+    const decoded = jwt.verify(token, auth.jwtSecret) as {
       sub: string;
       email: string;
       role: string;
@@ -76,7 +72,7 @@ export const verifyAccessToken = (token: string) => {
  */
 export const verifyRefreshToken = (token: string) => {
   try {
-    const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as {
+    const decoded = jwt.verify(token, auth.jwtRefreshSecret) as {
       sub: string;
       jti: string;
       type: string;

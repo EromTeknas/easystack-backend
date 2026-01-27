@@ -15,11 +15,14 @@
 import 'dotenv/config';
 import migrator from '../migrations';
 import logger from '../utils/logger';
+import { initDatabases } from '../db';
 
 const command = process.argv[2];
 
 async function main() {
   try {
+    // Ensure database connections are initialized before running migrations
+    await initDatabases();
     switch (command) {
       case 'up':
         await migrator.runMigrations();

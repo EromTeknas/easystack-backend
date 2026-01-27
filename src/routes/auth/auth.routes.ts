@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { registerController } from './register.controller';
 import { loginController } from './login.controller';
 import { refreshController } from './refresh.controller';
-import { logoutController, getMeController } from './logout-me.controller';
+import { logoutController } from './logout.controller';
+import { getMeController } from './me.controller';
+import { verifyEmailController } from './verify-email.controller';
+import { resendOtpController } from './resend-otp.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticateToken } from '../../middlewares/authentication.middleware';
 
@@ -12,20 +15,89 @@ const router = Router();
  * POST /auth/register
  * Register a new user account
  * Public endpoint
+ * 
+ * Body:
+ *   - email (string)
+ *   - password (string, min 12 chars, uppercase, lowercase, number, special char)
+ *   - firstName (string)
+ *   - lastName (string)
+ * 
+ * Response:
+ *   - userId
+ *   - email
+ *   - firstName
+ *   - lastName
+ *   - message: "Registration successful. Please verify your email to continue."
+ *   - nextStep: "verify-email"
  */
 router.post('/register', authRateLimiter, registerController);
+
+/**
+ * POST /auth/verify-email
+ * Verify user's email with OTP
+ * Public endpoint (no auth required)
+ * 
+ * Body:
+ *   - userId (string)
+ *   - otpCode (string, 6 digits)
+ * 
+ * Response:
+ *   - user object
+ *   - accessToken (JWT)
+ *   - expiresIn (seconds)
+ */
+router.post('/verify-email', authRateLimiter, verifyEmailController);
+
+/**
+ * POST /auth/resend-otp
+ * Resend OTP to user's email
+ * Public endpoint (no auth required)
+ * 
+ * Body:
+ *   - userId (string)
+ * 
+ * Response:
+ *   - message
+ *   - email
+ */
+router.post('/resend-otp', authRateLimiter, resendOtpController);
 
 /**
  * POST /auth/login
  * Authenticate user and establish session
  * Public endpoint
+ * 
+ * Requirements:
+ *   - Email must be verified
+ *   - Password must match
+ * 
+ * Body:
+ *   - email (string)
+ *   - password (string)
+ * 
+ * Response:
+ *   - user object
+ *   - accessToken (JWT)
+ *   - expiresIn (seconds)
+ *   - refreshToken (HTTP-only cookie)
  */
 router.post('/login', authRateLimiter, loginController);
 
 /**
  * POST /auth/refresh
- * Obtain new access token using refresh token cookie
- * Public endpoint (no auth required)
+ * Obtain new access token using refresh token
+ * Public endpoint (no auth required, uses cookie)
+ * 
+ * Features:
+ *   - Token rotation enabled
+ *   - Old refresh token is revoked
+ *   - New refresh token is issued
+ * 
+ * Response:
+ *   - user object
+ *   - accessToken (JWT)
+ *   - expiresIn (seconds)
+ *   - refreshToken (HTTP-only cookie)
  */
 router.post('/refresh', refreshController);
 
@@ -33,6 +105,9 @@ router.post('/refresh', refreshController);
  * POST /auth/logout
  * Revoke refresh token and end session
  * Public endpoint (works with or without auth)
+ * 
+ * Response:
+ *   - message: "Logout successful"
  */
 router.post('/logout', logoutController);
 
@@ -40,6 +115,12 @@ router.post('/logout', logoutController);
  * GET /auth/me
  * Get current authenticated user
  * Protected endpoint (requires valid access token)
+ * 
+ * Headers:
+ *   - Authorization: Bearer <accessToken>
+ * 
+ * Response:
+ *   - user object with workspaces
  */
 router.get('/me', authenticateToken, getMeController);
 

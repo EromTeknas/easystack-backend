@@ -1,12 +1,11 @@
 import bcrypt from 'bcrypt';
-
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || '12', 10);
+import { password as passwordConfig } from '../config/password';
 
 /**
  * Hash a password using bcrypt
  */
 export const hashPassword = async (password: string): Promise<string> => {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
+  return bcrypt.hash(password, passwordConfig.bcryptRounds);
 };
 
 /**
@@ -20,7 +19,7 @@ export const verifyPassword = async (password: string, hash: string): Promise<bo
  * Hash a token (for storing refresh tokens)
  */
 export const hashToken = async (token: string): Promise<string> => {
-  return bcrypt.hash(token, BCRYPT_ROUNDS);
+  return bcrypt.hash(token, passwordConfig.bcryptRounds);
 };
 
 /**

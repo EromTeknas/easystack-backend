@@ -1,14 +1,23 @@
 import { asyncHandler } from '../../utils/asyncHandler';
-import { hashPassword, hashToken } from '../../utils/password';
-import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
+import { hashPassword } from '../../utils/password';
+import { generateOtpCode, hashOtp, calculateOtpExpiry } from '../../utils/otp';
 import { isValidEmail, isValidPassword, isValidName, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, ConflictError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { sendOtpEmail } from '../../services/email.service';
+import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 
 /**
  * Register a new user account
  * POST /auth/register
+ * 
+ * Flow:
+ * 1. Validate input
+ * 2. Create unverified user
+ * 3. Generate and send OTP
+ * 4. Create default workspace
+ * 5. Return user info (no tokens until verified)
  */
 export const registerController = asyncHandler(async (req, res) => {
   const { email, password, firstName, lastName } = req.body;
@@ -53,64 +62,54 @@ export const registerController = asyncHandler(async (req, res) => {
     // Hash password
     const passwordHash = await hashPassword(password);
 
-    // Create user
+    // Create unverified user
     const [result] = await db.query(
-      'INSERT INTO users (email, password_hash, first_name, last_name, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [email.toLowerCase(), passwordHash, firstName.trim(), lastName.trim(), 'USER', 'active']
+      'INSERT INTO users (email, password_hash, first_name, last_name, email_verified, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [email.toLowerCase(), passwordHash, firstName.trim(), lastName.trim(), false, 'active']
     ) as any;
 
     const userId = result.insertId.toString();
 
-    // Generate tokens
-    const accessToken = generateAccessToken(userId, email.toLowerCase(), 'USER');
-    const refreshToken = generateRefreshToken(userId);
-    const refreshTokenHash = await hashToken(refreshToken);
+    // Generate OTP
+    const otpCode = generateOtpCode();
+    const otpCodeHash = await hashOtp(otpCode);
+    const expiresAt = calculateOtpExpiry();
 
-    // Calculate expiration
-    const expiresInSeconds = 7 * 24 * 60 * 60; // 7 days
-    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
-
-    // Store refresh token hash in database
+    // Store OTP in database
     await db.query(
-      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, device_name) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        userId,
-        refreshTokenHash,
-        expiresAt,
-        getClientIP(req),
-        req.headers['user-agent'] || 'Unknown',
-        getDeviceName(req.headers['user-agent'] || '')
-      ]
+      'INSERT INTO email_otps (user_id, otp_code_hash, expires_at) VALUES (?, ?, ?)',
+      [userId, otpCodeHash, expiresAt]
     );
 
+    // Send OTP via Brevo
+    const emailSent = await sendOtpEmail(email.toLowerCase(), firstName, otpCode);
+
+    if (!emailSent) {
+      logger.warn('Failed to send OTP email', { userId, email });
+      // Don't fail registration if email sending fails - user can request OTP resend
+    }
+
+    // Create default workspace
+    const workspaceId = await createDefaultWorkspace(userId);
+    await addWorkspaceMember(workspaceId, userId, 'OWNER');
+
     // Log registration
-    logger.info('User registered', {
+    logger.info('User registered (awaiting email verification)', {
       userId,
       email: email.toLowerCase(),
       ipAddress: getClientIP(req)
     });
 
-    // Set refresh token cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: expiresInSeconds * 1000
-    });
-
-    // Return response
+    // Return response (no tokens until verified)
     res.status(201).json({
       success: true,
       data: {
-        user: {
-          id: userId,
-          email: email.toLowerCase(),
-          first_name: firstName,
-          last_name: lastName,
-          role: 'USER'
-        },
-        accessToken,
-        expiresIn: getTokenExpiryInSeconds(accessToken)
+        userId,
+        email: email.toLowerCase(),
+        firstName,
+        lastName,
+        message: 'Registration successful. Please verify your email to continue.',
+        nextStep: 'verify-email'
       }
     });
   } catch (error: any) {

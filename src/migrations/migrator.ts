@@ -44,7 +44,7 @@ class Migrator {
    */
   async getExecutedMigrations(): Promise<string[]> {
     try {
-      const results = await db.query('SELECT name FROM _migrations ORDER BY executed_at');
+      const [results] = await db.query('SELECT name FROM _migrations ORDER BY executed_at');
       return (results as any[]).map((r) => r.name);
     } catch (error) {
       logger.error('Failed to fetch executed migrations:', error);

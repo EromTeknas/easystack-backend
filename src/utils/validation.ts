@@ -1,6 +1,8 @@
 /**
  * Validate email format
  */
+import { password as passwordConfig } from '../config/password';
+
 export const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email) && email.length <= 255;
@@ -16,14 +18,14 @@ export const isValidEmail = (email: string): boolean => {
  * - At least one special character
  */
 export const isValidPassword = (password: string): boolean => {
-  if (password.length < 12) {
+  if (password.length < passwordConfig.validation.minLength) {
     return false;
   }
 
-  const hasUppercase = /[A-Z]/.test(password);
-  const hasLowercase = /[a-z]/.test(password);
-  const hasNumber = /\d/.test(password);
-  const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+  const hasUppercase = passwordConfig.patterns.uppercase.test(password);
+  const hasLowercase = passwordConfig.patterns.lowercase.test(password);
+  const hasNumber = passwordConfig.patterns.number.test(password);
+  const hasSpecial = passwordConfig.patterns.special.test(password);
 
   return hasUppercase && hasLowercase && hasNumber && hasSpecial;
 };
@@ -34,23 +36,23 @@ export const isValidPassword = (password: string): boolean => {
 export const getPasswordFeedback = (password: string): string[] => {
   const feedback: string[] = [];
 
-  if (password.length < 12) {
-    feedback.push('Password must be at least 12 characters long');
+  if (password.length < passwordConfig.validation.minLength) {
+    feedback.push(`Password must be at least ${passwordConfig.validation.minLength} characters long`);
   }
 
-  if (!/[A-Z]/.test(password)) {
+  if (!passwordConfig.patterns.uppercase.test(password)) {
     feedback.push('Password must contain at least one uppercase letter');
   }
 
-  if (!/[a-z]/.test(password)) {
+  if (!passwordConfig.patterns.lowercase.test(password)) {
     feedback.push('Password must contain at least one lowercase letter');
   }
 
-  if (!/\d/.test(password)) {
+  if (!passwordConfig.patterns.number.test(password)) {
     feedback.push('Password must contain at least one number');
   }
 
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+  if (!passwordConfig.patterns.special.test(password)) {
     feedback.push('Password must contain at least one special character');
   }
 

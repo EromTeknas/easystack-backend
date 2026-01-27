@@ -4,14 +4,21 @@ import { verifyTokenHash, hashToken } from '../../utils/password';
 import { UnauthorizedError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { auth } from '../../config/auth';
+import { getClientIP, getDeviceName } from '../../utils/validation';
 
 /**
  * Refresh access token using refresh token cookie
  * POST /auth/refresh
+ * 
+ * Features:
+ * - Token rotation enabled (old token revoked, new one issued)
+ * - Security: prevents token replay attacks
+ * - Each refresh issues new access + refresh token pair
  */
 export const refreshController = asyncHandler(async (req, res) => {
   try {
-    const refreshToken = req.cookies?.refreshToken;
+    const refreshToken = req.cookies?.[auth.cookies.refreshTokenName];
 
     if (!refreshToken) {
       throw new UnauthorizedError('Refresh token not found', { hint: 'Please login again' });
@@ -30,7 +37,7 @@ export const refreshController = asyncHandler(async (req, res) => {
 
     const userId = decoded.sub;
 
-    // Query database for the token record
+    // Query database for the token record (only non-revoked tokens)
     const [[tokenRecord]] = (await db.query(
       'SELECT id, token_hash, expires_at, revoked_at FROM refresh_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1',
       [userId]
@@ -63,7 +70,7 @@ export const refreshController = asyncHandler(async (req, res) => {
 
     // Get user info
     const [[user]] = (await db.query(
-      'SELECT id, email, role, status, first_name, last_name FROM users WHERE id = ?',
+      'SELECT id, email, status, first_name, last_name FROM users WHERE id = ?',
       [userId]
     )) as any[];
 
@@ -76,57 +83,54 @@ export const refreshController = asyncHandler(async (req, res) => {
     }
 
     // Generate new tokens
-    const newAccessToken = generateAccessToken(userId, user.email, user.role);
+    const newAccessToken = generateAccessToken(userId, user.email, 'USER');
     const newRefreshToken = generateRefreshToken(userId);
     const newRefreshTokenHash = await hashToken(newRefreshToken);
 
     // Calculate expiration
-    const expiresInSeconds = 7 * 24 * 60 * 60; // 7 days
-    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+    const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
 
-    // Optional: Rotate refresh token (revoke old, insert new)
-    // This is more secure but requires updating frontend cookie
-    if (process.env.ENABLE_REFRESH_TOKEN_ROTATION === 'true') {
-      // Revoke old token
-      await db.query(
-        'UPDATE refresh_tokens SET rotated_token_hash = ? WHERE id = ?',
-        [newRefreshTokenHash, tokenRecord.id]
-      );
+    // ALWAYS rotate tokens (revoke old, insert new)
+    // This prevents token replay attacks and improves security
+    await db.query(
+      'UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = ?',
+      [tokenRecord.id]
+    );
 
-      // Insert new token
-      await db.query(
-        'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
-        [userId, newRefreshTokenHash, expiresAt]
-      );
+    // Insert new token
+    await db.query(
+      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, device_name) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        userId,
+        newRefreshTokenHash,
+        expiresAt,
+        getClientIP(req),
+        req.headers['user-agent'] || 'Unknown',
+        getDeviceName(req.headers['user-agent'] || '')
+      ]
+    );
 
-      // Set new refresh token cookie
-      res.cookie('refreshToken', newRefreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: expiresInSeconds * 1000
-      });
+    // Set new refresh token cookie
+    res.cookie(auth.cookies.refreshTokenName, newRefreshToken, {
+      httpOnly: auth.cookies.httpOnly,
+      secure: auth.cookies.secure,
+      sameSite: auth.cookies.sameSite,
+      maxAge: auth.cookies.maxAge
+    });
 
-      logger.info('Refresh token rotated', {
-        userId
-      });
-    } else {
-      // Reuse approach (simpler, old token stays valid)
-      logger.info('Access token refreshed', {
-        userId
-      });
-    }
+    logger.info('Refresh token rotated successfully', {
+      userId
+    });
 
-    // Return new access token
+    // Return new tokens
     res.json({
       success: true,
       data: {
         user: {
           id: userId,
           email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          role: user.role
+          firstName: user.first_name,
+          lastName: user.last_name
         },
         accessToken: newAccessToken,
         expiresIn: getTokenExpiryInSeconds(newAccessToken)

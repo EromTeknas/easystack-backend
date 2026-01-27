@@ -5,10 +5,16 @@ import { isValidEmail, getClientIP, getDeviceName } from '../../utils/validation
 import { BadRequestError, UnauthorizedError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { auth } from '../../config/auth';
 
 /**
  * Login with email and password
  * POST /auth/login
+ * 
+ * Requirements:
+ * - Email must be verified before login
+ * - Password must match
+ * - Account must be active
  */
 export const loginController = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -25,7 +31,7 @@ export const loginController = asyncHandler(async (req, res) => {
   try {
     // Find user by email
     const [[user]] = (await db.query(
-      'SELECT id, email, password_hash, role, status, first_name, last_name FROM users WHERE email = ?',
+      'SELECT id, email, password_hash, email_verified, status, first_name, last_name FROM users WHERE email = ?',
       [email.toLowerCase()]
     )) as any[];
 
@@ -35,6 +41,19 @@ export const loginController = asyncHandler(async (req, res) => {
         ipAddress: getClientIP(req)
       });
       throw new UnauthorizedError('Invalid email or password');
+    }
+
+    // Check if email is verified
+    if (!user.email_verified) {
+      logger.warn('Login attempt with unverified email', {
+        userId: user.id,
+        email: email.toLowerCase(),
+        ipAddress: getClientIP(req)
+      });
+      throw new UnauthorizedError('Please verify your email before logging in', {
+        code: 'EMAIL_NOT_VERIFIED',
+        userId: user.id
+      });
     }
 
     // Check user status
@@ -63,13 +82,12 @@ export const loginController = asyncHandler(async (req, res) => {
     const userId = user.id.toString();
 
     // Generate tokens
-    const accessToken = generateAccessToken(userId, user.email, user.role);
+    const accessToken = generateAccessToken(userId, user.email, 'USER');
     const refreshToken = generateRefreshToken(userId);
     const refreshTokenHash = await hashToken(refreshToken);
 
     // Calculate expiration
-    const expiresInSeconds = 7 * 24 * 60 * 60; // 7 days
-    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+    const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
 
     // Store refresh token hash in database
     await db.query(
@@ -84,12 +102,6 @@ export const loginController = asyncHandler(async (req, res) => {
       ]
     );
 
-    // Update last login time
-    await db.query(
-      'UPDATE users SET last_login_at = NOW() WHERE id = ?',
-      [userId]
-    );
-
     // Log successful login
     logger.info('User logged in', {
       userId,
@@ -98,11 +110,11 @@ export const loginController = asyncHandler(async (req, res) => {
     });
 
     // Set refresh token cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: expiresInSeconds * 1000
+    res.cookie(auth.cookies.refreshTokenName, refreshToken, {
+      httpOnly: auth.cookies.httpOnly,
+      secure: auth.cookies.secure,
+      sameSite: auth.cookies.sameSite,
+      maxAge: auth.cookies.maxAge
     });
 
     // Return response
@@ -112,9 +124,8 @@ export const loginController = asyncHandler(async (req, res) => {
         user: {
           id: userId,
           email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          role: user.role
+          firstName: user.first_name,
+          lastName: user.last_name
         },
         accessToken,
         expiresIn: getTokenExpiryInSeconds(accessToken)
