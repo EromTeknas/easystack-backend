@@ -7,7 +7,6 @@ import { db } from '../../db';
 import logger from '../../utils/logger';
 import { storeUserOtp } from '../../services/otp-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
-import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 
 /**
  * Register a new user account
@@ -15,10 +14,9 @@ import { createDefaultWorkspace, addWorkspaceMember } from '../../services/works
  * 
  * Flow:
  * 1. Validate input
- * 2. Create unverified user
+ * 2. Create or update unverified user
  * 3. Generate and send OTP
- * 4. Create default workspace
- * 5. Return user info (no tokens until verified)
+ * 4. Return user info (no tokens until verified)
  */
 export const registerController = asyncHandler(async (req, res) => {
   const { email, password, confirmPassword, firstName, lastName } = req.body;
@@ -113,12 +111,6 @@ export const registerController = asyncHandler(async (req, res) => {
       firstName,
       otpCode
     });
-
-    // Create default workspace only for brand new users
-    if (!existingUser) {
-      const workspaceId = await createDefaultWorkspace(userId);
-      await addWorkspaceMember(workspaceId, userId, 'OWNER');
-    }
 
     // Log registration
     logger.info('User registered (awaiting email verification)', {

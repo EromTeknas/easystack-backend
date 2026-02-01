@@ -5,6 +5,7 @@
 
 import logger from '../logger';
 import { email as emailConfig } from '../config/email';
+import { passwordResetUrl } from '../config/app';
 
 interface BrevoEmailParams {
   email: string;
@@ -198,11 +199,9 @@ export async function sendWelcomeEmail(
 export async function sendPasswordResetEmail(
   email: string,
   firstName: string,
-  token: string,
-  userId: string
+  token: string
 ): Promise<boolean> {
-  const baseUrl = process.env.PASSWORD_RESET_URL_BASE || 'https://app.easystack.io/reset-password';
-  const resetUrl = `${baseUrl}?token=${encodeURIComponent(token)}&userId=${encodeURIComponent(userId)}`;
+  const resetUrl = `${passwordResetUrl}?token=${encodeURIComponent(token)}`;
 
   const htmlContent = `
     <!DOCTYPE html>

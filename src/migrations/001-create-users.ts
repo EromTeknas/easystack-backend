@@ -31,7 +31,7 @@ const migration: Migration = {
           first_name VARCHAR(100),
           last_name VARCHAR(100),
           role ENUM('USER', 'ADMIN', 'MODERATOR') DEFAULT 'USER',
-          status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
+          status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION', 'EXPIRED') DEFAULT 'PENDING_VERIFICATION',
           email_verified BOOLEAN DEFAULT FALSE,
           last_login_at TIMESTAMP NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

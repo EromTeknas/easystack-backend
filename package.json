@@ -13,8 +13,6 @@
     "migrate:fresh": "ts-node src/cli/migrate.ts down:all && ts-node src/cli/migrate.ts up",
     "migrate:fresh:preserve": "ts-node src/cli/migrate.ts down:all -- --preserve-data && ts-node src/cli/migrate.ts up",
     "worker": "ts-node src/workers/index.worker.ts",
-    "worker:email-otp": "ts-node src/workers/email-otp.worker.ts",
-    "worker:password-reset": "ts-node src/workers/password-reset.worker.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts"
   },
   "keywords": [],

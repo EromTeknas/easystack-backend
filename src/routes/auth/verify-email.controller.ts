@@ -12,6 +12,7 @@ import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError 
 import { db } from '../../db';
 import logger from '../../utils/logger';
 import { enqueueSendWelcomeEmailJob } from '../../queues/welcome-email.queue';
+import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
 import { verifyUserOtpFromRedis } from '../../services/otp-redis.service';
@@ -83,6 +84,17 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       'UPDATE users SET email_verified = TRUE, status = ? WHERE id = ?',
       ['ACTIVE', userId]
     );
+
+    // Ensure user has a default workspace and membership (created after verification)
+    const [[existingMembership]] = (await db.query(
+      'SELECT id FROM workspace_members WHERE user_id = ? LIMIT 1',
+      [userId]
+    )) as any[];
+
+    if (!existingMembership) {
+      const workspaceId = await createDefaultWorkspace(userId.toString());
+      await addWorkspaceMember(workspaceId, userId.toString(), 'OWNER');
+    }
 
     // Generate tokens
     const accessToken = generateAccessToken(userId, user.email, 'USER');

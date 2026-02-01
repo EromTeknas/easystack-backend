@@ -87,8 +87,7 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
     await enqueueSendPasswordResetEmailJob({
       email: user.email,
       firstName: user.first_name,
-      token,
-      userId
+      token
     });
 
     logger.info('Password reset requested for verified user', { userId, email: user.email });

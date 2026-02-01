@@ -57,7 +57,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["email", "password", "firstName", "lastName"],
+                "required": ["email", "password", "confirmPassword", "firstName", "lastName"],
                 "properties": {
                   "email": {
                     "type": "string",
@@ -65,6 +65,10 @@
                     "example": "john@example.com"
                   },
                   "password": {
+                    "type": "string",
+                    "example": "SecurePassword123!"
+                  },
+                  "confirmPassword": {
                     "type": "string",
                     "example": "SecurePassword123!"
                   },
@@ -343,6 +347,129 @@
           },
           "401": {
             "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/forgot-password": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Request password reset",
+        "description": "Initiate password reset flow by email. Always returns a generic success message to avoid leaking account existence. If the email is unverified, the system resends a verification OTP instead of creating a reset token.",
+        "operationId": "forgotPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset instructions sent (if account exists)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid email)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Reset password with token",
+        "description": "Complete password reset using a one-time token delivered via email. The backend derives the user from the token stored in Redis; the client does not send userId.",
+        "operationId": "resetPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "password", "confirmPassword"],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "example": "reset-token-from-email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "NewSecurePass123!"
+                  },
+                  "confirmPassword": {
+                    "type": "string",
+                    "example": "NewSecurePass123!"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (e.g., weak password or mismatch)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired reset token, or email not verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found / invalid token",
             "content": {
               "application/json": {
                 "schema": {

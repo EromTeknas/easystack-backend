@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { redisConnectionOptions } from '../config/redis';
+import { JOB_SEND_WELCOME_EMAIL } from '../constants/queues';
 
 export const WELCOME_EMAIL_QUEUE_NAME = 'welcome-email-queue';
 
@@ -13,7 +14,7 @@ export const welcomeEmailQueue = new Queue<SendWelcomeEmailJobData>(WELCOME_EMAI
 });
 
 export async function enqueueSendWelcomeEmailJob(data: SendWelcomeEmailJobData): Promise<void> {
-  await welcomeEmailQueue.add('SEND_WELCOME_EMAIL', data, {
+  await welcomeEmailQueue.add(JOB_SEND_WELCOME_EMAIL, data, {
     attempts: 3,
     backoff: {
       type: 'exponential',

@@ -11,21 +11,19 @@ import { verifyAndConsumePasswordResetToken } from '../../services/password-rese
  * POST /auth/reset-password
  *
  * Body:
- *   - userId (string)
  *   - token (string)
  *   - password (string)
  *   - confirmPassword (string)
  */
 export const resetPasswordController = asyncHandler(async (req, res) => {
-  const { userId, token, password, confirmPassword } = req.body as {
-    userId?: string;
+  const { token, password, confirmPassword } = req.body as {
     token?: string;
     password?: string;
     confirmPassword?: string;
   };
 
-  if (!userId || !token || !password || !confirmPassword) {
-    throw new BadRequestError('userId, token, password, and confirmPassword are required');
+  if (!token || !password || !confirmPassword) {
+    throw new BadRequestError('token, password, and confirmPassword are required');
   }
 
   if (!isValidPassword(password)) {
@@ -41,6 +39,13 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
   }
 
   try {
+    // Derive userId from the reset token stored in Redis
+    const userId = await verifyAndConsumePasswordResetToken(token);
+
+    if (!userId) {
+      throw new UnauthorizedError('Invalid or expired reset token');
+    }
+
     const [[user]] = (await db.query(
       'SELECT id, email_verified FROM users WHERE id = ? LIMIT 1',
       [userId]
@@ -52,11 +57,6 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
 
     if (!user.email_verified) {
       throw new UnauthorizedError('Email not verified. Please verify your email before resetting password.');
-    }
-
-    const isValidToken = await verifyAndConsumePasswordResetToken(userId.toString(), token);
-    if (!isValidToken) {
-      throw new UnauthorizedError('Invalid or expired reset token');
     }
 
     const passwordHash = await hashPassword(password);
@@ -79,7 +79,7 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
     });
   } catch (error: any) {
     logger.error('Password reset failed', {
-      userId,
+      token,
       error: error.message
     });
 

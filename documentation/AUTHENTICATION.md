@@ -46,6 +46,80 @@ Production-ready authentication system for EasyStack Backend with Next.js fronte
 
 ---
 
+## Updated Auth & Recovery Flow (Redis + Workers)
+
+> This section reflects the current implementation: OTPs and password reset tokens are stored **only in Redis**, and all emails (OTP, welcome, password reset) are sent via **BullMQ workers**.
+
+```mermaid
+flowchart TD
+  subgraph Client
+    FE[Next.js Frontend]
+  end
+
+  subgraph Backend[Express Backend]
+    REG[/POST /auth/register/]
+    VER[/POST /auth/verify-email/]
+    LOGIN[/POST /auth/login/]
+    FP[/POST /auth/forgot-password/]
+    RP[/POST /auth/reset-password/]
+  end
+
+  subgraph Redis[Redis]
+    OTP[(email_otp:<userId>)]
+    PR[(password_reset:<token>)]
+  end
+
+  subgraph Queues[BullMQ Queues]
+    QOTP[email-otp-queue]
+    QPR[password-reset-queue]
+    QW[welcome-email-queue]
+  end
+
+  subgraph Worker[Worker Process]
+    W[Unified BullMQ Worker\n(WORKER_QUEUES)]
+  end
+
+  subgraph DB[MySQL]
+    U[(users)]
+    RT[(refresh_tokens)]
+    WS[(workspaces)]
+    WM[(workspace_members)]
+  end
+
+  FE --> REG
+  REG -->|create or update\nPENDING_VERIFICATION user| U
+  REG -->|store hashed OTP| OTP
+  REG -->|enqueue SEND_OTP_EMAIL| QOTP
+
+  QOTP --> W -->|send OTP email| FE
+
+  FE --> VER
+  VER -->|lookup & verify OTP| OTP
+  VER -->|mark email_verified=TRUE,\nstatus=ACTIVE| U
+  VER -->|ensure default workspace\n& OWNER membership| WS
+  VER -->|insert refresh token hash| RT
+  VER -->|enqueue SEND_WELCOME_EMAIL| QW
+  QW --> W -->|send welcome email| FE
+
+  FE --> LOGIN
+  LOGIN -->|validate credentials, status=ACTIVE,\nemail_verified=TRUE| U
+  LOGIN -->|issue tokens & store refresh| RT
+
+  FE --> FP
+  FP -->|if unverified: regenerate OTP,\nstore in Redis, enqueue OTP email| OTP
+  FP -->|if verified: create reset token,\nstore hashed in Redis, enqueue reset email| PR
+  FP --> QOTP
+  FP --> QPR
+  QPR --> W -->|send reset link email| FE
+
+  FE --> RP
+  RP -->|verify & consume reset token| PR
+  RP -->|update password, revoke refresh tokens| U
+  RP --> RT
+```
+
+---
+
 ## Token Flow Diagrams
 
 ### 1. Registration & Email Verification Flow

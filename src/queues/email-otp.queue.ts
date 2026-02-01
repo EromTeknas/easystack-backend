@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { redisConnectionOptions } from '../config/redis';
+import { JOB_SEND_OTP_EMAIL } from '../constants/queues';
 
 export const EMAIL_OTP_QUEUE_NAME = 'email-otp-queue';
 
@@ -14,7 +15,7 @@ export const emailOtpQueue = new Queue<SendOtpEmailJobData>(EMAIL_OTP_QUEUE_NAME
 });
 
 export async function enqueueSendOtpEmailJob(data: SendOtpEmailJobData): Promise<void> {
-  await emailOtpQueue.add('SEND_OTP_EMAIL', data, {
+  await emailOtpQueue.add(JOB_SEND_OTP_EMAIL, data, {
     attempts: 3,
     backoff: {
       type: 'exponential',

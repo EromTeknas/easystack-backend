@@ -116,6 +116,20 @@ Developer setup and workflow:
 
 ---
 
+### [WORKERS.md](WORKERS.md) - Background Jobs & Queues
+
+BullMQ-based background processing:
+- ✅ Email OTP sending via `email-otp-queue`
+- ✅ Password reset emails via `password-reset-queue`
+- ✅ Welcome emails via `welcome-email-queue`
+- ✅ Unified worker entrypoint (`src/workers/index.worker.ts`)
+- ✅ `WORKER_QUEUES` configuration examples
+- ✅ Scaling patterns (one or many workers per queue)
+
+**When to read:** Configuring and operating background workers, scaling email/OTP throughput.
+
+---
+
 ## 📖 Reference
 
 ### [FILES_REFERENCE.md](FILES_REFERENCE.md) - Detailed File Listing (11 KB)
@@ -130,6 +144,19 @@ Detailed reference of all source files:
 - ✅ Entry points
 
 **When to read:** Understanding specific files, finding where code is located, code navigation.
+
+---
+
+### [REDIS_SETUP.md](REDIS_SETUP.md) - Redis & Caching (new)
+
+Redis usage and setup:
+- ✅ Local Redis installation & basic commands
+- ✅ Environment variables (`REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`)
+- ✅ How OTPs and reset tokens are stored
+- ✅ How BullMQ queues use Redis
+- ✅ Troubleshooting connection issues
+
+**When to read:** Setting up Redis, debugging Redis/BullMQ issues.
 
 ---
 

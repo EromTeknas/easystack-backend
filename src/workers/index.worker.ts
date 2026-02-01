@@ -6,6 +6,12 @@ import { EMAIL_OTP_QUEUE_NAME, SendOtpEmailJobData } from '../queues/email-otp.q
 import { PASSWORD_RESET_QUEUE_NAME, SendPasswordResetEmailJobData } from '../queues/password-reset.queue';
 import { WELCOME_EMAIL_QUEUE_NAME, SendWelcomeEmailJobData } from '../queues/welcome-email.queue';
 import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../services/email.service';
+import {
+  QUEUE_ID_EMAIL_OTP,
+  QUEUE_ID_PASSWORD_RESET,
+  QUEUE_ID_WELCOME_EMAIL,
+  QueueId
+} from '../constants/queues';
 
 /**
  * Configurable BullMQ worker entrypoint.
@@ -20,8 +26,6 @@ import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../servi
 
 // Known queue identifiers and their factories
 
-type QueueId = 'email-otp' | 'password-reset' | 'welcome-email';
-
 interface WorkerConfig {
   id: QueueId;
   queueName: string;
@@ -30,7 +34,7 @@ interface WorkerConfig {
 
 const workerConfigs: WorkerConfig[] = [
   {
-    id: 'email-otp',
+    id: QUEUE_ID_EMAIL_OTP,
     queueName: EMAIL_OTP_QUEUE_NAME,
     createWorker: () =>
       new Worker<SendOtpEmailJobData>(
@@ -57,36 +61,34 @@ const workerConfigs: WorkerConfig[] = [
       )
   },
   {
-    id: 'password-reset',
+    id: QUEUE_ID_PASSWORD_RESET,
     queueName: PASSWORD_RESET_QUEUE_NAME,
     createWorker: () =>
       new Worker<SendPasswordResetEmailJobData>(
         PASSWORD_RESET_QUEUE_NAME,
         async (job: Job<SendPasswordResetEmailJobData>) => {
-          const { email, firstName, token, userId } = job.data;
+          const { email, firstName, token } = job.data;
 
           logger.info('Processing SEND_PASSWORD_RESET_EMAIL job', {
             jobId: job.id,
-            email,
-            userId
+            email
           });
 
-          const success = await sendPasswordResetEmail(email, firstName, token, userId);
+          const success = await sendPasswordResetEmail(email, firstName, token);
           if (!success) {
             throw new Error('Failed to send password reset email');
           }
 
           logger.info('SEND_PASSWORD_RESET_EMAIL job completed', {
             jobId: job.id,
-            email,
-            userId
+            email
           });
         },
         { connection: redisConnectionOptions }
       )
   },
   {
-    id: 'welcome-email',
+    id: QUEUE_ID_WELCOME_EMAIL,
     queueName: WELCOME_EMAIL_QUEUE_NAME,
     createWorker: () =>
       new Worker<SendWelcomeEmailJobData>(
@@ -127,7 +129,9 @@ function parseEnabledQueues(): QueueId[] {
   return raw
     .split(',')
     .map((s) => s.trim())
-    .filter((s): s is QueueId => s === 'email-otp' || s === 'password-reset' || s === 'welcome-email');
+    .filter((s): s is QueueId =>
+      s === QUEUE_ID_EMAIL_OTP || s === QUEUE_ID_PASSWORD_RESET || s === QUEUE_ID_WELCOME_EMAIL
+    );
 }
 
 function main() {
