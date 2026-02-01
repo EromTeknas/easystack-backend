@@ -21,11 +21,11 @@ import { createDefaultWorkspace, addWorkspaceMember } from '../../services/works
  * 5. Return user info (no tokens until verified)
  */
 export const registerController = asyncHandler(async (req, res) => {
-  const { email, password, firstName, lastName } = req.body;
+  const { email, password, confirmPassword, firstName, lastName } = req.body;
 
   // Validate input
-  if (!email || !password || !firstName || !lastName) {
-    throw new BadRequestError('Email, password, first name, and last name are required');
+  if (!email || !password || !confirmPassword || !firstName || !lastName) {
+    throw new BadRequestError('Email, password, confirm password, first name, and last name are required');
   }
 
   if (!isValidEmail(email)) {
@@ -45,31 +45,60 @@ export const registerController = asyncHandler(async (req, res) => {
     });
   }
 
+  if (password !== confirmPassword) {
+    throw new BadRequestError('Password and confirm password do not match', {
+      field: 'confirmPassword'
+    });
+  }
+
   if (!isValidName(firstName) || !isValidName(lastName)) {
     throw new BadRequestError('Names must be valid and not exceed 100 characters');
   }
 
-  // Check if email already exists
+  // Check if email already exists (email is the identity)
   const [[existingUser]] = (await db.query(
-    'SELECT id FROM users WHERE email = ?',
+    'SELECT id, email_verified, status FROM users WHERE email = ?',
     [email.toLowerCase()]
   )) as any[];
-
-  if (existingUser) {
-    throw new ConflictError('Email already registered', { field: 'email' });
-  }
 
   try {
     // Hash password
     const passwordHash = await hashPassword(password);
 
-    // Create unverified user
-    const [result] = await db.query(
-      'INSERT INTO users (email, password_hash, first_name, last_name, email_verified, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [email.toLowerCase(), passwordHash, firstName.trim(), lastName.trim(), false, 'active']
-    ) as any;
+    let userId: string;
 
-    const userId = result.insertId.toString();
+    if (!existingUser) {
+      // New registration: create unverified user in PENDING_VERIFICATION state
+      const [result] = await db.query(
+        'INSERT INTO users (email, password_hash, first_name, last_name, email_verified, status) VALUES (?, ?, ?, ?, ?, ?)',
+        [email.toLowerCase(), passwordHash, firstName.trim(), lastName.trim(), false, 'PENDING_VERIFICATION']
+      ) as any;
+
+      userId = result.insertId.toString();
+    } else {
+      // Email exists
+      if (existingUser.email_verified) {
+        // Already verified: block registration and prompt login
+        throw new ConflictError('Email already registered. Please log in.', {
+          field: 'email',
+          code: 'EMAIL_ALREADY_VERIFIED'
+        });
+      }
+
+      // Unverified user: treat as re-registration, update provisional details
+      await db.query(
+        'UPDATE users SET password_hash = ?, first_name = ?, last_name = ?, status = ? WHERE id = ?',
+        [
+          passwordHash,
+          firstName.trim(),
+          lastName.trim(),
+          'PENDING_VERIFICATION',
+          existingUser.id
+        ]
+      );
+
+      userId = existingUser.id.toString();
+    }
 
     // Generate OTP
     const otpCode = generateOtpCode();
@@ -85,9 +114,11 @@ export const registerController = asyncHandler(async (req, res) => {
       otpCode
     });
 
-    // Create default workspace
-    const workspaceId = await createDefaultWorkspace(userId);
-    await addWorkspaceMember(workspaceId, userId, 'OWNER');
+    // Create default workspace only for brand new users
+    if (!existingUser) {
+      const workspaceId = await createDefaultWorkspace(userId);
+      await addWorkspaceMember(workspaceId, userId, 'OWNER');
+    }
 
     // Log registration
     logger.info('User registered (awaiting email verification)', {
@@ -97,14 +128,16 @@ export const registerController = asyncHandler(async (req, res) => {
     });
 
     // Return response (no tokens until verified)
-    res.status(201).json({
+    res.status(existingUser ? 200 : 201).json({
       success: true,
       data: {
         userId,
         email: email.toLowerCase(),
         firstName,
         lastName,
-        message: 'Registration successful. Please verify your email to continue.',
+        message: existingUser
+          ? 'Verification pending. OTP resent.'
+          : 'Registration successful. Please verify your email to continue.',
         nextStep: 'verify-email'
       }
     });

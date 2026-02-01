@@ -6,6 +6,7 @@ import { logoutController } from './logout.controller';
 import { getMeController } from './me.controller';
 import { verifyEmailController } from './verify-email.controller';
 import { resendOtpController } from './resend-otp.controller';
+import { forgotPasswordController } from './forgot-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticateToken } from '../../middlewares/authentication.middleware';
 
@@ -61,6 +62,20 @@ router.post('/verify-email', authRateLimiter, verifyEmailController);
  *   - email
  */
 router.post('/resend-otp', authRateLimiter, resendOtpController);
+
+/**
+ * POST /auth/forgot-password
+ * Initiate password reset flow (email must be verified)
+ *
+ * Body:
+ *   - email (string)
+ *
+ * Behavior:
+ *   - If user missing: generic success
+ *   - If unverified: block reset, resend verification OTP
+ *   - If verified: generic success (reset email handling can be implemented separately)
+ */
+router.post('/forgot-password', authRateLimiter, forgotPasswordController);
 
 /**
  * POST /auth/login

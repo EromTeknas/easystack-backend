@@ -50,9 +50,11 @@ export const loginController = asyncHandler(async (req, res) => {
         email: email.toLowerCase(),
         ipAddress: getClientIP(req)
       });
-      throw new UnauthorizedError('Please verify your email before logging in', {
+      throw new UnauthorizedError('Email not verified. Please verify your email to continue.', {
         code: 'EMAIL_NOT_VERIFIED',
-        userId: user.id
+        userId: user.id,
+        nextStep: 'verify-email',
+        canResendOtp: true
       });
     }
 

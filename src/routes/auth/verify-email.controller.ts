@@ -78,10 +78,10 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       throw new UnauthorizedError('Invalid OTP code');
     }
 
-    // Mark user email as verified
+    // Mark user email as verified and activate account
     await db.query(
-      'UPDATE users SET email_verified = TRUE WHERE id = ?',
-      [userId]
+      'UPDATE users SET email_verified = TRUE, status = ? WHERE id = ?',
+      ['ACTIVE', userId]
     );
 
     // Generate tokens
