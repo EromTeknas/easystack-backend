@@ -7,6 +7,7 @@ import { getMeController } from './me.controller';
 import { verifyEmailController } from './verify-email.controller';
 import { resendOtpController } from './resend-otp.controller';
 import { forgotPasswordController } from './forgot-password.controller';
+import { resetPasswordController } from './reset-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticateToken } from '../../middlewares/authentication.middleware';
 
@@ -76,6 +77,18 @@ router.post('/resend-otp', authRateLimiter, resendOtpController);
  *   - If verified: generic success (reset email handling can be implemented separately)
  */
 router.post('/forgot-password', authRateLimiter, forgotPasswordController);
+
+/**
+ * POST /auth/reset-password
+ * Complete password reset flow using a one-time token
+ *
+ * Body:
+ *   - userId (string)
+ *   - token (string)
+ *   - password (string)
+ *   - confirmPassword (string)
+ */
+router.post('/reset-password', authRateLimiter, resetPasswordController);
 
 /**
  * POST /auth/login

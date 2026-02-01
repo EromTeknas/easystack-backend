@@ -191,3 +191,64 @@ export async function sendWelcomeEmail(
     htmlContent
   });
 }
+
+/**
+ * Send password reset email
+ */
+export async function sendPasswordResetEmail(
+  email: string,
+  firstName: string,
+  token: string,
+  userId: string
+): Promise<boolean> {
+  const baseUrl = process.env.PASSWORD_RESET_URL_BASE || 'https://app.easystack.io/reset-password';
+  const resetUrl = `${baseUrl}?token=${encodeURIComponent(token)}&userId=${encodeURIComponent(userId)}`;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px; }
+          .button { 
+            display: inline-block; 
+            background-color: #0066cc; 
+            color: white; 
+            padding: 12px 30px; 
+            border-radius: 6px; 
+            text-decoration: none;
+            margin: 20px 0;
+          }
+          .footer { font-size: 12px; color: #666; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>Reset your EasyStack password</h2>
+            <p>Hi ${firstName},</p>
+            <p>We received a request to reset your password. Click the button below to choose a new password:</p>
+          </div>
+          <p>
+            <a href="${resetUrl}" class="button">Reset Password</a>
+          </p>
+          <p>If you did not request this, you can safely ignore this email.</p>
+          <div class="footer">
+            <p>This link will expire in 30 minutes for your security.</p>
+            <p>&copy; 2026 EasyStack. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendBrevoEmail({
+    email,
+    firstName,
+    subject: 'Reset your EasyStack password',
+    htmlContent
+  });
+}

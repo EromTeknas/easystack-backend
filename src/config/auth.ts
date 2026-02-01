@@ -7,6 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
 const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY || '15m';
 const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '30d';
+const PASSWORD_RESET_EXPIRY_MINUTES = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINUTES || '30', 10);
 
 export const auth = {
   // Token expiry times (string format for jwt.sign)
@@ -29,6 +30,11 @@ export const auth = {
     length: 6,
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10),
     maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10)
+  },
+  
+  // Password reset configuration
+  passwordReset: {
+    expiryMinutes: PASSWORD_RESET_EXPIRY_MINUTES
   },
   
   // Cookie settings

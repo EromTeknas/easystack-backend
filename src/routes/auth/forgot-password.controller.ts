@@ -5,7 +5,9 @@ import logger from '../../utils/logger';
 import { isValidEmail } from '../../utils/validation';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
 import { storeUserOtp } from '../../services/otp-redis.service';
+import { createPasswordResetToken } from '../../services/password-reset-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
+import { enqueueSendPasswordResetEmailJob } from '../../queues/password-reset.queue';
 
 /**
  * Forgot Password Controller
@@ -78,9 +80,18 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
       });
     }
 
-    // Email is verified: here we would generate a password reset token and send email.
-    // To keep this focused on verification rules, we return a generic success stub.
-    logger.info('Password reset requested for verified user', { userId: user.id, email: user.email });
+    // Email is verified: generate password reset token, store hash in Redis, and enqueue email
+    const userId = user.id.toString();
+    const token = await createPasswordResetToken(userId);
+
+    await enqueueSendPasswordResetEmailJob({
+      email: user.email,
+      firstName: user.first_name,
+      token,
+      userId
+    });
+
+    logger.info('Password reset requested for verified user', { userId, email: user.email });
 
     return res.status(200).json({
       success: true,
