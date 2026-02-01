@@ -7,14 +7,14 @@
 
 import { asyncHandler } from '../../utils/asyncHandler';
 import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
-import { hashToken, verifyTokenHash } from '../../utils/password';
-import { verifyOtp, isOtpExpired } from '../../utils/otp';
+import { hashToken } from '../../utils/password';
 import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
 import { sendWelcomeEmail } from '../../services/email.service';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
+import { verifyUserOtpFromRedis } from '../../services/otp-redis.service';
 
 /**
  * Verify email with OTP
@@ -53,54 +53,30 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       });
     }
 
-    // Get active OTP
-    const [[otpRecord]] = (await db.query(
-      `SELECT id, otp_code_hash, expires_at, attempts, max_attempts, verified_at
-       FROM email_otps
-       WHERE user_id = ? AND verified_at IS NULL
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId]
-    )) as any[];
+    // Verify OTP from Redis (hashed, with TTL and attempt limits)
+    const otpResult = await verifyUserOtpFromRedis(userId.toString(), otpCode);
 
-    if (!otpRecord) {
-      throw new UnauthorizedError('No active OTP found. Please request a new one.');
+    if (otpResult.status === 'NOT_FOUND') {
+      throw new UnauthorizedError('No active OTP found or OTP has expired. Please request a new one.');
     }
 
-    // Check if OTP has expired
-    if (isOtpExpired(new Date(otpRecord.expires_at))) {
-      throw new UnauthorizedError('OTP has expired. Please request a new one.');
-    }
-
-    // Check attempts
-    if (otpRecord.attempts >= otpRecord.max_attempts) {
+    if (otpResult.status === 'TOO_MANY_ATTEMPTS') {
+      logger.warn('Too many OTP attempts', {
+        userId,
+        attempts: otpResult.attempts,
+        maxAttempts: otpResult.maxAttempts
+      });
       throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
     }
 
-    // Verify OTP code
-    const isValid = await verifyTokenHash(otpCode, otpRecord.otp_code_hash);
-
-    if (!isValid) {
-      // Increment attempts
-      await db.query(
-        'UPDATE email_otps SET attempts = attempts + 1 WHERE id = ?',
-        [otpRecord.id]
-      );
-
+    if (otpResult.status === 'INVALID') {
       logger.warn('Invalid OTP attempt', {
         userId,
-        attempts: otpRecord.attempts + 1,
-        maxAttempts: otpRecord.max_attempts
+        attempts: otpResult.attempts,
+        maxAttempts: otpResult.maxAttempts
       });
-
       throw new UnauthorizedError('Invalid OTP code');
     }
-
-    // Mark OTP as verified
-    await db.query(
-      'UPDATE email_otps SET verified_at = NOW() WHERE id = ?',
-      [otpRecord.id]
-    );
 
     // Mark user email as verified
     await db.query(

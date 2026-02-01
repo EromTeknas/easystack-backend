@@ -11,18 +11,21 @@
     "migrate:down": "ts-node src/cli/migrate.ts down",
     "migrate:status": "ts-node src/cli/migrate.ts status",
     "migrate:fresh": "ts-node src/cli/migrate.ts down:all && ts-node src/cli/migrate.ts up",
-    "migrate:fresh:preserve": "ts-node src/cli/migrate.ts down:all -- --preserve-data && ts-node src/cli/migrate.ts up"
+    "migrate:fresh:preserve": "ts-node src/cli/migrate.ts down:all -- --preserve-data && ts-node src/cli/migrate.ts up",
+    "worker:email-otp": "ts-node src/workers/email-otp.worker.ts"
   },
   "keywords": [],
   "author": "Sanket More",
   "license": "ISC",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.67.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
+    "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
     "mysql2": "^3.16.1",

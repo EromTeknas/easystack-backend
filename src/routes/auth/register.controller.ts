@@ -1,11 +1,12 @@
 import { asyncHandler } from '../../utils/asyncHandler';
 import { hashPassword } from '../../utils/password';
-import { generateOtpCode, hashOtp, calculateOtpExpiry } from '../../utils/otp';
+import { generateOtpCode, hashOtp } from '../../utils/otp';
 import { isValidEmail, isValidPassword, isValidName, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, ConflictError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
-import { sendOtpEmail } from '../../services/email.service';
+import { storeUserOtp } from '../../services/otp-redis.service';
+import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
 import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 
 /**
@@ -73,21 +74,16 @@ export const registerController = asyncHandler(async (req, res) => {
     // Generate OTP
     const otpCode = generateOtpCode();
     const otpCodeHash = await hashOtp(otpCode);
-    const expiresAt = calculateOtpExpiry();
 
-    // Store OTP in database
-    await db.query(
-      'INSERT INTO email_otps (user_id, otp_code_hash, expires_at) VALUES (?, ?, ?)',
-      [userId, otpCodeHash, expiresAt]
-    );
+    // Store OTP in Redis with TTL
+    await storeUserOtp(userId, otpCodeHash);
 
-    // Send OTP via Brevo
-    const emailSent = await sendOtpEmail(email.toLowerCase(), firstName, otpCode);
-
-    if (!emailSent) {
-      logger.warn('Failed to send OTP email', { userId, email });
-      // Don't fail registration if email sending fails - user can request OTP resend
-    }
+    // Enqueue OTP email job via BullMQ (event-based email sending)
+    await enqueueSendOtpEmailJob({
+      email: email.toLowerCase(),
+      firstName,
+      otpCode
+    });
 
     // Create default workspace
     const workspaceId = await createDefaultWorkspace(userId);

@@ -9,8 +9,9 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, NotFoundError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
-import { generateOtpCode, hashOtp, calculateOtpExpiry } from '../../utils/otp';
-import { sendOtpEmail } from '../../services/email.service';
+import { generateOtpCode, hashOtp } from '../../utils/otp';
+import { storeUserOtp } from '../../services/otp-redis.service';
+import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
 
 /**
  * Resend OTP to user's email
@@ -44,29 +45,19 @@ export const resendOtpController = asyncHandler(async (req, res) => {
       });
     }
 
-    // Delete old OTPs
-    await db.query(
-      'DELETE FROM email_otps WHERE user_id = ? AND verified_at IS NULL',
-      [userId]
-    );
-
     // Generate new OTP
     const otpCode = generateOtpCode();
     const otpCodeHash = await hashOtp(otpCode);
-    const expiresAt = calculateOtpExpiry();
 
-    // Store new OTP
-    await db.query(
-      'INSERT INTO email_otps (user_id, otp_code_hash, expires_at) VALUES (?, ?, ?)',
-      [userId, otpCodeHash, expiresAt]
-    );
+    // Store new OTP in Redis (overwrites any existing OTP for this user)
+    await storeUserOtp(userId.toString(), otpCodeHash);
 
-    // Send OTP
-    const emailSent = await sendOtpEmail(user.email, user.first_name, otpCode);
-
-    if (!emailSent) {
-      logger.warn('Failed to send OTP email', { userId });
-    }
+    // Enqueue OTP email job
+    await enqueueSendOtpEmailJob({
+      email: user.email,
+      firstName: user.first_name,
+      otpCode
+    });
 
     logger.info('OTP resent', {
       userId,
