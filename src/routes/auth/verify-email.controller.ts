@@ -11,7 +11,7 @@ import { hashToken } from '../../utils/password';
 import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
-import { sendWelcomeEmail } from '../../services/email.service';
+import { enqueueSendWelcomeEmailJob } from '../../queues/welcome-email.queue';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
 import { verifyUserOtpFromRedis } from '../../services/otp-redis.service';
@@ -105,11 +105,11 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       ]
     );
 
-    // Send welcome email
-    const emailSent = await sendWelcomeEmail(user.email, user.first_name);
-    if (!emailSent) {
-      logger.warn('Failed to send welcome email', { userId });
-    }
+    // Enqueue welcome email job (event-based)
+    await enqueueSendWelcomeEmailJob({
+      email: user.email,
+      firstName: user.first_name
+    });
 
     // Log verification
     logger.info('User email verified', {
