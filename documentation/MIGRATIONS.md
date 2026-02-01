@@ -73,13 +73,32 @@ Rolls back the most recently executed migration.
 
 **Use case**: Undo changes during development or emergency rollback.
 
+
+### Rollback All Migrations
+```bash
+npm run migrate:down:all
+```
+Rolls back all migrations and drops all tables. Use with caution!
+
 ### Fresh Database
 ```bash
 npm run migrate:fresh
 ```
-Rolls back all migrations, then runs them again. Useful for resetting to a clean state.
+Rolls back all migrations (drops all tables), then runs them again. Useful for resetting to a clean state.
 
 ⚠️ **Warning**: Deletes all data. Use only in development!
+
+### Fresh Database (Preserve Data)
+```bash
+npm run migrate:fresh:preserve
+```
+Removes migration records but keeps all tables/data. Use if you want to re-run migrations without losing data.
+
+### Rollback All Migrations (Preserve Data)
+```bash
+npm run migrate:down:all -- --preserve-data
+```
+Removes migration records but does not drop tables/data.
 
 ---
 

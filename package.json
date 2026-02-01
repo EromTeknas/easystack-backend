@@ -10,7 +10,8 @@
     "migrate:up": "ts-node src/cli/migrate.ts up",
     "migrate:down": "ts-node src/cli/migrate.ts down",
     "migrate:status": "ts-node src/cli/migrate.ts status",
-    "migrate:fresh": "ts-node src/cli/migrate.ts down && ts-node src/cli/migrate.ts up"
+    "migrate:fresh": "ts-node src/cli/migrate.ts down:all && ts-node src/cli/migrate.ts up",
+    "migrate:fresh:preserve": "ts-node src/cli/migrate.ts down:all -- --preserve-data && ts-node src/cli/migrate.ts up"
   },
   "keywords": [],
   "author": "Sanket More",

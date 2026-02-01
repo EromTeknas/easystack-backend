@@ -133,6 +133,43 @@ class Migrator {
   }
 
   /**
+   * Rollback all migrations (optionally preserve data)
+   * @param preserveData If true, skips calling down() on migrations (just clears _migrations table)
+   */
+  async downAll(preserveData = false) {
+    await this.initMigrationsTable();
+    const executed = await this.getExecutedMigrations();
+    if (executed.length === 0) {
+      logger.info('No migrations to rollback');
+      return;
+    }
+
+    // Rollback in reverse order
+    for (let i = executed.length - 1; i >= 0; i--) {
+      const migrationName = executed[i]!;
+      const migration = this.migrations.get(migrationName);
+      if (!migration) {
+        logger.error(`Migration not found: ${migrationName}`);
+        continue;
+      }
+      try {
+        logger.info(`▶️  Rolling back: ${migrationName}`);
+        if (!preserveData) {
+          await migration.down();
+        } else {
+          logger.info(`Preserving data for: ${migrationName}`);
+        }
+        await db.query('DELETE FROM _migrations WHERE name = ?', [migrationName]);
+        logger.info(`✅ Rolled back: ${migrationName}`);
+      } catch (error) {
+        logger.error(`❌ Rollback failed: ${migrationName}`, error);
+        throw error;
+      }
+    }
+    logger.info('✅ All migrations rolled back');
+  }
+
+  /**
    * Show migration status
    */
   async status() {

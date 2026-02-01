@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
+import logger from '../../logger';
 
 const router = Router();
 
@@ -9,6 +10,11 @@ const router = Router();
  * Returns the health status of the application
  */
 router.get('/', asyncHandler(async (_req, res) => {
+  // Log verification
+  logger.info('Health check requested', {
+    ipAddress: _req.ip,
+    req: _req.body
+  });
   res.json({
     success: true,
     data: {

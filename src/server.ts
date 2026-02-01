@@ -19,7 +19,7 @@ async function start() {
       origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
       credentials: true, // Allow cookies to be sent
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id']
     }));
 
     // Body parser middleware
