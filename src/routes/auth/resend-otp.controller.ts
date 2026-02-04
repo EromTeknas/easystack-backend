@@ -9,6 +9,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, NotFoundError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { ok } from '../../utils/response';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
 import { storeUserOtp } from '../../services/otp-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
@@ -37,11 +38,8 @@ export const resendOtpController = asyncHandler(async (req, res) => {
 
     // Check if already verified
     if (user.email_verified) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          message: 'Email already verified'
-        }
+      return ok(res, {
+        message: 'Email already verified'
       });
     }
 
@@ -64,12 +62,9 @@ export const resendOtpController = asyncHandler(async (req, res) => {
       email: user.email
     });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        message: 'OTP sent to your email',
-        email: user.email
-      }
+    return ok(res, {
+      message: 'OTP sent to your email',
+      email: user.email
     });
   } catch (error: any) {
     logger.error('OTP resend failed', {

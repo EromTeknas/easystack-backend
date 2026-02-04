@@ -4,6 +4,7 @@ import { InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
+import { ok } from '../../utils/response';
 
 /**
  * Logout user by revoking refresh token
@@ -16,11 +17,8 @@ export const logoutController = asyncHandler(async (req, res) => {
     if (!refreshToken) {
       // Even without a token, respond with success
       res.clearCookie(auth.cookies.refreshTokenName);
-      return res.json({
-        success: true,
-        data: {
-          message: 'Logged out successfully'
-        }
+      return ok(res, {
+        message: 'Logged out successfully'
       });
     }
 
@@ -31,11 +29,8 @@ export const logoutController = asyncHandler(async (req, res) => {
     } catch {
       // Token is invalid or expired, just clear cookie
       res.clearCookie(auth.cookies.refreshTokenName);
-      return res.json({
-        success: true,
-        data: {
-          message: 'Logged out successfully'
-        }
+      return ok(res, {
+        message: 'Logged out successfully'
       });
     }
 
@@ -58,11 +53,8 @@ export const logoutController = asyncHandler(async (req, res) => {
       sameSite: auth.cookies.sameSite
     });
 
-    res.json({
-      success: true,
-      data: {
-        message: 'Logged out successfully'
-      }
+    return ok(res, {
+      message: 'Logged out successfully'
     });
   } catch (error: any) {
     logger.error('Logout failed', {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ok } from '../../utils/response';
 
 const router = Router();
 
@@ -9,12 +10,9 @@ const router = Router();
  * Returns a greeting message
  */
 router.get('/', asyncHandler(async (_req, res) => {
-  res.json({
-    success: true,
-    data: {
-      message: 'Hello, World!',
-      timestamp: new Date().toISOString(),
-    },
+  return ok(res, {
+    message: 'Hello, World!',
+    timestamp: new Date().toISOString(),
   });
 }));
 

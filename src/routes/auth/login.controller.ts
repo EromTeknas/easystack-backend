@@ -3,9 +3,11 @@ import { verifyPassword, hashToken } from '../../utils/password';
 import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
 import { isValidEmail, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, UnauthorizedError, InternalServerError } from '../../errors';
+import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
 import { db } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
+import { ok } from '../../utils/response';
 
 /**
  * Login with email and password
@@ -51,7 +53,7 @@ export const loginController = asyncHandler(async (req, res) => {
         ipAddress: getClientIP(req)
       });
       throw new UnauthorizedError('Email not verified. Please verify your email to continue.', {
-        code: 'EMAIL_NOT_VERIFIED',
+        code: AUTH_ERROR_CODES.EMAIL_NOT_VERIFIED,
         userId: user.id,
         nextStep: 'verify-email',
         canResendOtp: true
@@ -126,18 +128,15 @@ export const loginController = asyncHandler(async (req, res) => {
     });
 
     // Return response
-    res.json({
-      success: true,
-      data: {
-        user: {
-          id: userId,
-          email: user.email,
-          firstName: user.first_name,
-          lastName: user.last_name
-        },
-        accessToken,
-        expiresIn: getTokenExpiryInSeconds(accessToken)
-      }
+    return ok(res, {
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      accessToken,
+      expiresIn: getTokenExpiryInSeconds(accessToken)
     });
   } catch (error: any) {
     if (error instanceof BadRequestError || error instanceof UnauthorizedError) {

@@ -9,6 +9,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { UnauthorizedError, InternalServerError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { ok } from '../../utils/response';
 import { getUserWorkspaces } from '../../services/workspace.service';
 
 /**
@@ -36,26 +37,23 @@ export const getMeController = asyncHandler(async (req: any, res) => {
     // Get user's workspaces
     const workspaces = await getUserWorkspaces(userId);
 
-    res.json({
-      success: true,
-      data: {
-        user: {
-          id: user.id.toString(),
-          email: user.email,
-          firstName: user.first_name,
-          lastName: user.last_name,
-          emailVerified: user.email_verified,
-          status: user.status,
-          createdAt: user.created_at
-        },
-        workspaces: workspaces.map((w: any) => ({
-          id: w.id,
-          name: w.name,
-          logoUrl: w.logo_url,
-          role: w.role,
-          createdAt: w.created_at
-        }))
-      }
+    return ok(res, {
+      user: {
+        id: user.id.toString(),
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        emailVerified: user.email_verified,
+        status: user.status,
+        createdAt: user.created_at
+      },
+      workspaces: workspaces.map((w: any) => ({
+        id: w.id,
+        name: w.name,
+        logoUrl: w.logo_url,
+        role: w.role,
+        createdAt: w.created_at
+      }))
     });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) {

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../utils/logger';
 import { AppError } from '../errors';
+import { ApiErrorBody } from '../utils/response';
 
 /**
  * Global Error Handling Middleware
@@ -34,16 +35,20 @@ export const errorHandlerMiddleware = (
 
   // If it's an AppError, send the formatted response
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
+    const requestId = (_req as any).requestId || 'unknown';
+    const body: ApiErrorBody = {
       success: false,
       error: {
         message: err.message,
         code: err.errorCode,
         statusCode: err.statusCode,
         ...(err.details && { details: err.details }),
-        requestId: (_req as any).requestId || 'unknown',
+        requestId,
       },
-    });
+    };
+
+    res.setHeader('x-request-id', requestId);
+    return res.status(err.statusCode).json(body);
   }
 
   // For unhandled errors, send generic 500 response (don't leak details in production)
@@ -51,16 +56,20 @@ export const errorHandlerMiddleware = (
   const statusCode = 500;
   const errorCode = 'INTERNAL_SERVER_ERROR';
 
-  res.status(statusCode).json({
+  const requestId = (_req as any).requestId || 'unknown';
+  const body: ApiErrorBody = {
     success: false,
     error: {
       message: isProduction ? 'Internal server error' : err.message,
       code: errorCode,
       statusCode,
-      requestId: (_req as any).requestId || 'unknown',
-      ...(process.env.LOG_LEVEL === 'debug' && !isProduction && { stack: err.stack }),
+      requestId,
+      ...(process.env.LOG_LEVEL === 'debug' && !isProduction && { stack: err.stack as any }),
     },
-  });
+  };
+
+  res.setHeader('x-request-id', requestId);
+  res.status(statusCode).json(body);
 };
 
 /**

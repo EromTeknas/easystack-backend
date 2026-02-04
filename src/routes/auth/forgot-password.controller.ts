@@ -8,6 +8,7 @@ import { storeUserOtp } from '../../services/otp-redis.service';
 import { createPasswordResetToken } from '../../services/password-reset-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
 import { enqueueSendPasswordResetEmailJob } from '../../queues/password-reset.queue';
+import { ok } from '../../utils/response';
 
 /**
  * Forgot Password Controller
@@ -43,11 +44,8 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
 
     // If user does not exist, return generic success to avoid leaking existence
     if (!user) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          message: 'If an account exists with this email, we have sent password reset instructions.'
-        }
+      return ok(res, {
+        message: 'If an account exists with this email, we have sent password reset instructions.'
       });
     }
 
@@ -70,13 +68,10 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
         email: user.email
       });
 
-      return res.status(200).json({
-        success: true,
-        data: {
-          message: 'Please verify your email first. We have resent the verification code to your inbox.',
-          requiresEmailVerification: true,
-          nextStep: 'verify-email'
-        }
+      return ok(res, {
+        message: 'Please verify your email first. We have resent the verification code to your inbox.',
+        requiresEmailVerification: true,
+        nextStep: 'verify-email'
       });
     }
 
@@ -92,11 +87,8 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
 
     logger.info('Password reset requested for verified user', { userId, email: user.email });
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        message: 'If an account exists with this email, we have sent password reset instructions.'
-      }
+    return ok(res, {
+      message: 'If an account exists with this email, we have sent password reset instructions.'
     });
   } catch (error: any) {
     logger.error('Forgot password request failed', {

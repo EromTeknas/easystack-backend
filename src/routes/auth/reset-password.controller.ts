@@ -2,6 +2,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, InternalServerError, UnauthorizedError, NotFoundError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { ok } from '../../utils/response';
 import { isValidPassword } from '../../utils/validation';
 import { hashPassword } from '../../utils/password';
 import { verifyAndConsumePasswordResetToken } from '../../services/password-reset-redis.service';
@@ -69,13 +70,8 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
     // Optional: revoke existing refresh tokens for this user
     await db.query('DELETE FROM refresh_tokens WHERE user_id = ?', [userId]);
 
-    logger.info('Password reset successfully', { userId });
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        message: 'Password has been reset successfully. Please log in with your new password.'
-      }
+    return ok(res, {
+      message: 'Password has been reset successfully. Please log in with your new password.'
     });
   } catch (error: any) {
     logger.error('Password reset failed', {

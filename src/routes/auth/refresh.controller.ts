@@ -6,6 +6,7 @@ import { db } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
+import { ok } from '../../utils/response';
 
 /**
  * Refresh access token using refresh token cookie
@@ -123,18 +124,15 @@ export const refreshController = asyncHandler(async (req, res) => {
     });
 
     // Return new tokens
-    res.json({
-      success: true,
-      data: {
-        user: {
-          id: userId,
-          email: user.email,
-          firstName: user.first_name,
-          lastName: user.last_name
-        },
-        accessToken: newAccessToken,
-        expiresIn: getTokenExpiryInSeconds(newAccessToken)
-      }
+    return ok(res, {
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      accessToken: newAccessToken,
+      expiresIn: getTokenExpiryInSeconds(newAccessToken)
     });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) {

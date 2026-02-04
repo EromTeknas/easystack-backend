@@ -1,0 +1,6 @@
+export const AUTH_ERROR_CODES = {
+  EMAIL_ALREADY_VERIFIED: 'EMAIL_ALREADY_VERIFIED',
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
+} as const;
+
+export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[keyof typeof AUTH_ERROR_CODES];

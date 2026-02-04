@@ -3,6 +3,8 @@ import { hashPassword } from '../../utils/password';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
 import { isValidEmail, isValidPassword, isValidName, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, ConflictError, InternalServerError } from '../../errors';
+import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
+import { ok } from '../../utils/response';
 import { db } from '../../db';
 import logger from '../../utils/logger';
 import { storeUserOtp } from '../../services/otp-redis.service';
@@ -19,6 +21,7 @@ import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
  * 4. Return user info (no tokens until verified)
  */
 export const registerController = asyncHandler(async (req, res) => {
+  console.log('Register controller invoked', req.body);
   const { email, password, confirmPassword, firstName, lastName } = req.body;
 
   // Validate input
@@ -79,7 +82,7 @@ export const registerController = asyncHandler(async (req, res) => {
         // Already verified: block registration and prompt login
         throw new ConflictError('Email already registered. Please log in.', {
           field: 'email',
-          code: 'EMAIL_ALREADY_VERIFIED'
+          code: AUTH_ERROR_CODES.EMAIL_ALREADY_VERIFIED
         });
       }
 
@@ -120,9 +123,9 @@ export const registerController = asyncHandler(async (req, res) => {
     });
 
     // Return response (no tokens until verified)
-    res.status(existingUser ? 200 : 201).json({
-      success: true,
-      data: {
+    return ok(
+      res,
+      {
         userId,
         email: email.toLowerCase(),
         firstName,
@@ -131,8 +134,9 @@ export const registerController = asyncHandler(async (req, res) => {
           ? 'Verification pending. OTP resent.'
           : 'Registration successful. Please verify your email to continue.',
         nextStep: 'verify-email'
-      }
-    });
+      },
+      { statusCode: existingUser ? 200 : 201 }
+    );
   } catch (error: any) {
     logger.error('Registration failed', {
       email: email.toLowerCase(),

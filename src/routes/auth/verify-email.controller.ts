@@ -11,6 +11,7 @@ import { hashToken } from '../../utils/password';
 import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError } from '../../errors';
 import { db } from '../../db';
 import logger from '../../utils/logger';
+import { ok } from '../../utils/response';
 import { enqueueSendWelcomeEmailJob } from '../../queues/welcome-email.queue';
 import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 import { auth } from '../../config/auth';
@@ -45,12 +46,9 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
 
     // Check if already verified
     if (user.email_verified) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          message: 'Email already verified',
-          verified: true
-        }
+      return ok(res, {
+        message: 'Email already verified',
+        verified: true
       });
     }
 
@@ -139,20 +137,17 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
     });
 
     // Return response with tokens
-    res.status(200).json({
-      success: true,
-      data: {
-        user: {
-          id: userId,
-          email: user.email,
-          firstName: user.first_name,
-          lastName: user.last_name
-        },
-        accessToken,
-        expiresIn: getTokenExpiryInSeconds(accessToken),
-        verified: true,
-        message: 'Email verified successfully'
-      }
+    return ok(res, {
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      accessToken,
+      expiresIn: getTokenExpiryInSeconds(accessToken),
+      verified: true,
+      message: 'Email verified successfully'
     });
   } catch (error: any) {
     logger.error('Email verification failed', {

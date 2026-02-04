@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import logger from '../../logger';
+import { ok } from '../../utils/response';
 
 const router = Router();
 
@@ -15,12 +16,9 @@ router.get('/', asyncHandler(async (_req, res) => {
     ipAddress: _req.ip,
     req: _req.body
   });
-  res.json({
-    success: true,
-    data: {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-    },
+  return ok(res, {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
   });
 }));
 
