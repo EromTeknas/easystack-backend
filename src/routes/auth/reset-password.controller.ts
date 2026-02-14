@@ -1,6 +1,6 @@
 import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, InternalServerError, UnauthorizedError, NotFoundError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { isValidPassword } from '../../utils/validation';
@@ -47,28 +47,31 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
       throw new UnauthorizedError('Invalid or expired reset token');
     }
 
-    const [[user]] = (await db.query(
-      'SELECT id, email_verified FROM users WHERE id = ? LIMIT 1',
-      [userId]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: {
+        id: true,
+        emailVerified: true
+      }
+    });
 
     if (!user) {
       throw new NotFoundError('Invalid or expired reset token');
     }
 
-    if (!user.email_verified) {
+    if (!user.emailVerified) {
       throw new UnauthorizedError('Email not verified. Please verify your email before resetting password.');
     }
 
     const passwordHash = await hashPassword(password);
 
-    await db.query(
-      'UPDATE users SET password_hash = ? WHERE id = ?',
-      [passwordHash, userId]
-    );
+    await prisma.user.update({
+      where: { id: Number(userId) },
+      data: { passwordHash }
+    });
 
     // Optional: revoke existing refresh tokens for this user
-    await db.query('DELETE FROM refresh_tokens WHERE user_id = ?', [userId]);
+    await prisma.refreshToken.deleteMany({ where: { userId: Number(userId) } });
 
     return ok(res, {
       message: 'Password has been reset successfully. Please log in with your new password.'

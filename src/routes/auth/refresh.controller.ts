@@ -2,7 +2,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { verifyRefreshToken, generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
 import { verifyTokenHash, hashToken } from '../../utils/password';
 import { UnauthorizedError, InternalServerError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
@@ -36,13 +36,16 @@ export const refreshController = asyncHandler(async (req, res) => {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    const userId = decoded.sub;
+    const userId = Number(decoded.sub);
 
     // Query database for the token record (only non-revoked tokens)
-    const [[tokenRecord]] = (await db.query(
-      'SELECT id, token_hash, expires_at, revoked_at FROM refresh_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1',
-      [userId]
-    )) as any[];
+    const tokenRecord = await prisma.refreshToken.findFirst({
+      where: {
+        userId,
+        revokedAt: null
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
     if (!tokenRecord) {
       logger.warn('Refresh token not found in database', {
@@ -52,7 +55,7 @@ export const refreshController = asyncHandler(async (req, res) => {
     }
 
     // Check if token is revoked
-    if (tokenRecord.revoked_at) {
+    if (tokenRecord.revokedAt) {
       logger.warn('Attempt to use revoked refresh token', {
         userId
       });
@@ -60,7 +63,7 @@ export const refreshController = asyncHandler(async (req, res) => {
     }
 
     // Verify token hash matches
-    const isTokenValid = await verifyTokenHash(refreshToken, tokenRecord.token_hash);
+    const isTokenValid = await verifyTokenHash(refreshToken, tokenRecord.tokenHash);
 
     if (!isTokenValid) {
       logger.warn('Refresh token hash mismatch', {
@@ -70,12 +73,18 @@ export const refreshController = asyncHandler(async (req, res) => {
     }
 
     // Get user info
-    const [[user]] = (await db.query(
-      'SELECT id, email, status, first_name, last_name FROM users WHERE id = ?',
-      [userId]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        firstName: true,
+        lastName: true
+      }
+    });
 
-    if (!user || user.status !== 'active') {
+    if (!user || user.status.toUpperCase() !== 'ACTIVE') {
       logger.warn('Attempt to refresh token for inactive user', {
         userId,
         status: user?.status || 'not found'
@@ -84,8 +93,9 @@ export const refreshController = asyncHandler(async (req, res) => {
     }
 
     // Generate new tokens
-    const newAccessToken = generateAccessToken(userId, user.email, 'USER');
-    const newRefreshToken = generateRefreshToken(userId);
+    const subject = userId.toString();
+    const newAccessToken = generateAccessToken(subject, user.email, 'USER');
+    const newRefreshToken = generateRefreshToken(subject);
     const newRefreshTokenHash = await hashToken(newRefreshToken);
 
     // Calculate expiration
@@ -93,23 +103,22 @@ export const refreshController = asyncHandler(async (req, res) => {
 
     // ALWAYS rotate tokens (revoke old, insert new)
     // This prevents token replay attacks and improves security
-    await db.query(
-      'UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = ?',
-      [tokenRecord.id]
-    );
+    await prisma.refreshToken.update({
+      where: { id: tokenRecord.id },
+      data: { revokedAt: new Date() }
+    });
 
     // Insert new token
-    await db.query(
-      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, device_name) VALUES (?, ?, ?, ?, ?, ?)',
-      [
+    await prisma.refreshToken.create({
+      data: {
         userId,
-        newRefreshTokenHash,
+        tokenHash: newRefreshTokenHash,
         expiresAt,
-        getClientIP(req),
-        req.headers['user-agent'] || 'Unknown',
-        getDeviceName(req.headers['user-agent'] || '')
-      ]
-    );
+        ipAddress: getClientIP(req),
+        userAgent: (req.headers['user-agent'] as string) || 'Unknown',
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+      }
+    });
 
     // Set new refresh token cookie
     res.cookie(auth.cookies.refreshTokenName, newRefreshToken, {
@@ -126,10 +135,10 @@ export const refreshController = asyncHandler(async (req, res) => {
     // Return new tokens
     return ok(res, {
       user: {
-        id: userId,
+        id: subject,
         email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name
+        firstName: user.firstName,
+        lastName: user.lastName
       },
       accessToken: newAccessToken,
       expiresIn: getTokenExpiryInSeconds(newAccessToken)

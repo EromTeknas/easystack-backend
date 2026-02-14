@@ -5,7 +5,7 @@ import { isValidEmail, isValidPassword, isValidName, getClientIP, getDeviceName 
 import { BadRequestError, ConflictError, InternalServerError } from '../../errors';
 import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
 import { ok } from '../../utils/response';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
 import { createEmailVerificationToken } from '../../services/email-verification-redis.service';
@@ -57,10 +57,14 @@ export const registerController = asyncHandler(async (req, res) => {
   }
 
   // Check if email already exists (email is the identity)
-  const [[existingUser]] = (await db.query(
-    'SELECT id, email_verified, status FROM users WHERE email = ?',
-    [email.toLowerCase()]
-  )) as any[];
+  const existingUser = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: {
+      id: true,
+      emailVerified: true,
+      status: true
+    }
+  });
 
   try {
     // Hash password
@@ -70,15 +74,21 @@ export const registerController = asyncHandler(async (req, res) => {
 
     if (!existingUser) {
       // New registration: create unverified user in PENDING_VERIFICATION state
-      const [result] = await db.query(
-        'INSERT INTO users (email, password_hash, first_name, last_name, email_verified, status) VALUES (?, ?, ?, ?, ?, ?)',
-        [email.toLowerCase(), passwordHash, firstName.trim(), lastName.trim(), false, 'PENDING_VERIFICATION']
-      ) as any;
+      const created = await prisma.user.create({
+        data: {
+          email: email.toLowerCase(),
+          passwordHash,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          emailVerified: false,
+          status: 'PENDING_VERIFICATION'
+        }
+      });
 
-      userId = result.insertId.toString();
+      userId = created.id.toString();
     } else {
       // Email exists
-      if (existingUser.email_verified) {
+      if (existingUser.emailVerified) {
         // Already verified: block registration and prompt login
         throw new ConflictError(
           'Email already registered. Please log in.',
@@ -90,16 +100,15 @@ export const registerController = asyncHandler(async (req, res) => {
       }
 
       // Unverified user: treat as re-registration, update provisional details
-      await db.query(
-        'UPDATE users SET password_hash = ?, first_name = ?, last_name = ?, status = ? WHERE id = ?',
-        [
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
           passwordHash,
-          firstName.trim(),
-          lastName.trim(),
-          'PENDING_VERIFICATION',
-          existingUser.id
-        ]
-      );
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          status: 'PENDING_VERIFICATION'
+        }
+      });
 
       userId = existingUser.id.toString();
     }

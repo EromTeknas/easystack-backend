@@ -1,6 +1,6 @@
 import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, InternalServerError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { isValidEmail } from '../../utils/validation';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
@@ -37,10 +37,15 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
   const normalizedEmail = email.toLowerCase();
 
   try {
-    const [[user]] = (await db.query(
-      'SELECT id, email, first_name, email_verified FROM users WHERE email = ? LIMIT 1',
-      [normalizedEmail]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        emailVerified: true
+      }
+    });
 
     // If user does not exist, return generic success to avoid leaking existence
     if (!user) {
@@ -50,7 +55,7 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
     }
 
     // If email is not verified, block password reset and resend verification OTP
-    if (!user.email_verified) {
+    if (!user.emailVerified) {
       const userId = user.id.toString();
 
       const otpCode = generateOtpCode();
@@ -59,7 +64,7 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
 
       await enqueueSendOtpEmailJob({
         email: user.email,
-        firstName: user.first_name,
+        firstName: user.firstName || '',
         otpCode
       });
 
@@ -81,7 +86,7 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
 
     await enqueueSendPasswordResetEmailJob({
       email: user.email,
-      firstName: user.first_name,
+      firstName: user.firstName || '',
       token
     });
 

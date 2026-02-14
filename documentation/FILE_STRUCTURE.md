@@ -77,21 +77,23 @@ console.log(mongo.uri);     // mongodb://...
 
 ### `src/db/` - Database Connections
 
-Manages connections to MongoDB and MySQL.
+Manages connections to MongoDB and MySQL (via both mysql2 and Prisma ORM).
 
 ```
 db/
 ├── mongo.ts             # MongoDB connection & setup
-├── mysql.ts             # MySQL pool creation
-└── index.ts             # Initialize both databases
+├── mysql.ts             # MySQL pool creation (legacy/raw SQL)
+├── prisma.ts            # PrismaClient setup (primary MySQL access)
+└── index.ts             # Initialize all databases and re-export clients
 ```
 
 **Purpose**: Establishes and manages database connections on server startup.
 
 **Key Files**:
 - `mongo.ts` - Mongoose connection with error handling
-- `mysql.ts` - MySQL2 connection pool with config
-- `index.ts` - Called in `server.ts` to connect both databases
+- `mysql.ts` - MySQL2 connection pool with config (used by migration CLI)
+- `prisma.ts` - Configures `PrismaClient` using the same MySQL config
+- `index.ts` - Called in `server.ts` to connect Mongo, MySQL, and Prisma
 
 **Example Usage**:
 ```typescript

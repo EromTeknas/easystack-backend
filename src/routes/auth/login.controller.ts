@@ -4,7 +4,7 @@ import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } fr
 import { isValidEmail, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, UnauthorizedError, InternalServerError } from '../../errors';
 import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { ok } from '../../utils/response';
@@ -32,10 +32,18 @@ export const loginController = asyncHandler(async (req, res) => {
 
   try {
     // Find user by email
-    const [[user]] = (await db.query(
-      'SELECT id, email, password_hash, email_verified, status, first_name, last_name FROM users WHERE email = ?',
-      [email.toLowerCase()]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        emailVerified: true,
+        status: true,
+        firstName: true,
+        lastName: true
+      }
+    });
 
     if (!user) {
       logger.warn('Login attempt with non-existent email', {
@@ -46,7 +54,7 @@ export const loginController = asyncHandler(async (req, res) => {
     }
 
     // Check if email is verified
-    if (!user.email_verified) {
+    if (!user.emailVerified) {
       logger.warn('Login attempt with unverified email', {
         userId: user.id,
         email: email.toLowerCase(),
@@ -75,7 +83,7 @@ export const loginController = asyncHandler(async (req, res) => {
     }
 
     // Verify password
-    const isPasswordValid = await verifyPassword(password, user.password_hash);
+    const isPasswordValid = await verifyPassword(password, user.passwordHash);
 
     if (!isPasswordValid) {
       logger.warn('Login attempt with incorrect password', {
@@ -96,18 +104,17 @@ export const loginController = asyncHandler(async (req, res) => {
     // Calculate expiration
     const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
 
-    // Store refresh token hash in database
-    await db.query(
-      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, device_name) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        userId,
-        refreshTokenHash,
+    // Store refresh token hash in database via Prisma
+    await prisma.refreshToken.create({
+      data: {
+        userId: Number(userId),
+        tokenHash: refreshTokenHash,
         expiresAt,
-        getClientIP(req),
-        req.headers['user-agent'] || 'Unknown',
-        getDeviceName(req.headers['user-agent'] || '')
-      ]
-    );
+        ipAddress: getClientIP(req),
+        userAgent: (req.headers['user-agent'] as string) || 'Unknown',
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+      }
+    });
 
     // Log successful login
     logger.info('User logged in', {
@@ -117,10 +124,10 @@ export const loginController = asyncHandler(async (req, res) => {
     });
 
     // Update last login timestamp
-    await db.query(
-      'UPDATE users SET last_login_at = NOW() WHERE id = ?',
-      [userId]
-    );
+    await prisma.user.update({
+      where: { id: Number(userId) },
+      data: { lastLoginAt: new Date() }
+    });
 
     // Set refresh token cookie
     res.cookie(auth.cookies.refreshTokenName, refreshToken, {
@@ -135,8 +142,8 @@ export const loginController = asyncHandler(async (req, res) => {
       user: {
         id: userId,
         email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name
+        firstName: user.firstName,
+        lastName: user.lastName
       },
       accessToken,
       expiresIn: getTokenExpiryInSeconds(accessToken)

@@ -8,7 +8,7 @@
  */
 
 import 'dotenv/config';
-import { db } from '../db';
+import { prisma } from '../db';
 import logger from '../utils/logger';
 
 const EXPIRY_HOURS = parseInt(process.env.PENDING_USER_EXPIRY_HOURS || '48', 10);
@@ -19,16 +19,22 @@ async function main() {
       expiryHours: EXPIRY_HOURS
     });
 
-    const [result] = await db.query(
-      `UPDATE users
-       SET status = 'EXPIRED'
-       WHERE email_verified = FALSE
-         AND status = 'PENDING_VERIFICATION'
-         AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
-      [EXPIRY_HOURS]
-    );
+    const cutoff = new Date(Date.now() - EXPIRY_HOURS * 60 * 60 * 1000);
 
-    const affected = (result as any).affectedRows ?? 0;
+    const result = await prisma.user.updateMany({
+      where: {
+        emailVerified: false,
+        status: 'PENDING_VERIFICATION',
+        createdAt: {
+          lt: cutoff
+        }
+      },
+      data: {
+        status: 'EXPIRED'
+      }
+    });
+
+    const affected = result.count ?? 0;
 
     logger.info('Cleanup completed: expired pending users', {
       affectedRows: affected

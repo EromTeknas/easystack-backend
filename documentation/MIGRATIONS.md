@@ -20,12 +20,16 @@ Version-controlled database schema management. Migrations track and execute data
 
 ```bash
 # 1. Ensure MySQL is running and .env is configured
+#    (MYSQL_MIGRATION_*, MYSQL_APP_*, DATABASE_URL, SHADOW_DATABASE_URL)
 npm install
 
-# 2. Run all pending migrations
+# 2. Run all pending migrations (custom SQL-based system)
 npm run migrate:up
 
-# 3. Check status
+# 3. (Optional) Run Prisma migrations during development
+npm run prisma:migrate
+
+# 4. Check status of custom migrations
 npm run migrate:status
 ```
 
@@ -103,6 +107,8 @@ Removes migration records but does not drop tables/data.
 ---
 
 ## How It Works
+
+> Note: Application code now uses Prisma ORM for MySQL access. The custom migration system described below still uses raw SQL via the legacy MySQL pool and remains the source of truth for schema changes until Prisma migrations are introduced.
 
 ### Migration Tracking
 

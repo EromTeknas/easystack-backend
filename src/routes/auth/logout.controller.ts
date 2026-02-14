@@ -1,7 +1,7 @@
 import { asyncHandler } from '../../utils/asyncHandler';
 import { verifyRefreshToken } from '../../utils/jwt';
 import { InternalServerError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { ok } from '../../utils/response';
@@ -34,13 +34,18 @@ export const logoutController = asyncHandler(async (req, res) => {
       });
     }
 
-    const userId = decoded.sub;
+    const userId = Number(decoded.sub);
 
     // Revoke all refresh tokens for this user
-    await db.query(
-      'UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL',
-      [userId]
-    );
+    await prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
 
     logger.info('User logged out', {
       userId

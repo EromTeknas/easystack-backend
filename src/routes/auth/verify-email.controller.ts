@@ -9,7 +9,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
 import { hashToken } from '../../utils/password';
 import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { enqueueSendWelcomeEmailJob } from '../../queues/welcome-email.queue';
@@ -50,19 +50,26 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
     // OTP is valid - consume the verification token to prevent reuse
     await deleteEmailVerificationToken(verificationToken);
 
-    const userId = verificationRecord.userId;
+    const userId = Number(verificationRecord.userId);
 
-    const [[user]] = (await db.query(
-      'SELECT id, email, first_name, last_name, email_verified FROM users WHERE id = ?',
-      [userId]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        emailVerified: true,
+        status: true
+      }
+    });
 
     if (!user) {
       throw new NotFoundError('User not found');
     }
 
     // Check if already verified
-    if (user.email_verified) {
+    if (user.emailVerified) {
       return ok(res, {
         message: 'Email already verified',
         verified: true
@@ -70,16 +77,16 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
     }
 
     // Mark user email as verified and activate account
-    await db.query(
-      'UPDATE users SET email_verified = TRUE, status = ? WHERE id = ?',
-      ['ACTIVE', userId]
-    );
+    await prisma.user.update({
+      where: { id: userId },
+      data: { emailVerified: true, status: 'ACTIVE' }
+    });
 
     // Ensure user has a default workspace and membership (created after verification)
-    const [[existingMembership]] = (await db.query(
-      'SELECT id FROM workspace_members WHERE user_id = ? LIMIT 1',
-      [userId]
-    )) as any[];
+    const existingMembership = await prisma.workspaceMember.findFirst({
+      where: { userId: userId },
+      select: { id: true }
+    });
 
     if (!existingMembership) {
       const workspaceId = await createDefaultWorkspace(userId.toString());
@@ -87,30 +94,29 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
     }
 
     // Generate tokens
-    const accessToken = generateAccessToken(userId, user.email, 'USER');
-    const refreshToken = generateRefreshToken(userId);
+    const accessToken = generateAccessToken(userId.toString(), user.email, 'USER');
+    const refreshToken = generateRefreshToken(userId.toString());
     const refreshTokenHash = await hashToken(refreshToken);
 
     // Calculate expiration
     const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
 
-    // Store refresh token hash
-    await db.query(
-      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, device_name) VALUES (?, ?, ?, ?, ?, ?)',
-      [
+    // Store refresh token hash via Prisma
+    await prisma.refreshToken.create({
+      data: {
         userId,
-        refreshTokenHash,
+        tokenHash: refreshTokenHash,
         expiresAt,
-        getClientIP(req),
-        req.headers['user-agent'] || 'Unknown',
-        getDeviceName(req.headers['user-agent'] || '')
-      ]
-    );
+        ipAddress: getClientIP(req),
+        userAgent: (req.headers['user-agent'] as string) || 'Unknown',
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+      }
+    });
 
     // Enqueue welcome email job (event-based)
     await enqueueSendWelcomeEmailJob({
       email: user.email,
-      firstName: user.first_name
+      firstName: user.firstName || ''
     });
 
     // Log verification
@@ -133,8 +139,8 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       user: {
         id: userId,
         email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name
+        firstName: user.firstName,
+        lastName: user.lastName
       },
       accessToken,
       expiresIn: getTokenExpiryInSeconds(accessToken),

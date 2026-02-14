@@ -7,7 +7,7 @@
 
 import { asyncHandler } from '../../utils/asyncHandler';
 import { UnauthorizedError, InternalServerError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { getUserWorkspaces } from '../../services/workspace.service';
@@ -25,10 +25,18 @@ export const getMeController = asyncHandler(async (req: any, res) => {
     }
 
     // Get user details
-    const [[user]] = (await db.query(
-      'SELECT id, email, first_name, last_name, email_verified, status, created_at FROM users WHERE id = ?',
-      [userId]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        emailVerified: true,
+        status: true,
+        createdAt: true
+      }
+    });
 
     if (!user) {
       throw new UnauthorizedError('User not found');
@@ -41,11 +49,11 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       user: {
         id: user.id.toString(),
         email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        emailVerified: user.email_verified,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        emailVerified: user.emailVerified,
         status: user.status,
-        createdAt: user.created_at
+        createdAt: user.createdAt
       },
       workspaces: workspaces.map((w: any) => ({
         id: w.id,

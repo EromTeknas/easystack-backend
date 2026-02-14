@@ -7,7 +7,7 @@
 
 import { asyncHandler } from '../../utils/asyncHandler';
 import { BadRequestError, NotFoundError, InternalServerError } from '../../errors';
-import { db } from '../../db';
+import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
@@ -33,20 +33,25 @@ export const resendOtpController = asyncHandler(async (req, res) => {
       throw new NotFoundError('Verification token not found or has expired');
     }
 
-    const userId = verificationRecord.userId;
+    const userId = Number(verificationRecord.userId);
 
     // Get user from DB to validate status and get firstName
-    const [[user]] = (await db.query(
-      'SELECT id, email, first_name, email_verified FROM users WHERE id = ?',
-      [userId]
-    )) as any[];
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        emailVerified: true
+      }
+    });
 
     if (!user) {
       throw new NotFoundError('User not found');
     }
 
     // Check if already verified
-    if (user.email_verified) {
+    if (user.emailVerified) {
       return ok(res, {
         message: 'Email already verified'
       });
@@ -62,7 +67,7 @@ export const resendOtpController = asyncHandler(async (req, res) => {
     // Enqueue OTP email job
     await enqueueSendOtpEmailJob({
       email: user.email,
-      firstName: user.first_name,
+      firstName: user.firstName || '',
       otpCode
     });
 
