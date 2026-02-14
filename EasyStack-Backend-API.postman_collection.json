@@ -29,19 +29,16 @@
                   "    pm.expect(jsonData.success).to.equal(true);",
                   "});",
                   "",
-                  "pm.test(\"Response contains user data (no access token)\", function () {",
+                  "pm.test(\"Response contains email and verificationToken (no userId)\", function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.data).to.have.property('userId');",
                   "    pm.expect(jsonData.data).to.have.property('email');",
-                  "    pm.expect(jsonData.data).to.have.property('firstName');",
-                  "    pm.expect(jsonData.data).to.have.property('lastName');",
-                  "    pm.expect(jsonData.data).to.have.property('nextStep');",
-                  "    pm.expect(jsonData.data.nextStep).to.equal('verify-email');",
+                  "    pm.expect(jsonData.data).to.have.property('verificationToken');",
                   "});",
                   "",
                   "if (pm.response.code === 201) {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.environment.set('userId', jsonData.data.userId);",
+                  "    pm.environment.set('verificationToken', jsonData.data.verificationToken);",
+                  "    pm.environment.set('email', jsonData.data.email);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -100,7 +97,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"userId\": \"1\",\n    \"email\": \"user@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"message\": \"Registration successful. Please verify your email to continue.\",\n    \"nextStep\": \"verify-email\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"email\": \"user@example.com\",\n    \"verificationToken\": \"4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8\"\n  }\n}"
             }
           ]
         },
@@ -149,14 +146,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"otpCode\": \"123456\"\n}"
+              "raw": "{\n  \"verificationToken\": \"{{verificationToken}}\",\n  \"otpCode\": \"123456\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/auth/verify-email",
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "verify-email"]
             },
-            "description": "Verify user's email with OTP code. Returns access token upon successful verification."
+            "description": "Verify user's email using the short-lived verification token returned by the register endpoint together with the OTP code sent by email. Returns access token upon successful verification."
           },
           "response": [
             {
@@ -198,7 +195,7 @@
               "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"1\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"expiresIn\": 900,\n    \"verified\": true,\n    \"message\": \"Email verified successfully\"\n  }\n}"
             },
             {
-              "name": "401 - Invalid OTP Code",
+              "name": "401 - Invalid Verification Code",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -229,7 +226,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"UNAUTHORIZED\",\n    \"message\": \"Invalid OTP code\"\n  }\n}"
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"UNAUTHORIZED\",\n    \"message\": \"Invalid or expired verification code\"\n  }\n}"
             }
           ]
         },
@@ -714,14 +711,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": \"{{userId}}\"\n}"
+              "raw": "{\n  \"verificationToken\": \"{{verificationToken}}\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/auth/resend-otp",
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "resend-otp"]
             },
-            "description": "Resend OTP code to user's email (deletes old OTP and generates new one)"
+            "description": "Resend OTP code to user's email using the existing verification token (regenerates OTP and updates the verification record)"
           },
           "response": [
             {
@@ -736,7 +733,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"userId\": \"550e8400-e29b-41d4-a716-446655440000\"\n}"
+                  "raw": "{\n  \"verificationToken\": \"4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8\"\n}"
                 },
                 "url": {
                   "raw": "http://localhost:3000/api/auth/resend-otp",

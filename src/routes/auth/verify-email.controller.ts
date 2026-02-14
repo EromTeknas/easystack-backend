@@ -16,25 +16,42 @@ import { enqueueSendWelcomeEmailJob } from '../../queues/welcome-email.queue';
 import { createDefaultWorkspace, addWorkspaceMember } from '../../services/workspace.service';
 import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
-import { verifyUserOtpFromRedis } from '../../services/otp-redis.service';
+import { getEmailVerificationRecord, deleteEmailVerificationToken } from '../../services/email-verification-redis.service';
+import { verifyOtp } from '../../utils/otp';
 
-/**
- * Verify email with OTP
- */
 export const verifyEmailController = asyncHandler(async (req, res) => {
-  const { userId, otpCode } = req.body;
+  const { verificationToken, otpCode } = req.body;
 
   // Validate input
-  if (!userId || !otpCode) {
-    throw new BadRequestError('userId and otpCode are required');
+  if (!verificationToken || typeof verificationToken !== 'string') {
+    throw new BadRequestError('verificationToken is required');
   }
 
-  if (otpCode.length !== 6 || !/^\d+$/.test(otpCode)) {
-    throw new BadRequestError('Invalid OTP format');
+  if (!otpCode || typeof otpCode !== 'string') {
+    throw new BadRequestError('otpCode is required');
   }
 
   try {
     // Get user
+    // Resolve verification token from Redis (maps token -> user + email + otpHash + purpose)
+    const verificationRecord = await getEmailVerificationRecord(verificationToken);
+
+    if (!verificationRecord || verificationRecord.purpose !== 'EMAIL_VERIFICATION') {
+      throw new UnauthorizedError('Invalid or expired verification token');
+    }
+
+    // Validate OTP against stored hash
+    const isValidOtp = await verifyOtp(otpCode, verificationRecord.otpHash);
+
+    if (!isValidOtp) {
+      throw new UnauthorizedError('Invalid OTP code');
+    }
+
+    // OTP is valid - consume the verification token to prevent reuse
+    await deleteEmailVerificationToken(verificationToken);
+
+    const userId = verificationRecord.userId;
+
     const [[user]] = (await db.query(
       'SELECT id, email, first_name, last_name, email_verified FROM users WHERE id = ?',
       [userId]
@@ -50,31 +67,6 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
         message: 'Email already verified',
         verified: true
       });
-    }
-
-    // Verify OTP from Redis (hashed, with TTL and attempt limits)
-    const otpResult = await verifyUserOtpFromRedis(userId.toString(), otpCode);
-
-    if (otpResult.status === 'NOT_FOUND') {
-      throw new UnauthorizedError('No active OTP found or OTP has expired. Please request a new one.');
-    }
-
-    if (otpResult.status === 'TOO_MANY_ATTEMPTS') {
-      logger.warn('Too many OTP attempts', {
-        userId,
-        attempts: otpResult.attempts,
-        maxAttempts: otpResult.maxAttempts
-      });
-      throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
-    }
-
-    if (otpResult.status === 'INVALID') {
-      logger.warn('Invalid OTP attempt', {
-        userId,
-        attempts: otpResult.attempts,
-        maxAttempts: otpResult.maxAttempts
-      });
-      throw new UnauthorizedError('Invalid OTP code');
     }
 
     // Mark user email as verified and activate account
@@ -151,7 +143,6 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
     });
   } catch (error: any) {
     logger.error('Email verification failed', {
-      userId,
       error: error.message
     });
 

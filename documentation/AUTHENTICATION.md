@@ -380,7 +380,7 @@ CREATE TABLE audit_logs (
 
 ### 1. POST /auth/register
 
-**Purpose**: Create a new user account and send OTP for email verification
+**Purpose**: Create a new user account, send OTP for email verification, and issue a short-lived verification token for API-based email verification.
 
 **Request**:
 ```json
@@ -403,21 +403,17 @@ CREATE TABLE audit_logs (
 {
   "success": true,
   "data": {
-    "userId": "1",
     "email": "john@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "message": "Registration successful. Please verify your email to continue.",
-    "nextStep": "verify-email"
+    "verificationToken": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8"
   }
 }
 ```
 
 **Notes**:
 - No access token is returned at registration
-- OTP is sent to the provided email address
-- User receives a 6-digit OTP code valid for 10 minutes
-- User must verify email using the OTP before login
+- OTP is still sent to the provided email address for email-based flows
+- A short-lived `verificationToken` is also created and stored in Redis and can be used by the frontend to call `/auth/verify-email` without exposing `userId`
+- User must verify email (via verificationToken + OTP) before login
 - A default workspace is created for the user
 
 **Response (400 Bad Request)**:
@@ -446,21 +442,23 @@ CREATE TABLE audit_logs (
 
 ### 2. POST /auth/verify-email
 
-**Purpose**: Verify user's email using OTP code and grant access
+**Purpose**: Verify user's email using the short-lived verification token plus the OTP code and grant access
 
 **Request**:
 ```json
 {
-  "userId": "1",
+  "verificationToken": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8",
   "otpCode": "123456"
 }
 ```
 
 **Validation**:
-- userId must be valid UUID
-- otpCode must be exactly 6 digits
-- OTP must not be expired (10 minute window)
-- OTP must not exceed max attempts (5 attempts)
+- verificationToken must be a non-empty string
+- otpCode must be a non-empty string
+- A corresponding Redis key must exist: `email_verification:<verificationToken>`
+- The Redis record must contain a `purpose` of `EMAIL_VERIFICATION`
+- The stored `otpHash` must match the provided `otpCode`
+- The key must not be expired (short-lived TTL, aligned with OTP expiry configuration)
 
 **Response (200 OK)**:
 ```json
@@ -493,13 +491,13 @@ CREATE TABLE audit_logs (
 Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
 ```
 
-**Response (401 Unauthorized)** (invalid or expired OTP):
+**Response (401 Unauthorized)** (invalid or expired verification code):
 ```json
 {
   "success": false,
   "error": {
     "code": "UNAUTHORIZED",
-    "message": "Invalid OTP code"
+    "message": "Invalid or expired verification code"
   }
 }
 ```
@@ -530,12 +528,12 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
 
 ### 3. POST /auth/resend-otp
 
-**Purpose**: Resend OTP code to user's email
+**Purpose**: Resend OTP code to user's email using an existing verification token
 
 **Request**:
 ```json
 {
-  "userId": "1"
+  "verificationToken": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8"
 }
 ```
 
@@ -551,10 +549,9 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
 ```
 
 **Notes**:
-- Invalidates previous OTP
-- Sends new 6-digit code via email
-- New OTP is valid for 10 minutes
-- Reset attempt counter to 0
+- Regenerates and updates the OTP hash in the existing verification record in Redis
+- Sends a new 6-digit code via email
+- New OTP is valid for 10 minutes (TTL is refreshed when OTP is regenerated)
 
 **Response (404 Not Found)**:
 ```json

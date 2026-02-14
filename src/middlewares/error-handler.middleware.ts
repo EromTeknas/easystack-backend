@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../utils/logger';
 import { AppError } from '../errors';
+import { GENERAL_ERROR_CODES } from '../constants/errorCodes';
 import { ApiErrorBody } from '../utils/response';
 
 /**
@@ -54,7 +55,7 @@ export const errorHandlerMiddleware = (
   // For unhandled errors, send generic 500 response (don't leak details in production)
   const isProduction = process.env.ENVIRONMENT === 'prod';
   const statusCode = 500;
-  const errorCode = 'INTERNAL_SERVER_ERROR';
+  const errorCode = GENERAL_ERROR_CODES.INTERNAL_SERVER_ERROR;
 
   const requestId = (_req as any).requestId || 'unknown';
   const body: ApiErrorBody = {

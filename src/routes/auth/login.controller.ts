@@ -42,7 +42,7 @@ export const loginController = asyncHandler(async (req, res) => {
         email: email.toLowerCase(),
         ipAddress: getClientIP(req)
       });
-      throw new UnauthorizedError('Invalid email or password');
+      throw new UnauthorizedError('Invalid email or password', AUTH_ERROR_CODES.INVALID_CREDENTIALS);
     }
 
     // Check if email is verified
@@ -52,12 +52,15 @@ export const loginController = asyncHandler(async (req, res) => {
         email: email.toLowerCase(),
         ipAddress: getClientIP(req)
       });
-      throw new UnauthorizedError('Email not verified. Please verify your email to continue.', {
-        code: AUTH_ERROR_CODES.EMAIL_NOT_VERIFIED,
-        userId: user.id,
-        nextStep: 'verify-email',
-        canResendOtp: true
-      });
+      throw new UnauthorizedError(
+        'Email not verified. Please verify your email to continue.',
+        AUTH_ERROR_CODES.EMAIL_NOT_VERIFIED,
+        {
+          userId: user.id,
+          nextStep: 'verify-email',
+          canResendOtp: true
+        }
+      );
     }
 
     // Check user status
@@ -68,7 +71,7 @@ export const loginController = asyncHandler(async (req, res) => {
         status: user.status,
         ipAddress: getClientIP(req)
       });
-      throw new UnauthorizedError('Invalid email or password');
+      throw new UnauthorizedError('Invalid email or password', AUTH_ERROR_CODES.INVALID_CREDENTIALS);
     }
 
     // Verify password
@@ -80,7 +83,7 @@ export const loginController = asyncHandler(async (req, res) => {
         email: email.toLowerCase(),
         ipAddress: getClientIP(req)
       });
-      throw new UnauthorizedError('Invalid email or password');
+      throw new UnauthorizedError('Invalid email or password', AUTH_ERROR_CODES.INVALID_CREDENTIALS);
     }
 
     const userId = user.id.toString();

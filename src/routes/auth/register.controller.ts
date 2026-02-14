@@ -7,8 +7,8 @@ import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
 import { ok } from '../../utils/response';
 import { db } from '../../db';
 import logger from '../../utils/logger';
-import { storeUserOtp } from '../../services/otp-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
+import { createEmailVerificationToken } from '../../services/email-verification-redis.service';
 
 /**
  * Register a new user account
@@ -80,10 +80,13 @@ export const registerController = asyncHandler(async (req, res) => {
       // Email exists
       if (existingUser.email_verified) {
         // Already verified: block registration and prompt login
-        throw new ConflictError('Email already registered. Please log in.', {
-          field: 'email',
-          code: AUTH_ERROR_CODES.EMAIL_ALREADY_VERIFIED
-        });
+        throw new ConflictError(
+          'Email already registered. Please log in.',
+          AUTH_ERROR_CODES.EMAIL_ALREADY_VERIFIED,
+          {
+            field: 'email'
+          }
+        );
       }
 
       // Unverified user: treat as re-registration, update provisional details
@@ -101,12 +104,17 @@ export const registerController = asyncHandler(async (req, res) => {
       userId = existingUser.id.toString();
     }
 
-    // Generate OTP
+    // Generate OTP and hash it for secure storage
     const otpCode = generateOtpCode();
     const otpCodeHash = await hashOtp(otpCode);
 
-    // Store OTP in Redis with TTL
-    await storeUserOtp(userId, otpCodeHash);
+    // Create short-lived verification token in Redis with otpHash, userId, email, purpose
+    const verificationToken = await createEmailVerificationToken(
+      userId,
+      email.toLowerCase(),
+      otpCodeHash,
+      'EMAIL_VERIFICATION'
+    );
 
     // Enqueue OTP email job via BullMQ (event-based email sending)
     await enqueueSendOtpEmailJob({
@@ -122,18 +130,12 @@ export const registerController = asyncHandler(async (req, res) => {
       ipAddress: getClientIP(req)
     });
 
-    // Return response (no tokens until verified)
+    // Return response (no tokens until verified, no userId exposed)
     return ok(
       res,
       {
-        userId,
         email: email.toLowerCase(),
-        firstName,
-        lastName,
-        message: existingUser
-          ? 'Verification pending. OTP resent.'
-          : 'Registration successful. Please verify your email to continue.',
-        nextStep: 'verify-email'
+        verificationToken
       },
       { statusCode: existingUser ? 200 : 201 }
     );

@@ -11,22 +11,31 @@ import { db } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { generateOtpCode, hashOtp } from '../../utils/otp';
-import { storeUserOtp } from '../../services/otp-redis.service';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
+import { getEmailVerificationRecord, updateEmailVerificationOtpHash } from '../../services/email-verification-redis.service';
 
 /**
  * Resend OTP to user's email
  * POST /auth/resend-otp
  */
 export const resendOtpController = asyncHandler(async (req, res) => {
-  const { userId } = req.body;
+  const { verificationToken } = req.body;
 
-  if (!userId) {
-    throw new BadRequestError('userId is required');
+  if (!verificationToken) {
+    throw new BadRequestError('verificationToken is required');
   }
 
   try {
-    // Get user
+    // Resolve verification token from Redis to obtain userId and email
+    const verificationRecord = await getEmailVerificationRecord(verificationToken);
+
+    if (!verificationRecord) {
+      throw new NotFoundError('Verification token not found or has expired');
+    }
+
+    const userId = verificationRecord.userId;
+
+    // Get user from DB to validate status and get firstName
     const [[user]] = (await db.query(
       'SELECT id, email, first_name, email_verified FROM users WHERE id = ?',
       [userId]
@@ -47,8 +56,8 @@ export const resendOtpController = asyncHandler(async (req, res) => {
     const otpCode = generateOtpCode();
     const otpCodeHash = await hashOtp(otpCode);
 
-    // Store new OTP in Redis (overwrites any existing OTP for this user)
-    await storeUserOtp(userId.toString(), otpCodeHash);
+    // Update OTP hash in the existing verification token record
+    await updateEmailVerificationOtpHash(verificationToken, otpCodeHash);
 
     // Enqueue OTP email job
     await enqueueSendOtpEmailJob({
@@ -68,7 +77,7 @@ export const resendOtpController = asyncHandler(async (req, res) => {
     });
   } catch (error: any) {
     logger.error('OTP resend failed', {
-      userId,
+      verificationToken,
       error: error.message
     });
 

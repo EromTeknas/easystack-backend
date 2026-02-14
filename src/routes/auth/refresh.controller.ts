@@ -22,7 +22,7 @@ export const refreshController = asyncHandler(async (req, res) => {
     const refreshToken = req.cookies?.[auth.cookies.refreshTokenName];
 
     if (!refreshToken) {
-      throw new UnauthorizedError('Refresh token not found', { hint: 'Please login again' });
+      throw new UnauthorizedError('Refresh token not found');
     }
 
     // Verify refresh token signature and expiration
@@ -33,7 +33,7 @@ export const refreshController = asyncHandler(async (req, res) => {
       logger.warn('Invalid refresh token used', {
         error: error.message
       });
-      throw new UnauthorizedError('Invalid or expired refresh token', { hint: 'Please login again' });
+      throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
     const userId = decoded.sub;
@@ -48,7 +48,7 @@ export const refreshController = asyncHandler(async (req, res) => {
       logger.warn('Refresh token not found in database', {
         userId
       });
-      throw new UnauthorizedError('Refresh token invalid', { hint: 'Please login again' });
+      throw new UnauthorizedError('Refresh token invalid');
     }
 
     // Check if token is revoked
@@ -56,7 +56,7 @@ export const refreshController = asyncHandler(async (req, res) => {
       logger.warn('Attempt to use revoked refresh token', {
         userId
       });
-      throw new UnauthorizedError('Refresh token has been revoked', { hint: 'Please login again' });
+      throw new UnauthorizedError('Refresh token has been revoked');
     }
 
     // Verify token hash matches
@@ -66,7 +66,7 @@ export const refreshController = asyncHandler(async (req, res) => {
       logger.warn('Refresh token hash mismatch', {
         userId
       });
-      throw new UnauthorizedError('Refresh token invalid', { hint: 'Please login again' });
+      throw new UnauthorizedError('Refresh token invalid');
     }
 
     // Get user info
@@ -80,7 +80,7 @@ export const refreshController = asyncHandler(async (req, res) => {
         userId,
         status: user?.status || 'not found'
       });
-      throw new UnauthorizedError('User account is inactive', { hint: 'Please login again' });
+      throw new UnauthorizedError('User account is inactive');
     }
 
     // Generate new tokens
@@ -143,6 +143,6 @@ export const refreshController = asyncHandler(async (req, res) => {
       error: error.message
     });
 
-    throw new UnauthorizedError('Refresh failed', { hint: 'Please login again' });
+    throw new UnauthorizedError('Refresh failed');
   }
 });

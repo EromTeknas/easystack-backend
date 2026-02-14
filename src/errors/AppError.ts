@@ -1,3 +1,5 @@
+import { GENERAL_ERROR_CODES } from '../constants/errorCodes';
+
 /**
  * Base Application Error Class
  * All application errors should extend this class
@@ -32,8 +34,13 @@ export class AppError extends Error {
  * The server cannot process the request due to client error (validation, malformed syntax, etc.)
  */
 export class BadRequestError extends AppError {
-  constructor(message: string, details?: Record<string, any>) {
-    super(message, 400, 'BAD_REQUEST', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Bad request';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.BAD_REQUEST;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 400, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, BadRequestError.prototype);
   }
 }
@@ -43,8 +50,10 @@ export class BadRequestError extends AppError {
  * The request lacks valid authentication credentials
  */
 export class UnauthorizedError extends AppError {
-  constructor(message: string = 'Unauthorized access', details?: Record<string, any>) {
-    super(message, 401, 'UNAUTHORIZED', true, details);
+  constructor(message?: string, errorCode?: string, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Unauthorized access';
+    const finalCode = errorCode ?? GENERAL_ERROR_CODES.UNAUTHORIZED;
+    super(finalMessage, 401, finalCode, true, details);
     Object.setPrototypeOf(this, UnauthorizedError.prototype);
   }
 }
@@ -54,8 +63,13 @@ export class UnauthorizedError extends AppError {
  * The client is authenticated but does not have access rights to the resource
  */
 export class ForbiddenError extends AppError {
-  constructor(message: string = 'Access forbidden', details?: Record<string, any>) {
-    super(message, 403, 'FORBIDDEN', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Access forbidden';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.FORBIDDEN;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 403, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, ForbiddenError.prototype);
   }
 }
@@ -65,8 +79,13 @@ export class ForbiddenError extends AppError {
  * The requested resource could not be found
  */
 export class NotFoundError extends AppError {
-  constructor(message: string = 'Resource not found', details?: Record<string, any>) {
-    super(message, 404, 'NOT_FOUND', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Resource not found';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.NOT_FOUND;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 404, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, NotFoundError.prototype);
   }
 }
@@ -76,8 +95,10 @@ export class NotFoundError extends AppError {
  * The request conflicts with the current state of the server (e.g., duplicate entry)
  */
 export class ConflictError extends AppError {
-  constructor(message: string = 'Resource conflict', details?: Record<string, any>) {
-    super(message, 409, 'CONFLICT', true, details);
+  constructor(message?: string, errorCode?: string, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Resource conflict';
+    const finalCode = errorCode ?? GENERAL_ERROR_CODES.CONFLICT;
+    super(finalMessage, 409, finalCode, true, details);
     Object.setPrototypeOf(this, ConflictError.prototype);
   }
 }
@@ -87,8 +108,13 @@ export class ConflictError extends AppError {
  * The request is well-formed but contains semantic errors
  */
 export class ValidationError extends AppError {
-  constructor(message: string, details?: Record<string, any>) {
-    super(message, 422, 'VALIDATION_ERROR', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Validation error';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.VALIDATION_ERROR;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 422, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
@@ -98,8 +124,13 @@ export class ValidationError extends AppError {
  * The user has sent too many requests in a given amount of time (rate limiting)
  */
 export class TooManyRequestsError extends AppError {
-  constructor(message: string = 'Too many requests', details?: Record<string, any>) {
-    super(message, 429, 'TOO_MANY_REQUESTS', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Too many requests';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.TOO_MANY_REQUESTS;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 429, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, TooManyRequestsError.prototype);
   }
 }
@@ -109,8 +140,13 @@ export class TooManyRequestsError extends AppError {
  * The server encountered an unexpected condition
  */
 export class InternalServerError extends AppError {
-  constructor(message: string = 'Internal server error', details?: Record<string, any>) {
-    super(message, 500, 'INTERNAL_SERVER_ERROR', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Internal server error';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.INTERNAL_SERVER_ERROR;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 500, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, InternalServerError.prototype);
   }
 }
@@ -120,8 +156,13 @@ export class InternalServerError extends AppError {
  * The server does not support the functionality required to fulfill the request
  */
 export class NotImplementedError extends AppError {
-  constructor(message: string = 'Feature not implemented', details?: Record<string, any>) {
-    super(message, 501, 'NOT_IMPLEMENTED', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Feature not implemented';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.NOT_IMPLEMENTED;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 501, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, NotImplementedError.prototype);
   }
 }
@@ -131,8 +172,13 @@ export class NotImplementedError extends AppError {
  * The server is temporarily unable to handle the request (maintenance, overloaded, etc.)
  */
 export class ServiceUnavailableError extends AppError {
-  constructor(message: string = 'Service temporarily unavailable', details?: Record<string, any>) {
-    super(message, 503, 'SERVICE_UNAVAILABLE', true, details);
+  constructor(message?: string, errorCodeOrDetails?: string | Record<string, any>, details?: Record<string, any>) {
+    const finalMessage = message ?? 'Service temporarily unavailable';
+    const hasCustomCode = typeof errorCodeOrDetails === 'string';
+    const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.SERVICE_UNAVAILABLE;
+    const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
+
+    super(finalMessage, 503, finalCode, true, finalDetails);
     Object.setPrototypeOf(this, ServiceUnavailableError.prototype);
   }
 }
@@ -146,7 +192,7 @@ export class DatabaseConnectionError extends AppError {
     super(
       `Failed to connect to ${dbName}`,
       503,
-      'DATABASE_CONNECTION_ERROR',
+      GENERAL_ERROR_CODES.DATABASE_CONNECTION_ERROR,
       true,
       originalError ? { originalError: originalError.message } : undefined
     );
@@ -163,7 +209,7 @@ export class DatabaseOperationError extends AppError {
     super(
       `Database operation failed: ${operation}`,
       500,
-      'DATABASE_OPERATION_ERROR',
+      GENERAL_ERROR_CODES.DATABASE_OPERATION_ERROR,
       true,
       originalError ? { originalError: originalError.message } : undefined
     );

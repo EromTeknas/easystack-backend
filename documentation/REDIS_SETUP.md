@@ -11,6 +11,10 @@ Redis is a required dependency for the authentication flows:
 - **Email OTP verification**
   - Hashed OTP codes and attempt counters are stored in Redis.
   - Keys: `email_otp:<userId>`.
+- **Email verification records**
+  - Short-lived verification records issued during registration are stored in Redis.
+  - Each record maps a `verificationToken` to `userId`, `email`, an `otpHash`, and a `purpose` field (e.g. `EMAIL_VERIFICATION`).
+  - Keys: `email_verification:<verificationToken>`.
 - **Password reset tokens**
   - High-entropy, hashed reset tokens are stored in Redis.
   - Keys: `password_reset:<token>` (token maps to a userId stored in the hash).
@@ -81,6 +85,7 @@ You can also inspect keys:
 
 ```bash
 redis-cli KEYS "email_otp:*"
+redis-cli KEYS "email_verification:*"
 redis-cli KEYS "password_reset:*"
 ```
 

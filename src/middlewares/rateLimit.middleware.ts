@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import { getClientIP } from '../utils/validation';
+import { GENERAL_ERROR_CODES } from '../constants/errorCodes';
 
 /**
  * Rate limiter for authentication endpoints
@@ -16,7 +17,7 @@ export const authRateLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: {
-        code: 'TOO_MANY_REQUESTS',
+        code: GENERAL_ERROR_CODES.TOO_MANY_REQUESTS,
         message: 'Too many authentication attempts, please try again later',
         statusCode: 429
       }

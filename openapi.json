@@ -122,8 +122,8 @@
     "/api/auth/verify-email": {
       "post": {
         "tags": ["Authentication"],
-        "summary": "Verify email with OTP",
-        "description": "Verify user email using OTP code. Returns access token upon successful verification.",
+        "summary": "Verify email with verification token and OTP",
+        "description": "Verify user email using a short-lived verification token issued at registration together with the OTP code sent by email. Returns access token upon successful verification.",
         "operationId": "verifyEmail",
         "requestBody": {
           "required": true,
@@ -131,11 +131,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["userId", "otpCode"],
+                "required": ["verificationToken", "otpCode"],
                 "properties": {
-                  "userId": {
+                  "verificationToken": {
                     "type": "string",
-                    "example": "1"
+                    "example": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8"
                   },
                   "otpCode": {
                     "type": "string",
@@ -165,7 +165,7 @@
             }
           },
           "401": {
-            "description": "Invalid or expired OTP",
+            "description": "Invalid or expired verification token or OTP",
             "content": {
               "application/json": {
                 "schema": {
@@ -181,7 +181,7 @@
       "post": {
         "tags": ["Authentication"],
         "summary": "Resend OTP code",
-        "description": "Resend OTP code to user email",
+        "description": "Resend OTP code to user email using an existing verification token.",
         "operationId": "resendOtp",
         "requestBody": {
           "required": true,
@@ -189,11 +189,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["userId"],
+                "required": ["verificationToken"],
                 "properties": {
-                  "userId": {
+                  "verificationToken": {
                     "type": "string",
-                    "example": "1"
+                    "example": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8"
                   }
                 }
               }
@@ -541,29 +541,14 @@
           "data": {
             "type": "object",
             "properties": {
-              "userId": {
-                "type": "string",
-                "example": "1"
-              },
               "email": {
                 "type": "string",
                 "example": "john@example.com"
               },
-              "firstName": {
+              "verificationCode": {
                 "type": "string",
-                "example": "John"
-              },
-              "lastName": {
-                "type": "string",
-                "example": "Doe"
-              },
-              "message": {
-                "type": "string",
-                "example": "Registration successful. Please verify your email to continue."
-              },
-              "nextStep": {
-                "type": "string",
-                "example": "verify-email"
+                "description": "Short-lived verification code that maps to the user in Redis and is used by /auth/verify-email.",
+                "example": "4a2f9c0b8e1d4f01b3c5a7d9e2f4c6a8"
               }
             }
           }
