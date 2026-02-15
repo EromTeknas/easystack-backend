@@ -27,8 +27,8 @@ cp .env.example .env
 # MongoDB: See "MongoDB Setup" section
 # MySQL: See "MySQL Setup" section
 
-# 4. Run migrations
-npm run migrate:up
+# 4. Run Prisma migrations (MySQL only)
+npm run prisma:migrate
 
 # 5. Start development
 npm run dev
@@ -197,7 +197,7 @@ MONGO_PASSWORD=Password%40123%21
 
 ```bash
 npm install
-npm run migrate:up
+npm run dev
 ```
 
 Check logs for successful connection message.
@@ -261,26 +261,45 @@ Or on Windows (open Command Prompt as Administrator):
 mysql -u root -p
 ```
 
-### 4. Create Application Database
+### 4. Create Databases (main + shadow)
 
 ```sql
 CREATE DATABASE easystack
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+CREATE DATABASE easystack_shadow
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
 SHOW DATABASES;
 ```
 
-### 5. Create Application User
+### 5. Create Users (migration + app)
 
-Do NOT use root for applications. Create dedicated user:
+We use two separate MySQL users:
+
+- **Migration user** (full schema privileges for Prisma CLI)
+- **App user** (CRUD-only for the running application)
 
 ```sql
-CREATE USER 'easystack'@'localhost' 
-  IDENTIFIED BY 'StrongPassword123!';
+-- Migration user (used by Prisma via DATABASE_URL/SHADOW_DATABASE_URL)
+CREATE USER 'easystack_migrate'@'localhost'
+  IDENTIFIED BY 'StrongMigrationPassword123!';
 
-GRANT ALL PRIVILEGES ON easystack.* 
-  TO 'easystack'@'localhost';
+GRANT ALL PRIVILEGES ON easystack.*
+  TO 'easystack_migrate'@'localhost';
+
+GRANT ALL PRIVILEGES ON easystack_shadow.*
+  TO 'easystack_migrate'@'localhost';
+
+-- App user (used by the Node.js app)
+CREATE USER 'easystack_app'@'localhost'
+  IDENTIFIED BY 'StrongAppPassword123!';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON easystack.*
+  TO 'easystack_app'@'localhost';
 
 FLUSH PRIVILEGES;
 ```
@@ -290,7 +309,10 @@ FLUSH PRIVILEGES;
 For Node.js compatibility, use `mysql_native_password`:
 
 ```sql
-ALTER USER 'easystack'@'localhost'
+ALTER USER 'easystack_migrate'@'localhost'
+  IDENTIFIED WITH mysql_native_password BY 'StrongMigrationPassword123!';
+
+ALTER USER 'easystack_app'@'localhost'
   IDENTIFIED WITH mysql_native_password BY 'StrongPassword123!';
 
 FLUSH PRIVILEGES;
@@ -303,39 +325,42 @@ Exit MySQL first:
 EXIT;
 ```
 
-Test login:
+Test login (app user):
 ```bash
-mysql -u easystack -p -h localhost easystack
+mysql -u easystack_app -p -h localhost easystack
 ```
 
 Enter password when prompted.
 
-### 8. Configure Environment Variables
+### 8. Configure Environment Variables (MySQL)
 
-Update `.env`:
+Update `.env` (example):
 
 ```env
 DATABASE_TYPE=mysql
+
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
-MYSQL_USER=easystack
-MYSQL_PASSWORD=StrongPassword123!
 MYSQL_DATABASE=easystack
+MYSQL_DATABASE_SHADOW=easystack_shadow
+
+MYSQL_MIGRATION_USER=easystack_migrate
+MYSQL_MIGRATION_PASSWORD=StrongMigrationPassword123!
+
+MYSQL_APP_USER=easystack_app
+MYSQL_APP_PASSWORD=StrongAppPassword123!
+
+DATABASE_URL=mysql://easystack_migrate:StrongMigrationPassword123!@localhost:3306/easystack
+SHADOW_DATABASE_URL=mysql://easystack_migrate:StrongMigrationPassword123!@localhost:3306/easystack_shadow
 ```
 
-### 9. Run Migrations
+### 9. Run Prisma Migrations (MySQL)
 
 ```bash
-npm run migrate:up
+npm run prisma:migrate
 ```
 
-This creates all necessary tables:
-- `users`
-- `email_otps`
-- `refresh_tokens`
-- `workspaces`
-- `workspace_members`
-- `audit_logs`
+This applies all Prisma migrations and creates the necessary tables.
 
 ### Common MySQL Errors
 
@@ -474,11 +499,9 @@ npm run dev              # Start with auto-reload (nodemon)
 npm run build            # Compile TypeScript to JavaScript
 npm start                # Run compiled code
 
-# Database Migrations
-npm run migrate:up       # Run all pending migrations
-npm run migrate:down     # Rollback last migration
-npm run migrate:fresh    # Reset database (dev only!)
-npm run migrate:status   # Show migration status
+# Prisma & Database Migrations
+npm run prisma:migrate   # Run Prisma migrations (dev)
+npm run prisma:generate  # Regenerate Prisma client after schema changes
 ```
 
 ---
@@ -544,18 +567,14 @@ sudo systemctl status mysql
 mysql -u easystack -p -h localhost easystack
 ```
 
-### Migrations Fail
+### Migrations Fail (MySQL + Prisma)
 
 ```bash
-# Check status
-npm run migrate:status
-
 # Check logs
 tail -f storage/logs/easystack.log
 
-# Clear and restart (dev only!)
-npm run migrate:fresh
-npm run migrate:up
+# Re-run Prisma migrations (dev only!)
+npm run prisma:migrate
 ```
 
 ### Port Already in Use

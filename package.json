@@ -9,11 +9,6 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "migrate:up": "ts-node src/cli/migrate.ts up",
-    "migrate:down": "ts-node src/cli/migrate.ts down",
-    "migrate:status": "ts-node src/cli/migrate.ts status",
-    "migrate:fresh": "ts-node src/cli/migrate.ts down:all && ts-node src/cli/migrate.ts up",
-    "migrate:fresh:preserve": "ts-node src/cli/migrate.ts down:all -- --preserve-data && ts-node src/cli/migrate.ts up",
     "worker": "ts-node src/workers/index.worker.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts"
   },

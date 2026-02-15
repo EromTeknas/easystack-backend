@@ -291,11 +291,9 @@ npm run dev              # Start with auto-reload
 npm run build            # Compile TypeScript
 npm start                # Run production
 
-# Migrations
-npm run migrate:up       # Run pending migrations
-npm run migrate:down     # Rollback
-npm run migrate:fresh    # Reset (dev only)
-npm run migrate:status   # Check status
+# Prisma & Migrations
+npm run prisma:migrate   # Run Prisma migrations (dev)
+npm run prisma:generate  # Regenerate Prisma client after schema changes
 ```
 
 ---

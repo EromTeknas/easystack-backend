@@ -155,11 +155,9 @@ npm run dev              # Start with auto-reload (nodemon)
 npm run build            # Compile TypeScript to JavaScript
 npm start                # Run compiled code
 
-# Database Migrations
-npm run migrate:up       # Run all pending migrations
-npm run migrate:down     # Rollback last migration
-npm run migrate:fresh    # Rollback all, then run all (⚠️ WIPES DATA)
-npm run migrate:status   # Show migration status
+# Prisma & Database Migrations
+npm run prisma:migrate   # Run Prisma migrations (dev)
+npm run prisma:generate  # Regenerate Prisma client after schema changes
 ```
 
 ---
@@ -188,7 +186,7 @@ Follow [Setup Guide](documentation/SETUP_GUIDE.md) to:
 ### 4. Deploy to Production
 - Run `npm run build` to compile
 - Setup environment variables for prod
-- Run `npm run migrate:up` on production database
+- Apply Prisma migrations using your deployment process (e.g. `prisma migrate deploy`)
 - Start with `npm start`
 
 ---

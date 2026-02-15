@@ -236,7 +236,7 @@ OTP_MAX_ATTEMPTS=5
 ## Checklist for Deployment
 
 - [ ] Update all environment variables
-- [ ] Run migrations: `npm run migrate:up`
+- [ ] Run Prisma migrations: `npm run prisma:migrate`
 - [ ] Test all auth endpoints
 - [ ] Configure Brevo API key
 - [ ] Test email sending
