@@ -3,8 +3,8 @@ import { Response } from 'express';
 export type ApiSuccess<T> = {
   success: true;
   data: T;
+  requestId: string;
   meta?: Record<string, unknown>;
-  requestId?: string;
 };
 
 export type ApiErrorBody = {
@@ -26,18 +26,16 @@ export function ok<T>(
   options?: { statusCode?: number; meta?: Record<string, unknown>; requestId?: string }
 ) {
   const statusCode = options?.statusCode ?? 200;
-  const requestId = options?.requestId ?? (res.req as any)?.requestId;
+  const requestId = options?.requestId ?? (res.req as any)?.requestId ?? 'unknown';
 
   const body: ApiSuccess<T> = {
     success: true,
     data,
+    requestId,
     ...(options?.meta ? { meta: options.meta } : {}),
-    ...(requestId ? { requestId } : {}),
   };
 
-  if (requestId) {
-    res.setHeader('x-request-id', requestId);
-  }
+  res.setHeader('x-request-id', requestId);
 
   return res.status(statusCode).json(body);
 }
