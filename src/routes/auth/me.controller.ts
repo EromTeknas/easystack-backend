@@ -17,62 +17,67 @@ import { getUserWorkspaces } from '../../services/workspace.service';
  * GET /auth/me
  */
 export const getMeController = asyncHandler(async (req: any, res) => {
+  logger.info('GET /api/auth/me start');
   try {
-    const userId = req.user?.id;
+    try {
+      const userId = req.user?.id;
 
-    if (!userId) {
-      throw new UnauthorizedError('Not authenticated');
-    }
-
-    // Get user details
-    const user = await prisma.user.findUnique({
-      where: { id: Number(userId) },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        emailVerified: true,
-        status: true,
-        createdAt: true
+      if (!userId) {
+        throw new UnauthorizedError('Not authenticated');
       }
-    });
 
-    if (!user) {
-      throw new UnauthorizedError('User not found');
+      // Get user details
+      const user = await prisma.user.findUnique({
+        where: { id: Number(userId) },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          emailVerified: true,
+          status: true,
+          createdAt: true
+        }
+      });
+
+      if (!user) {
+        throw new UnauthorizedError('User not found');
+      }
+
+      // Get user's workspaces
+      const workspaces = await getUserWorkspaces(userId);
+
+      return ok(res, {
+        user: {
+          id: user.id.toString(),
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          emailVerified: user.emailVerified,
+          status: user.status,
+          createdAt: user.createdAt
+        },
+        workspaces: workspaces.map((w: any) => ({
+          id: w.id,
+          name: w.name,
+          logoUrl: w.logo_url,
+          role: w.role,
+          createdAt: w.created_at
+        }))
+      });
+    } catch (error: any) {
+      if (error instanceof UnauthorizedError) {
+        throw error;
+      }
+
+      logger.error('Failed to get user profile', {
+        userId: req.user?.id,
+        error: error.message
+      });
+
+      throw new InternalServerError('Failed to retrieve user profile');
     }
-
-    // Get user's workspaces
-    const workspaces = await getUserWorkspaces(userId);
-
-    return ok(res, {
-      user: {
-        id: user.id.toString(),
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        emailVerified: user.emailVerified,
-        status: user.status,
-        createdAt: user.createdAt
-      },
-      workspaces: workspaces.map((w: any) => ({
-        id: w.id,
-        name: w.name,
-        logoUrl: w.logo_url,
-        role: w.role,
-        createdAt: w.created_at
-      }))
-    });
-  } catch (error: any) {
-    if (error instanceof UnauthorizedError) {
-      throw error;
-    }
-
-    logger.error('Failed to get user profile', {
-      userId: req.user?.id,
-      error: error.message
-    });
-
-    throw new InternalServerError('Failed to retrieve user profile');
+  } finally {
+    logger.info('GET /api/auth/me end');
   }
 });

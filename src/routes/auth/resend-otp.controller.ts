@@ -19,77 +19,82 @@ import { getEmailVerificationRecord, updateEmailVerificationOtpHash } from '../.
  * POST /auth/resend-otp
  */
 export const resendOtpController = asyncHandler(async (req, res) => {
-  const { verificationToken } = req.body;
-
-  if (!verificationToken) {
-    throw new BadRequestError('verificationToken is required');
-  }
-
+  logger.info('POST /api/auth/resend-otp start');
   try {
-    // Resolve verification token from Redis to obtain userId and email
-    const verificationRecord = await getEmailVerificationRecord(verificationToken);
+    const { verificationToken } = req.body;
 
-    if (!verificationRecord) {
-      throw new NotFoundError('Verification token not found or has expired');
+    if (!verificationToken) {
+      throw new BadRequestError('verificationToken is required');
     }
 
-    const userId = Number(verificationRecord.userId);
+    try {
+      // Resolve verification token from Redis to obtain userId and email
+      const verificationRecord = await getEmailVerificationRecord(verificationToken);
 
-    // Get user from DB to validate status and get firstName
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        emailVerified: true
+      if (!verificationRecord) {
+        throw new NotFoundError('Verification token not found or has expired');
       }
-    });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+      const userId = Number(verificationRecord.userId);
 
-    // Check if already verified
-    if (user.emailVerified) {
-      return ok(res, {
-        message: 'Email already verified'
+      // Get user from DB to validate status and get firstName
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          emailVerified: true
+        }
       });
+
+      if (!user) {
+        throw new NotFoundError('User not found');
+      }
+
+      // Check if already verified
+      if (user.emailVerified) {
+        return ok(res, {
+          message: 'Email already verified'
+        });
+      }
+
+      // Generate new OTP
+      const otpCode = generateOtpCode();
+      const otpCodeHash = await hashOtp(otpCode);
+
+      // Update OTP hash in the existing verification token record
+      await updateEmailVerificationOtpHash(verificationToken, otpCodeHash);
+
+      // Enqueue OTP email job
+      await enqueueSendOtpEmailJob({
+        email: user.email,
+        firstName: user.firstName || '',
+        otpCode
+      });
+
+      logger.info('OTP resent', {
+        userId,
+        email: user.email
+      });
+
+      return ok(res, {
+        message: 'OTP sent to your email',
+        email: user.email
+      });
+    } catch (error: any) {
+      logger.error('OTP resend failed', {
+        verificationToken,
+        error: error.message
+      });
+
+      if (error instanceof BadRequestError || error instanceof NotFoundError) {
+        throw error;
+      }
+
+      throw new InternalServerError('Failed to resend OTP');
     }
-
-    // Generate new OTP
-    const otpCode = generateOtpCode();
-    const otpCodeHash = await hashOtp(otpCode);
-
-    // Update OTP hash in the existing verification token record
-    await updateEmailVerificationOtpHash(verificationToken, otpCodeHash);
-
-    // Enqueue OTP email job
-    await enqueueSendOtpEmailJob({
-      email: user.email,
-      firstName: user.firstName || '',
-      otpCode
-    });
-
-    logger.info('OTP resent', {
-      userId,
-      email: user.email
-    });
-
-    return ok(res, {
-      message: 'OTP sent to your email',
-      email: user.email
-    });
-  } catch (error: any) {
-    logger.error('OTP resend failed', {
-      verificationToken,
-      error: error.message
-    });
-
-    if (error instanceof BadRequestError || error instanceof NotFoundError) {
-      throw error;
-    }
-
-    throw new InternalServerError('Failed to resend OTP');
+  } finally {
+    logger.info('POST /api/auth/resend-otp end');
   }
 });

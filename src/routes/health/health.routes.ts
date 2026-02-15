@@ -11,15 +11,20 @@ const router = Router();
  * Returns the health status of the application
  */
 router.get('/', asyncHandler(async (_req, res) => {
-  // Log verification
-  logger.info('Health check requested', {
+  logger.info('GET /api/health start', {
     ipAddress: _req.ip,
     req: _req.body
   });
-  return ok(res, {
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-  });
+  try {
+    return ok(res, {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+    });
+  } finally {
+    logger.info('GET /api/health end', {
+      ipAddress: _req.ip
+    });
+  }
 }));
 
 export default router;

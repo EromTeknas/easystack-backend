@@ -24,87 +24,92 @@ import { ok } from '../../utils/response';
  *     - For now, respond generic success stub
  */
 export const forgotPasswordController = asyncHandler(async (req, res) => {
-  const { email } = req.body as { email?: string };
-
-  if (!email) {
-    throw new BadRequestError('Email is required');
-  }
-
-  if (!isValidEmail(email)) {
-    throw new BadRequestError('Invalid email format');
-  }
-
-  const normalizedEmail = email.toLowerCase();
-
+  logger.info('POST /api/auth/forgot-password start');
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        emailVerified: true
-      }
-    });
+    const { email } = req.body as { email?: string };
 
-    // If user does not exist, return generic success to avoid leaking existence
-    if (!user) {
+    if (!email) {
+      throw new BadRequestError('Email is required');
+    }
+
+    if (!isValidEmail(email)) {
+      throw new BadRequestError('Invalid email format');
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          emailVerified: true
+        }
+      });
+
+      // If user does not exist, return generic success to avoid leaking existence
+      if (!user) {
+        return ok(res, {
+          message: 'If an account exists with this email, we have sent password reset instructions.'
+        });
+      }
+
+      // If email is not verified, block password reset and resend verification OTP
+      if (!user.emailVerified) {
+        const userId = user.id.toString();
+
+        const otpCode = generateOtpCode();
+        const otpCodeHash = await hashOtp(otpCode);
+        await storeUserOtp(userId, otpCodeHash);
+
+        await enqueueSendOtpEmailJob({
+          email: user.email,
+          firstName: user.firstName || '',
+          otpCode
+        });
+
+        logger.info('Blocked password reset for unverified user; resent verification OTP', {
+          userId,
+          email: user.email
+        });
+
+        return ok(res, {
+          message: 'Please verify your email first. We have resent the verification code to your inbox.',
+          requiresEmailVerification: true,
+          nextStep: 'verify-email'
+        });
+      }
+
+      // Email is verified: generate password reset token, store hash in Redis, and enqueue email
+      const userId = user.id.toString();
+      const token = await createPasswordResetToken(userId);
+
+      await enqueueSendPasswordResetEmailJob({
+        email: user.email,
+        firstName: user.firstName || '',
+        token
+      });
+
+      logger.info('Password reset requested for verified user', { userId, email: user.email });
+
       return ok(res, {
         message: 'If an account exists with this email, we have sent password reset instructions.'
       });
-    }
-
-    // If email is not verified, block password reset and resend verification OTP
-    if (!user.emailVerified) {
-      const userId = user.id.toString();
-
-      const otpCode = generateOtpCode();
-      const otpCodeHash = await hashOtp(otpCode);
-      await storeUserOtp(userId, otpCodeHash);
-
-      await enqueueSendOtpEmailJob({
-        email: user.email,
-        firstName: user.firstName || '',
-        otpCode
+    } catch (error: any) {
+      logger.error('Forgot password request failed', {
+        email: normalizedEmail,
+        error: error.message
       });
 
-      logger.info('Blocked password reset for unverified user; resent verification OTP', {
-        userId,
-        email: user.email
-      });
+      if (error instanceof BadRequestError) {
+        throw error;
+      }
 
-      return ok(res, {
-        message: 'Please verify your email first. We have resent the verification code to your inbox.',
-        requiresEmailVerification: true,
-        nextStep: 'verify-email'
-      });
+      throw new InternalServerError('Failed to process forgot password request');
     }
-
-    // Email is verified: generate password reset token, store hash in Redis, and enqueue email
-    const userId = user.id.toString();
-    const token = await createPasswordResetToken(userId);
-
-    await enqueueSendPasswordResetEmailJob({
-      email: user.email,
-      firstName: user.firstName || '',
-      token
-    });
-
-    logger.info('Password reset requested for verified user', { userId, email: user.email });
-
-    return ok(res, {
-      message: 'If an account exists with this email, we have sent password reset instructions.'
-    });
-  } catch (error: any) {
-    logger.error('Forgot password request failed', {
-      email: normalizedEmail,
-      error: error.message
-    });
-
-    if (error instanceof BadRequestError) {
-      throw error;
-    }
-
-    throw new InternalServerError('Failed to process forgot password request');
+  } finally {
+    logger.info('POST /api/auth/forgot-password end');
   }
 });

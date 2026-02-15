@@ -17,75 +17,80 @@ import { verifyAndConsumePasswordResetToken } from '../../services/password-rese
  *   - confirmPassword (string)
  */
 export const resetPasswordController = asyncHandler(async (req, res) => {
-  const { token, password, confirmPassword } = req.body as {
-    token?: string;
-    password?: string;
-    confirmPassword?: string;
-  };
-
-  if (!token || !password || !confirmPassword) {
-    throw new BadRequestError('token, password, and confirmPassword are required');
-  }
-
-  if (!isValidPassword(password)) {
-    throw new BadRequestError('Password does not meet requirements', {
-      field: 'password'
-    });
-  }
-
-  if (password !== confirmPassword) {
-    throw new BadRequestError('Password and confirm password do not match', {
-      field: 'confirmPassword'
-    });
-  }
-
+  logger.info('POST /api/auth/reset-password start');
   try {
-    // Derive userId from the reset token stored in Redis
-    const userId = await verifyAndConsumePasswordResetToken(token);
+    const { token, password, confirmPassword } = req.body as {
+      token?: string;
+      password?: string;
+      confirmPassword?: string;
+    };
 
-    if (!userId) {
-      throw new UnauthorizedError('Invalid or expired reset token');
+    if (!token || !password || !confirmPassword) {
+      throw new BadRequestError('token, password, and confirmPassword are required');
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: Number(userId) },
-      select: {
-        id: true,
-        emailVerified: true
+    if (!isValidPassword(password)) {
+      throw new BadRequestError('Password does not meet requirements', {
+        field: 'password'
+      });
+    }
+
+    if (password !== confirmPassword) {
+      throw new BadRequestError('Password and confirm password do not match', {
+        field: 'confirmPassword'
+      });
+    }
+
+    try {
+      // Derive userId from the reset token stored in Redis
+      const userId = await verifyAndConsumePasswordResetToken(token);
+
+      if (!userId) {
+        throw new UnauthorizedError('Invalid or expired reset token');
       }
-    });
 
-    if (!user) {
-      throw new NotFoundError('Invalid or expired reset token');
+      const user = await prisma.user.findUnique({
+        where: { id: Number(userId) },
+        select: {
+          id: true,
+          emailVerified: true
+        }
+      });
+
+      if (!user) {
+        throw new NotFoundError('Invalid or expired reset token');
+      }
+
+      if (!user.emailVerified) {
+        throw new UnauthorizedError('Email not verified. Please verify your email before resetting password.');
+      }
+
+      const passwordHash = await hashPassword(password);
+
+      await prisma.user.update({
+        where: { id: Number(userId) },
+        data: { passwordHash }
+      });
+
+      // Optional: revoke existing refresh tokens for this user
+      await prisma.refreshToken.deleteMany({ where: { userId: Number(userId) } });
+
+      return ok(res, {
+        message: 'Password has been reset successfully. Please log in with your new password.'
+      });
+    } catch (error: any) {
+      logger.error('Password reset failed', {
+        token,
+        error: error.message
+      });
+
+      if (error instanceof BadRequestError || error instanceof UnauthorizedError || error instanceof NotFoundError) {
+        throw error;
+      }
+
+      throw new InternalServerError('Failed to reset password');
     }
-
-    if (!user.emailVerified) {
-      throw new UnauthorizedError('Email not verified. Please verify your email before resetting password.');
-    }
-
-    const passwordHash = await hashPassword(password);
-
-    await prisma.user.update({
-      where: { id: Number(userId) },
-      data: { passwordHash }
-    });
-
-    // Optional: revoke existing refresh tokens for this user
-    await prisma.refreshToken.deleteMany({ where: { userId: Number(userId) } });
-
-    return ok(res, {
-      message: 'Password has been reset successfully. Please log in with your new password.'
-    });
-  } catch (error: any) {
-    logger.error('Password reset failed', {
-      token,
-      error: error.message
-    });
-
-    if (error instanceof BadRequestError || error instanceof UnauthorizedError || error instanceof NotFoundError) {
-      throw error;
-    }
-
-    throw new InternalServerError('Failed to reset password');
+  } finally {
+    logger.info('POST /api/auth/reset-password end');
   }
 });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
+import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 
 const router = Router();
@@ -10,10 +11,15 @@ const router = Router();
  * Returns a greeting message
  */
 router.get('/', asyncHandler(async (_req, res) => {
-  return ok(res, {
-    message: 'Hello, World!',
-    timestamp: new Date().toISOString(),
-  });
+  logger.info('GET /api/hello start');
+  try {
+    return ok(res, {
+      message: 'Hello, World!',
+      timestamp: new Date().toISOString(),
+    });
+  } finally {
+    logger.info('GET /api/hello end');
+  }
 }));
 
 export default router;
