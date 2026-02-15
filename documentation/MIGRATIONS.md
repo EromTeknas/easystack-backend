@@ -2,14 +2,90 @@
 
 Version-controlled database schema management. Migrations track and execute database changes consistently across all environments.
 ## Deployment Workflow
+# Database Migrations
+
+Version-controlled database schema management using Prisma. Migrations track and execute database changes consistently across all environments.
+
+---
+
+## Quick Start
+
+### First Time Setup (Local, MySQL)
+
+```bash
+npm install
+
+# Ensure .env has DATABASE_URL and SHADOW_DATABASE_URL set
+npm run prisma:migrate
+```
+
+This applies all Prisma migrations in `prisma/migrations` to your local database.
+
+---
+
+## Commands
+
+```bash
+npm run prisma:migrate   # Run Prisma migrations in development
+npm run prisma:generate  # Regenerate Prisma client after schema changes
+```
+
+In CI/staging/production you typically use:
+
+```bash
+npx prisma migrate deploy
+```
+
+to apply already-generated migrations without creating new ones.
+
+---
+
+## How It Works
+
+- The datasource in `prisma/schema.prisma` is configured as:
+
+	```prisma
+	datasource db {
+		provider          = "mysql"
+		url               = env("DATABASE_URL")
+		shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+	}
+	```
+
+- `DATABASE_URL` and `SHADOW_DATABASE_URL` use the migration user credentials so Prisma can create and alter tables and manage the shadow database.
+- The running application uses the app user from the MySQL config and does **not** execute migrations.
+
+---
+
+## Creating New Migrations
+
+1. Edit `prisma/schema.prisma` to add or modify models/fields.
+2. Run:
+
+	 ```bash
+	 npm run prisma:migrate
+	 ```
+
+3. Prisma will:
+	 - Compare the schema with the database.
+	 - Generate a new folder under `prisma/migrations/` with SQL.
+	 - Apply the migration to your database.
+
+4. Commit both `prisma/schema.prisma` and the new `prisma/migrations/**` folder.
+
+---
+
+## Deployment Workflow
 
 ### Development
+
 ```bash
 npm install
 npm run prisma:migrate
 ```
 
 ### Staging/Production
+
 ```bash
 # 1. Deploy new code
 git pull origin main
@@ -24,67 +100,26 @@ npm start
 
 ---
 
-## Troubleshooting
+## Best Practices
 
-- Check that `DATABASE_URL` and `SHADOW_DATABASE_URL` are set and point to the correct databases.
-- Ensure the migration user has privileges on both the main and shadow databases.
-- Inspect the SQL in `prisma/migrations/**/migration.sql` when a migration fails.
+- Keep migrations small and focused on one logical change.
+- Always review generated SQL in `prisma/migrations/**/migration.sql`.
+- Commit migrations to git so all environments apply the same schema.
+- Use the migration user for Prisma CLI; use the app user for the running API.
 
 ---
 
-## Links
+## Troubleshooting
+
+- Check that `DATABASE_URL` and `SHADOW_DATABASE_URL` are set and valid.
+- Ensure the migration user has privileges on both main and shadow databases.
+- Inspect the failing migration SQL in `prisma/migrations/**/migration.sql`.
+
+---
+
+## Related Docs
 
 - [Authentication Documentation](../AUTHENTICATION.md)
 - [Setup Guide](../SETUP_GUIDE.md)
 - [Files Reference](../FILES_REFERENCE.md)
 
-````
-
-**Fields**:
-```sql
-id              BIGINT PRIMARY KEY AUTO_INCREMENT
-user_id         BIGINT (FK -> users.id, ON DELETE SET NULL)
-action          VARCHAR(50)
-resource        VARCHAR(100)
-ip_address      VARCHAR(45)
-user_agent      TEXT
-status          ENUM('success', 'failure')
-error_message   TEXT
-created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-```
-
-**Purpose**: Maintains an audit trail of important user actions for security and compliance.
-
----
-
-### 003-create-workspace-members ✅
-
-**Creates**: `workspace_members` table for workspace access control in the legacy system. New environments should rely solely on Prisma migrations for schema.
-
----
-
-### 004-create-email-otps ✅
-
-**Creates**: `email_otps` table for email verification in the legacy system. New environments use Redis-based OTP flows and Prisma schema.
-
----
-
-**Q: What if a migration fails halfway?**  
-A: The transaction rolls back. Fix the issue and run again.
-
-**Q: Can I skip a migration?**  
-A: Migrations must run in order. This ensures consistency.
-
-**Q: How do I share database schema with the team?**  
-A: Prisma migrations are in git. Everyone runs `npm run prisma:migrate` (locally) or `prisma migrate deploy` (via CI/CD) against their database.
-
-**Q: What about production data?**  
-A: Migrations should not delete data. Use `ALTER TABLE` not `DROP TABLE`.
-
----
-
-## Links
-
-- [Authentication Documentation](../AUTHENTICATION.md) - Authentication system design and email verification flow
-- [Setup Guide](../SETUP_GUIDE.md) - Initial project setup
-- [Files Reference](../FILES_REFERENCE.md) - Project file structure
