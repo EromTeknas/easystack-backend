@@ -91,8 +91,8 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       });
 
       if (!existingMembership) {
-        const workspaceId = await createDefaultWorkspace(userId.toString());
-        await addWorkspaceMember(workspaceId, userId.toString(), 'OWNER');
+        const workspaceId = await createDefaultWorkspace(userId);
+        await addWorkspaceMember(workspaceId, userId, 'OWNER');
       }
 
       // Generate tokens

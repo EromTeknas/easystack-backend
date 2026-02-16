@@ -60,6 +60,9 @@ export const authorize = (...allowedRoles: string[]) => {
   };
 };
 
+// Export alias for consistency
+export const authenticate = authenticateToken;
+
 /**
  * Middleware to check if user is authenticated (optional)
  * Does not throw error if not authenticated, just skips setting req.user

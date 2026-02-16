@@ -27,6 +27,7 @@ model User {
 
   refreshTokens RefreshToken[]
   workspaceMembers WorkspaceMember[]
+  subscription Subscription?
 }
 
 enum UserRole {
@@ -81,4 +82,52 @@ model WorkspaceMember {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Note: audit_logs and email_otps are intentionally omitted as they are being deprecated.
+model Plan {
+  id          String   @id @default(uuid())
+  name        String   @unique // free, pro, team, enterprise, custom
+  displayName String   @map("display_name")
+  config      Json     // JSON plan configuration (limits, features, pricing)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+  planVersions  PlanVersion[]
+
+  @@map("plans")
+}
+
+model PlanVersion {
+  id        String   @id @default(uuid())
+  planId    String   @map("plan_id")
+  version   Int
+  config    Json     // Versioned plan config
+  createdAt DateTime @default(now()) @map("created_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, version])
+  @@map("plan_versions")
+}
+
+model Subscription {
+  id             String             @id @default(uuid())
+  userId         Int                @unique @map("user_id")
+  planId         String             @map("plan_id")
+  status         SubscriptionStatus @default(TRIAL)
+  customOverride Json?              @map("custom_override") // Per-user plan overrides
+  expiresAt      DateTime?          @map("expires_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  EXPIRED
+  CANCELED
+}

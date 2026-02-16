@@ -10,7 +10,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "worker": "ts-node src/workers/index.worker.ts",
-    "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts"
+    "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
+    "billing:seed": "ts-node prisma/seed-plans.ts",
+    "billing:assign-free": "ts-node src/cli/assign-free-plans.ts"
   },
   "keywords": [],
   "author": "Sanket More",

@@ -3,7 +3,7 @@
  * Manages workspace creation, membership, and operations
  */
 
-import { db } from '../db';
+import { prisma } from '../db/prisma';
 import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { workspace as workspaceConfig } from '../config/workspace';
@@ -11,13 +11,13 @@ import { workspace as workspaceConfig } from '../config/workspace';
 interface WorkspaceInput {
   name: string;
   logoUrl?: string;
-  createdBy: string;
+  createdBy: number;
 }
 
 interface WorkspaceMember {
   id: string;
   workspaceId: string;
-  userId: string;
+  userId: number;
   role: 'OWNER' | 'ADMIN' | 'USER';
   createdAt: Date;
 }
@@ -29,15 +29,19 @@ export async function createWorkspace(input: WorkspaceInput): Promise<string> {
   const workspaceId = uuidv4();
 
   try {
-    await db.query(
-      'INSERT INTO workspaces (id, name, logo_url, created_by) VALUES (?, ?, ?, ?)',
-      [workspaceId, input.name, input.logoUrl || null, input.createdBy]
-    );
+    await prisma.workspace.create({
+      data: {
+        id: workspaceId,
+        name: input.name,
+        logoUrl: input.logoUrl || null,
+        createdBy: BigInt(input.createdBy),
+      },
+    });
 
     logger.info('Workspace created', {
       workspaceId,
       name: input.name,
-      createdBy: input.createdBy
+      createdBy: input.createdBy,
     });
 
     return workspaceId;
@@ -50,10 +54,10 @@ export async function createWorkspace(input: WorkspaceInput): Promise<string> {
 /**
  * Create default workspace for new user
  */
-export async function createDefaultWorkspace(userId: string): Promise<string> {
+export async function createDefaultWorkspace(userId: number): Promise<string> {
   return createWorkspace({
     name: workspaceConfig.defaults.name,
-    createdBy: userId
+    createdBy: userId,
   });
 }
 
@@ -62,21 +66,25 @@ export async function createDefaultWorkspace(userId: string): Promise<string> {
  */
 export async function addWorkspaceMember(
   workspaceId: string,
-  userId: string,
+  userId: number,
   role: 'OWNER' | 'ADMIN' | 'USER' = 'USER'
 ): Promise<string> {
   const memberId = uuidv4();
 
   try {
-    await db.query(
-      'INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, ?)',
-      [memberId, workspaceId, userId, role]
-    );
+    await prisma.workspaceMember.create({
+      data: {
+        id: memberId,
+        workspaceId,
+        userId,
+        role,
+      },
+    });
 
     logger.info('User added to workspace', {
       workspaceId,
       userId,
-      role
+      role,
     });
 
     return memberId;
@@ -89,18 +97,28 @@ export async function addWorkspaceMember(
 /**
  * Get user's workspaces
  */
-export async function getUserWorkspaces(userId: string): Promise<any[]> {
+export async function getUserWorkspaces(userId: number): Promise<any[]> {
   try {
-    const [workspaces] = await db.query(
-      `SELECT w.id, w.name, w.logo_url, wm.role, w.created_at, w.updated_at
-       FROM workspaces w
-       JOIN workspace_members wm ON w.id = wm.workspace_id
-       WHERE wm.user_id = ?
-       ORDER BY wm.created_at DESC`,
-      [userId]
-    ) as any;
+    const workspaces = await prisma.workspaceMember.findMany({
+      where: {
+        userId,
+      },
+      include: {
+        workspace: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
 
-    return workspaces || [];
+    return workspaces.map((member) => ({
+      id: member.workspace.id,
+      name: member.workspace.name,
+      logo_url: member.workspace.logoUrl,
+      role: member.role,
+      created_at: member.workspace.createdAt,
+      updated_at: member.workspace.updatedAt,
+    }));
   } catch (error) {
     logger.error('Failed to fetch user workspaces:', error);
     throw error;
@@ -112,15 +130,20 @@ export async function getUserWorkspaces(userId: string): Promise<any[]> {
  */
 export async function getUserWorkspaceRole(
   workspaceId: string,
-  userId: string
+  userId: number
 ): Promise<'OWNER' | 'ADMIN' | 'USER' | null> {
   try {
-    const [[result]] = await db.query(
-      'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
-      [workspaceId, userId]
-    ) as any;
+    const member = await prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId,
+        userId,
+      },
+      select: {
+        role: true,
+      },
+    });
 
-    return result?.role || null;
+    return member?.role as 'OWNER' | 'ADMIN' | 'USER' | null;
   } catch (error) {
     logger.error('Failed to fetch user role:', error);
     return null;
@@ -132,18 +155,38 @@ export async function getUserWorkspaceRole(
  */
 export async function getWorkspaceWithRole(
   workspaceId: string,
-  userId: string
+  userId: number
 ): Promise<any> {
   try {
-    const [[workspace]] = await db.query(
-      `SELECT w.id, w.name, w.logo_url, w.created_by, wm.role, w.created_at, w.updated_at
-       FROM workspaces w
-       LEFT JOIN workspace_members wm ON w.id = wm.workspace_id AND wm.user_id = ?
-       WHERE w.id = ?`,
-      [userId, workspaceId]
-    ) as any;
+    const workspace = await prisma.workspace.findUnique({
+      where: {
+        id: workspaceId,
+      },
+      include: {
+        members: {
+          where: {
+            userId,
+          },
+          select: {
+            role: true,
+          },
+        },
+      },
+    });
 
-    return workspace || null;
+    if (!workspace) {
+      return null;
+    }
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      logo_url: workspace.logoUrl,
+      created_by: workspace.createdBy.toString(),
+      role: workspace.members[0]?.role || null,
+      created_at: workspace.createdAt,
+      updated_at: workspace.updatedAt,
+    };
   } catch (error) {
     logger.error('Failed to fetch workspace:', error);
     return null;
@@ -155,7 +198,7 @@ export async function getWorkspaceWithRole(
  */
 export async function isWorkspaceOwner(
   workspaceId: string,
-  userId: string
+  userId: number
 ): Promise<boolean> {
   const role = await getUserWorkspaceRole(workspaceId, userId);
   return role === 'OWNER';
@@ -166,7 +209,7 @@ export async function isWorkspaceOwner(
  */
 export async function isWorkspaceAdmin(
   workspaceId: string,
-  userId: string
+  userId: number
 ): Promise<boolean> {
   const role = await getUserWorkspaceRole(workspaceId, userId);
   return role === 'OWNER' || role === 'ADMIN';

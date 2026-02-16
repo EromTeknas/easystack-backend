@@ -13,8 +13,7 @@ export class AppError extends Error {
   constructor(
     message: string,
     statusCode: number,
-    errorCode: string,
-    isOperational: boolean = true,
+    errorCode: string = 'INTERNAL_ERROR',
     details?: Record<string, any>
   ) {
     super(message);
@@ -22,8 +21,8 @@ export class AppError extends Error {
 
     this.statusCode = statusCode;
     this.errorCode = errorCode;
-    this.isOperational = isOperational;
-    this.details = details || undefined;
+    this.isOperational = true;
+    this.details = details;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -40,7 +39,7 @@ export class BadRequestError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.BAD_REQUEST;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 400, finalCode, true, finalDetails);
+    super(finalMessage, 400, finalCode, finalDetails);
     Object.setPrototypeOf(this, BadRequestError.prototype);
   }
 }
@@ -53,7 +52,7 @@ export class UnauthorizedError extends AppError {
   constructor(message?: string, errorCode?: string, details?: Record<string, any>) {
     const finalMessage = message ?? 'Unauthorized access';
     const finalCode = errorCode ?? GENERAL_ERROR_CODES.UNAUTHORIZED;
-    super(finalMessage, 401, finalCode, true, details);
+    super(finalMessage, 401, finalCode, details);
     Object.setPrototypeOf(this, UnauthorizedError.prototype);
   }
 }
@@ -69,7 +68,7 @@ export class ForbiddenError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.FORBIDDEN;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 403, finalCode, true, finalDetails);
+    super(finalMessage, 403, finalCode, finalDetails);
     Object.setPrototypeOf(this, ForbiddenError.prototype);
   }
 }
@@ -85,7 +84,7 @@ export class NotFoundError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.NOT_FOUND;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 404, finalCode, true, finalDetails);
+    super(finalMessage, 404, finalCode, finalDetails);
     Object.setPrototypeOf(this, NotFoundError.prototype);
   }
 }
@@ -98,7 +97,7 @@ export class ConflictError extends AppError {
   constructor(message?: string, errorCode?: string, details?: Record<string, any>) {
     const finalMessage = message ?? 'Resource conflict';
     const finalCode = errorCode ?? GENERAL_ERROR_CODES.CONFLICT;
-    super(finalMessage, 409, finalCode, true, details);
+    super(finalMessage, 409, finalCode, details);
     Object.setPrototypeOf(this, ConflictError.prototype);
   }
 }
@@ -114,7 +113,7 @@ export class ValidationError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.VALIDATION_ERROR;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 422, finalCode, true, finalDetails);
+    super(finalMessage, 422, finalCode, finalDetails);
     Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
@@ -130,7 +129,7 @@ export class TooManyRequestsError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.TOO_MANY_REQUESTS;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 429, finalCode, true, finalDetails);
+    super(finalMessage, 429, finalCode, finalDetails);
     Object.setPrototypeOf(this, TooManyRequestsError.prototype);
   }
 }
@@ -146,7 +145,7 @@ export class InternalServerError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.INTERNAL_SERVER_ERROR;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 500, finalCode, true, finalDetails);
+    super(finalMessage, 500, finalCode, finalDetails);
     Object.setPrototypeOf(this, InternalServerError.prototype);
   }
 }
@@ -162,7 +161,7 @@ export class NotImplementedError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.NOT_IMPLEMENTED;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 501, finalCode, true, finalDetails);
+    super(finalMessage, 501, finalCode, finalDetails);
     Object.setPrototypeOf(this, NotImplementedError.prototype);
   }
 }
@@ -178,7 +177,7 @@ export class ServiceUnavailableError extends AppError {
     const finalCode = hasCustomCode ? errorCodeOrDetails : GENERAL_ERROR_CODES.SERVICE_UNAVAILABLE;
     const finalDetails = hasCustomCode ? details : (errorCodeOrDetails as Record<string, any> | undefined);
 
-    super(finalMessage, 503, finalCode, true, finalDetails);
+    super(finalMessage, 503, finalCode, finalDetails);
     Object.setPrototypeOf(this, ServiceUnavailableError.prototype);
   }
 }
@@ -193,7 +192,6 @@ export class DatabaseConnectionError extends AppError {
       `Failed to connect to ${dbName}`,
       503,
       GENERAL_ERROR_CODES.DATABASE_CONNECTION_ERROR,
-      true,
       originalError ? { originalError: originalError.message } : undefined
     );
     Object.setPrototypeOf(this, DatabaseConnectionError.prototype);
@@ -210,7 +208,6 @@ export class DatabaseOperationError extends AppError {
       `Database operation failed: ${operation}`,
       500,
       GENERAL_ERROR_CODES.DATABASE_OPERATION_ERROR,
-      true,
       originalError ? { originalError: originalError.message } : undefined
     );
     Object.setPrototypeOf(this, DatabaseOperationError.prototype);

@@ -130,6 +130,24 @@ BullMQ-based background processing:
 
 ---
 
+### [BILLING.md](BILLING.md) - Plans, Pricing & Usage Tracking (NEW)
+
+Complete billing and subscription system:
+- ✅ JSON-based flexible plan configuration
+- ✅ Per-user custom overrides for enterprise
+- ✅ Real-time usage tracking in MongoDB
+- ✅ Redis caching for performance
+- ✅ Billing guards and middleware
+- ✅ Admin APIs for plan management
+- ✅ Plan versioning and history
+- ✅ Feature flags and quota enforcement
+- ✅ Default plan seeding
+- ✅ Integration examples
+
+**When to read:** Implementing billing, understanding plans/subscriptions, adding usage tracking.
+
+---
+
 ## 📖 Reference
 
 ### [FILES_REFERENCE.md](FILES_REFERENCE.md) - Detailed File Listing (11 KB)
@@ -223,6 +241,12 @@ See [_deprecated/README.md](_deprecated/README.md) for files that have been cons
 **Understand what was built**
 → [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)
 
+**Set up billing and plans**
+→ [BILLING.md](BILLING.md)
+
+**Add usage tracking to routes**
+→ [BILLING.md](BILLING.md)
+
 ---
 
 ## 📋 Quick Reference
@@ -240,13 +264,26 @@ POST   /api/auth/logout         - Revoke tokens
 GET    /api/auth/me             - Get current user
 ```
 
+**Billing Endpoints:**
+```
+GET    /api/billing/plans       - Get all available plans (public)
+GET    /api/billing/my-plan     - Get current user's plan & usage
+
+GET    /api/admin/billing/plans                      - Get all plans (admin)
+POST   /api/admin/billing/plans                      - Create plan (admin)
+PUT    /api/admin/billing/plans/:id                  - Update plan (admin)
+GET    /api/admin/billing/subscriptions/:userId      - Get user subscription (admin)
+PATCH  /api/admin/billing/subscriptions/:userId      - Update subscription (admin)
+PATCH  /api/admin/billing/subscriptions/:userId/override - Set custom override (admin)
+```
+
 **Health Endpoints:**
 ```
 GET    /api/health              - Health check
 GET    /api/hello               - Hello world
 ```
 
-See [AUTHENTICATION.md](AUTHENTICATION.md) for full details.
+See [AUTHENTICATION.md](AUTHENTICATION.md) and [BILLING.md](BILLING.md) for full details.
 
 ---
 

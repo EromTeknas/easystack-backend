@@ -9,6 +9,7 @@ import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { enqueueSendOtpEmailJob } from '../../queues/email-otp.queue';
 import { createEmailVerificationToken } from '../../services/email-verification-redis.service';
+import { BillingService } from '../../services/billing.service';
 
 /**
  * Register a new user account
@@ -24,7 +25,7 @@ export const registerController = asyncHandler(async (req, res) => {
   logger.info('POST /api/auth/register start');
   try {
     console.log('Register controller invoked', req.body);
-    const { email, password, confirmPassword, firstName, lastName } = req.body;
+    const { email, password, confirmPassword, firstName, lastName, planId } = req.body;
 
     // Validate input
     if (!email || !password || !confirmPassword || !firstName || !lastName) {
@@ -73,6 +74,7 @@ export const registerController = asyncHandler(async (req, res) => {
       const passwordHash = await hashPassword(password);
 
       let userId: string;
+      let isNewUser = false;
 
       if (!existingUser) {
         // New registration: create unverified user in PENDING_VERIFICATION state
@@ -88,6 +90,29 @@ export const registerController = asyncHandler(async (req, res) => {
         });
 
         userId = created.id.toString();
+        isNewUser = true;
+        
+        // Assign plan to new user (FREE by default, or custom planId from frontend)
+        try {
+          if (planId) {
+            // If planId provided from frontend (e.g., after purchase), use it
+            await BillingService.updateSubscription(created.id, {
+              planId: planId,
+              status: 'ACTIVE'
+            });
+            logger.info('Assigned custom plan to new user', { userId: created.id, planId });
+          } else {
+            // Default: assign FREE plan
+            await BillingService.createFreeSubscription(created.id);
+            logger.info('Assigned FREE plan to new user', { userId: created.id });
+          }
+        } catch (planError: any) {
+          logger.error('Failed to assign plan to new user', {
+            userId: created.id,
+            error: planError.message
+          });
+          // Don't fail registration if plan assignment fails - can be done later
+        }
       } else {
         // Email exists
         if (existingUser.emailVerified) {
