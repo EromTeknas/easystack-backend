@@ -15,6 +15,16 @@
 - Middleware order matters: request context → routes → notFound → error handler (see `src/server.ts`).
 - Always update docs in `documentation/` when behavior changes; edit existing docs instead of deprecating (v1 POC).
 
+## DateTime & timezone standards (CRITICAL)
+- **ALL datetime values MUST be in UTC** across the entire backend (database, API requests, API responses, internal processing).
+- **Request handling**: Always expect datetime inputs from frontend in UTC (ISO 8601 format with 'Z' suffix, e.g., `2026-02-15T10:30:00.000Z`).
+- **Response serialization**: Always send datetime values in UTC (ISO 8601 with 'Z' suffix). Use `.toISOString()` for JavaScript Date objects.
+- **Database storage**: All MySQL DateTime fields store UTC timestamps via Prisma `DateTime` type mapped to `DATETIME(3)`. MySQL stores these as-is (no timezone conversion).
+- **Internal processing**: Use `new Date()` for current UTC time, `Date.now()` for Unix timestamps. Never use locale-specific date methods or timezone conversions.
+- **JWT tokens**: Use Unix timestamps (`Math.floor(Date.now() / 1000)`) for `iat` and `exp` claims.
+- **Prisma defaults**: `@default(now())` generates UTC timestamps at insertion time.
+- **No timezone logic**: Backend does NOT perform timezone conversions. Client-side is responsible for displaying times in user's local timezone.
+
 ## Data & integrations
 - MySQL is accessed via Prisma client (`src/db/prisma.ts`) and mysql2 pool (`src/db/mysql.ts` for legacy/CLI).
 - MongoDB uses Mongoose (`src/db/mongo.ts`).

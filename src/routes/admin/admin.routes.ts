@@ -1,14 +1,12 @@
 import { Router } from 'express';
-import { authenticate } from '../../middlewares/authentication.middleware';
-import { adminOnly } from '../../middlewares/billing.middleware';
+import { adminDashboardAuth } from '../../middlewares/admin-auth.middleware';
 import * as plansController from './plans.controller';
 import * as subscriptionsController from './subscriptions.controller';
 
 const router = Router();
 
-// All admin routes require authentication and admin role
-router.use(authenticate);
-router.use(adminOnly);
+// Internal admin dashboard routes (auth logic to be added later)
+router.use(adminDashboardAuth);
 
 // Plans management
 router.get('/plans', plansController.getAllPlans);

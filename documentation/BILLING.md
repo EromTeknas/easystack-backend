@@ -225,7 +225,7 @@ GET /api/billing/my-plan
 ### Admin Billing Routes
 
 **Base:** `/api/admin/billing`
-**Auth:** Requires ADMIN role
+**Auth:** Internal EasyStack admin dashboard auth (placeholder; logic to be added)
 
 #### Plans Management
 

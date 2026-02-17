@@ -108,17 +108,3 @@ export function trackUsage(featureKey: string, amount: number | ((req: any) => n
   };
 }
 
-/**
- * Admin-only middleware - ensures only admins can access billing management endpoints
- */
-export function adminOnly(req: any, res: Response, next: NextFunction) {
-  if (!req.user?.id) {
-    throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
-  }
-
-  if (req.user.role !== 'ADMIN') {
-    throw new AppError('Admin access required', 403, 'ADMIN_REQUIRED');
-  }
-
-  next();
-}

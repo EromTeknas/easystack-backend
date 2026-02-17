@@ -11,6 +11,7 @@ import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { getUserWorkspaces } from '../../services/workspace.service';
+import { BillingService } from '../../services/billing.service';
 
 /**
  * Get current authenticated user with workspaces
@@ -45,7 +46,10 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       }
 
       // Get user's workspaces
-      const workspaces = await getUserWorkspaces(userId);
+      const workspaces = await getUserWorkspaces(Number(userId));
+      
+      // Get user's effective plan (with custom overrides applied)
+      const effectivePlan = await BillingService.getEffectivePlan(Number(userId));
 
       return ok(res, {
         user: {
@@ -63,7 +67,15 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           logoUrl: w.logo_url,
           role: w.role,
           createdAt: w.created_at
-        }))
+        })),
+        plan: {
+          id: effectivePlan.id,
+          name: effectivePlan.name,
+          displayName: effectivePlan.displayName,
+          limits: effectivePlan.config.limits,
+          features: effectivePlan.config.features,
+          pricing: effectivePlan.config.pricing
+        }
       });
     } catch (error: any) {
       if (error instanceof UnauthorizedError) {

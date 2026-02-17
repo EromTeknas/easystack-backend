@@ -269,12 +269,12 @@ GET    /api/auth/me             - Get current user
 GET    /api/billing/plans       - Get all available plans (public)
 GET    /api/billing/my-plan     - Get current user's plan & usage
 
-GET    /api/admin/billing/plans                      - Get all plans (admin)
-POST   /api/admin/billing/plans                      - Create plan (admin)
-PUT    /api/admin/billing/plans/:id                  - Update plan (admin)
-GET    /api/admin/billing/subscriptions/:userId      - Get user subscription (admin)
-PATCH  /api/admin/billing/subscriptions/:userId      - Update subscription (admin)
-PATCH  /api/admin/billing/subscriptions/:userId/override - Set custom override (admin)
+GET    /api/admin/billing/plans                      - Get all plans (internal admin dashboard)
+POST   /api/admin/billing/plans                      - Create plan (internal admin dashboard)
+PUT    /api/admin/billing/plans/:id                  - Update plan (internal admin dashboard)
+GET    /api/admin/billing/subscriptions/:userId      - Get user subscription (internal admin dashboard)
+PATCH  /api/admin/billing/subscriptions/:userId      - Update subscription (internal admin dashboard)
+PATCH  /api/admin/billing/subscriptions/:userId/override - Set custom override (internal admin dashboard)
 ```
 
 **Health Endpoints:**

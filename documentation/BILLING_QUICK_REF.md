@@ -141,6 +141,7 @@ GET  /api/billing/my-plan      - Current user's plan + usage (auth)
 ```
 
 ### Admin Endpoints
+Internal EasyStack admin dashboard (auth placeholder)
 ```
 GET    /api/admin/billing/plans
 POST   /api/admin/billing/plans
