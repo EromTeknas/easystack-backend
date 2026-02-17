@@ -760,6 +760,242 @@
       ]
     },
     {
+      "name": "Billing",
+      "description": "Billing endpoints (plans and usage)",
+      "item": [
+        {
+          "name": "Get Available Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/billing/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "billing", "plans"]
+            },
+            "description": "Public list of all available plans"
+          },
+          "response": [
+            {
+              "name": "200 - Plans",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:3000/api/billing/plans",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "3000",
+                  "path": ["api", "billing", "plans"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": \"7e1b8c6f-8b5b-4c38-9f7b-15f7b7d2a1a1\",\n      \"name\": \"free\",\n      \"displayName\": \"Free\",\n      \"config\": {\n        \"limits\": {\n          \"projects\": 3,\n          \"ai_tokens_monthly\": 100000\n        },\n        \"features\": {\n          \"custom_domain\": false\n        },\n        \"pricing\": {\n          \"monthly\": 0,\n          \"yearly\": 0,\n          \"currency\": \"USD\"\n        }\n      },\n      \"createdAt\": \"2026-02-15T10:30:00.000Z\",\n      \"updatedAt\": \"2026-02-15T10:30:00.000Z\"\n    }\n  ],\n  \"requestId\": \"abc123def456\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get My Plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/billing/my-plan",
+              "host": ["{{base_url}}"],
+              "path": ["api", "billing", "my-plan"]
+            },
+            "description": "Get effective plan and usage for the authenticated user"
+          },
+          "response": [
+            {
+              "name": "200 - My Plan",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/billing/my-plan",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "3000",
+                  "path": ["api", "billing", "my-plan"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"plan\": {\n      \"id\": \"7e1b8c6f-8b5b-4c38-9f7b-15f7b7d2a1a1\",\n      \"name\": \"free\",\n      \"displayName\": \"Free\",\n      \"config\": {\n        \"limits\": {\n          \"projects\": 3,\n          \"ai_tokens_monthly\": 100000\n        },\n        \"features\": {\n          \"custom_domain\": false\n        },\n        \"pricing\": {\n          \"monthly\": 0,\n          \"yearly\": 0,\n          \"currency\": \"USD\"\n        }\n      }\n    },\n    \"usage\": {\n      \"projects\": 1,\n      \"ai_tokens\": 1200\n    }\n  },\n  \"requestId\": \"abc123def456\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin Billing",
+      "description": "Internal admin dashboard billing endpoints",
+      "item": [
+        {
+          "name": "Admin - Get All Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "plans"]
+            },
+            "description": "Internal admin dashboard list of all plans"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Get Plan By Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/plans/{{planId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "plans", "{{planId}}"]
+            },
+            "description": "Internal admin dashboard get a plan by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Create Plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"pro\",\n  \"displayName\": \"Pro\",\n  \"config\": {\n    \"limits\": {\n      \"projects\": 10,\n      \"ai_tokens_monthly\": 500000\n    },\n    \"features\": {\n      \"custom_domain\": true\n    },\n    \"pricing\": {\n      \"monthly\": 19,\n      \"yearly\": 190,\n      \"currency\": \"USD\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "plans"]
+            },
+            "description": "Internal admin dashboard create a new plan"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Update Plan",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"limits\": {\n      \"projects\": 25,\n      \"ai_tokens_monthly\": 1000000\n    },\n    \"features\": {\n      \"custom_domain\": true,\n      \"audit_logs\": true\n    },\n    \"pricing\": {\n      \"monthly\": 49,\n      \"yearly\": 490,\n      \"currency\": \"USD\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/plans/{{planId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "plans", "{{planId}}"]
+            },
+            "description": "Internal admin dashboard update a plan"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Get User Subscription",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/subscriptions/{{userId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "subscriptions", "{{userId}}"]
+            },
+            "description": "Internal admin dashboard get a user's subscription"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Update Subscription",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planId\": \"{{planId}}\",\n  \"status\": \"ACTIVE\",\n  \"expiresAt\": \"2026-12-31T23:59:59.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/subscriptions/{{userId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "subscriptions", "{{userId}}"]
+            },
+            "description": "Internal admin dashboard update a user's subscription"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Set Custom Override",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"override\": {\n    \"limits\": {\n      \"projects\": null,\n      \"ai_tokens_monthly\": 10000000\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/billing/subscriptions/{{userId}}/override",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "billing", "subscriptions", "{{userId}}", "override"]
+            },
+            "description": "Internal admin dashboard set a custom override for a user"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Health Endpoints",
       "description": "Application health and status checks",
       "item": [
@@ -992,6 +1228,11 @@
     },
     {
       "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "planId",
       "value": "",
       "type": "string"
     }

@@ -42,6 +42,14 @@
     {
       "name": "General",
       "description": "General utility endpoints"
+    },
+    {
+      "name": "Billing",
+      "description": "Billing endpoints for plans and usage"
+    },
+    {
+      "name": "Admin Billing",
+      "description": "Internal admin dashboard billing endpoints"
     }
   ],
   "paths": {
@@ -481,6 +489,386 @@
         }
       }
     },
+    "/api/billing/plans": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Get all available plans",
+        "description": "Public endpoint to list all available plans",
+        "operationId": "getBillingPlans",
+        "responses": {
+          "200": {
+            "description": "Plans retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/my-plan": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Get current user's plan and usage",
+        "description": "Returns effective plan and current usage for the authenticated user",
+        "operationId": "getMyBillingPlan",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan and usage retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPlanResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/billing/plans": {
+      "get": {
+        "tags": ["Admin Billing"],
+        "summary": "Get all plans (internal admin)",
+        "description": "Internal admin dashboard endpoint to list all plans",
+        "operationId": "adminGetAllPlans",
+        "responses": {
+          "200": {
+            "description": "Plans retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Admin Billing"],
+        "summary": "Create a plan (internal admin)",
+        "description": "Create a new billing plan",
+        "operationId": "adminCreatePlan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "displayName", "config"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "pro"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "example": "Pro"
+                  },
+                  "config": {
+                    "$ref": "#/components/schemas/PlanConfig"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Plan created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/billing/plans/{id}": {
+      "get": {
+        "tags": ["Admin Billing"],
+        "summary": "Get plan by ID (internal admin)",
+        "operationId": "adminGetPlanById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Admin Billing"],
+        "summary": "Update plan (internal admin)",
+        "operationId": "adminUpdatePlan",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["config"],
+                "properties": {
+                  "config": {
+                    "$ref": "#/components/schemas/PlanConfig"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/billing/subscriptions/{userId}": {
+      "get": {
+        "tags": ["Admin Billing"],
+        "summary": "Get user subscription (internal admin)",
+        "operationId": "adminGetUserSubscription",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User subscription retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid user ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Admin Billing"],
+        "summary": "Update user subscription (internal admin)",
+        "operationId": "adminUpdateSubscription",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "example": "ACTIVE"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "example": "2026-02-15T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/billing/subscriptions/{userId}/override": {
+      "patch": {
+        "tags": ["Admin Billing"],
+        "summary": "Set custom override (internal admin)",
+        "operationId": "adminSetCustomOverride",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["override"],
+                "properties": {
+                  "override": {
+                    "type": "object",
+                    "example": {
+                      "limits": {
+                        "projects": null,
+                        "ai_tokens_monthly": 1000000
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Override set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": ["Health"],
@@ -712,6 +1100,271 @@
                 "example": 400
               }
             }
+          }
+        }
+      },
+      "PlanLimits": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "number",
+            "nullable": true
+          },
+          "environments": {
+            "type": "number",
+            "nullable": true
+          },
+          "users": {
+            "type": "number",
+            "nullable": true
+          },
+          "api_requests_per_minute": {
+            "type": "number",
+            "nullable": true
+          },
+          "storage_mb": {
+            "type": "number",
+            "nullable": true
+          },
+          "ai_tokens_monthly": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "additionalProperties": {
+          "type": "number",
+          "nullable": true
+        }
+      },
+      "PlanFeatures": {
+        "type": "object",
+        "properties": {
+          "custom_domain": {
+            "type": "boolean"
+          },
+          "team_collaboration": {
+            "type": "boolean"
+          },
+          "audit_logs": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      },
+      "PlanPricing": {
+        "type": "object",
+        "properties": {
+          "monthly": {
+            "type": "number",
+            "example": 0
+          },
+          "yearly": {
+            "type": "number",
+            "example": 0
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          }
+        }
+      },
+      "PlanConfig": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/PlanLimits"
+          },
+          "features": {
+            "$ref": "#/components/schemas/PlanFeatures"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/PlanPricing"
+          }
+        }
+      },
+      "Plan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "7e1b8c6f-8b5b-4c38-9f7b-15f7b7d2a1a1"
+          },
+          "name": {
+            "type": "string",
+            "example": "pro"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Pro"
+          },
+          "config": {
+            "$ref": "#/components/schemas/PlanConfig"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-02-15T10:30:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-02-15T10:30:00.000Z"
+          }
+        }
+      },
+      "EffectivePlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/PlanConfig"
+          }
+        }
+      },
+      "UsageData": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "number"
+          },
+          "environments": {
+            "type": "number"
+          },
+          "users": {
+            "type": "number"
+          },
+          "api_requests": {
+            "type": "number"
+          },
+          "ai_tokens": {
+            "type": "number"
+          },
+          "storage_mb": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": {
+          "type": "number"
+        }
+      },
+      "PlanListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Plan"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
+          }
+        }
+      },
+      "PlanResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
+          }
+        }
+      },
+      "MyPlanResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "plan": {
+                "$ref": "#/components/schemas/EffectivePlan"
+              },
+              "usage": {
+                "$ref": "#/components/schemas/UsageData"
+              }
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
+          }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "integer",
+            "example": 1
+          },
+          "planId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "ACTIVE"
+          },
+          "customOverride": {
+            "type": "object",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/Subscription"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
           }
         }
       }
