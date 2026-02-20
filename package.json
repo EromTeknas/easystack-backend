@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon --watch src --exec ts-node src/server.ts",
+    "dev": "concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/workers --exec ts-node src/workers/index.worker.ts\" \"npm run billing:seed\"",
     "build": "tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
@@ -43,6 +43,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.0.10",
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.11",
     "prisma": "^6.2.1",
     "ts-node": "^10.9.2",

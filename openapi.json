@@ -131,7 +131,7 @@
       "post": {
         "tags": ["Authentication"],
         "summary": "Verify email with verification token and OTP",
-        "description": "Verify user email using a short-lived verification token issued at registration together with the OTP code sent by email. Returns access token upon successful verification.",
+        "description": "Verify user email using a short-lived verification token issued at registration together with the OTP code sent by email. Sets access and refresh cookies on success.",
         "operationId": "verifyEmail",
         "requestBody": {
           "required": true,
@@ -156,7 +156,7 @@
         },
         "responses": {
           "200": {
-            "description": "Email verified successfully",
+            "description": "Email verified successfully (auth cookies set)",
             "headers": {
               "Set-Cookie": {
                 "schema": {
@@ -226,7 +226,7 @@
       "post": {
         "tags": ["Authentication"],
         "summary": "Login user",
-        "description": "Authenticate user with email and password",
+        "description": "Authenticate user with email and password. Sets access and refresh cookies.",
         "operationId": "loginUser",
         "requestBody": {
           "required": true,
@@ -252,7 +252,7 @@
         },
         "responses": {
           "200": {
-            "description": "Login successful",
+            "description": "Login successful (auth cookies set)",
             "headers": {
               "Set-Cookie": {
                 "schema": {
@@ -285,11 +285,18 @@
       "post": {
         "tags": ["Authentication"],
         "summary": "Refresh access token",
-        "description": "Get a new access token using refresh token from cookie",
+        "description": "Rotate refresh token and issue a new access token using refresh token cookie",
         "operationId": "refreshToken",
         "responses": {
           "200": {
-            "description": "Token refreshed successfully",
+            "description": "Tokens refreshed successfully (auth cookies updated)",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -335,20 +342,27 @@
       "get": {
         "tags": ["Authentication"],
         "summary": "Get current user",
-        "description": "Get authenticated user's profile",
+        "description": "Get authenticated user's profile from access token cookie; auto-rotates refresh token if access token expired",
         "operationId": "getCurrentUser",
         "security": [
           {
-            "BearerAuth": []
+            "CookieAuth": []
           }
         ],
         "responses": {
           "200": {
             "description": "User profile retrieved",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserResponse"
+                  "$ref": "#/components/schemas/MeResponse"
                 }
               }
             }
@@ -517,7 +531,7 @@
         "operationId": "getMyBillingPlan",
         "security": [
           {
-            "BearerAuth": []
+            "CookieAuth": []
           }
         ],
         "responses": {
@@ -912,10 +926,10 @@
   },
   "components": {
     "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
+      "CookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "accessToken"
       }
     },
     "schemas": {
@@ -973,15 +987,114 @@
                   }
                 }
               },
-              "accessToken": {
-                "type": "string",
-                "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              "verified": {
+                "type": "boolean",
+                "example": true
               },
-              "expiresIn": {
-                "type": "integer",
-                "example": 900
+              "message": {
+                "type": "string",
+                "example": "Email verified successfully"
               }
             }
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "example": "1"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john@example.com"
+                  },
+                  "firstName": {
+                    "type": "string",
+                    "example": "John"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "example": "Doe"
+                  },
+                  "emailVerified": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "status": {
+                    "type": "string",
+                    "example": "ACTIVE"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "workspaces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "logoUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "limits": {
+                    "$ref": "#/components/schemas/PlanLimits"
+                  },
+                  "features": {
+                    "$ref": "#/components/schemas/PlanFeatures"
+                  },
+                  "pricing": {
+                    "$ref": "#/components/schemas/PlanPricing"
+                  }
+                }
+              }
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
           }
         }
       },

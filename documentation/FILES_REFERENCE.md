@@ -289,11 +289,10 @@ const { data: { userId } } = await response.json();
 ```typescript
 const response = await fetch('/api/auth/verify-email', {
   method: 'POST',
+    credentials: 'include',
   body: JSON.stringify({ userId, otpCode })
 });
-const { data: { accessToken } } = await response.json();
-// Store accessToken in state/memory
-// Cookies automatically set (refreshToken)
+// Cookies automatically set (accessToken + refreshToken)
 // Redirect to dashboard
 ```
 
@@ -304,17 +303,14 @@ const response = await fetch('/api/auth/login', {
   credentials: 'include', // Send cookies
   body: JSON.stringify({ email, password })
 });
-const { data: { accessToken } } = await response.json();
-// Store accessToken in state/memory
+// Cookies automatically set (accessToken + refreshToken)
 // Redirect to dashboard
 ```
 
 ### 4. Protected Routes
 ```typescript
 const response = await fetch('/api/auth/me', {
-  headers: {
-    'Authorization': `Bearer ${accessToken}`
-  }
+    credentials: 'include'
 });
 // Get user info + workspaces
 ```
@@ -325,8 +321,7 @@ const response = await fetch('/api/auth/refresh', {
   method: 'POST',
   credentials: 'include' // Sends refreshToken cookie
 });
-const { data: { accessToken } } = await response.json();
-// Update accessToken in state
+// Cookies automatically rotated
 ```
 
 ---

@@ -230,7 +230,7 @@ curl -X POST http://localhost:3000/api/users \
   -d '{"name":"John","email":"john@example.com"}'
 
 # With authentication header
-curl -H "Authorization: Bearer token" http://localhost:3000/api/users
+curl --cookie "accessToken=token" http://localhost:3000/api/users
 ```
 
 ### Using Postman

@@ -6,7 +6,7 @@
  */
 
 import { asyncHandler } from '../../utils/asyncHandler';
-import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
+import { generateAccessToken, generateRefreshToken } from '../../utils/jwt';
 import { hashToken } from '../../utils/password';
 import { BadRequestError, UnauthorizedError, InternalServerError, NotFoundError } from '../../errors';
 import { prisma } from '../../db';
@@ -18,6 +18,7 @@ import { auth } from '../../config/auth';
 import { getClientIP, getDeviceName } from '../../utils/validation';
 import { getEmailVerificationRecord, deleteEmailVerificationToken } from '../../services/email-verification-redis.service';
 import { verifyOtp } from '../../utils/otp';
+import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
 
 export const verifyEmailController = asyncHandler(async (req, res) => {
   logger.info('POST /api/auth/verify-email start');
@@ -128,13 +129,9 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
         ipAddress: getClientIP(req)
       });
 
-      // Set refresh token cookie
-      res.cookie(auth.cookies.refreshTokenName, refreshToken, {
-        httpOnly: auth.cookies.httpOnly,
-        secure: auth.cookies.secure,
-        sameSite: auth.cookies.sameSite,
-        maxAge: auth.cookies.maxAge
-      });
+      // Set auth cookies (access + refresh)
+      setAccessTokenCookie(res, accessToken);
+      setRefreshTokenCookie(res, refreshToken);
 
       // Return response with tokens
       return ok(res, {
@@ -144,8 +141,6 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           firstName: user.firstName,
           lastName: user.lastName
         },
-        accessToken,
-        expiresIn: getTokenExpiryInSeconds(accessToken),
         verified: true,
         message: 'Email verified successfully'
       });

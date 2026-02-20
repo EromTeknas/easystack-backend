@@ -153,7 +153,7 @@ Expected response:
 ### 2. Check User Plan (requires auth)
 
 ```bash
-curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+curl --cookie "accessToken=YOUR_ACCESS_TOKEN" \
      http://localhost:4000/api/billing/my-plan
 ```
 
@@ -251,7 +251,7 @@ export const createProject = async (req: Request, res: Response) => {
 
 ```bash
 curl -X POST http://localhost:4000/api/admin/billing/plans \
-  -H "Authorization: Bearer ADMIN_TOKEN" \
+  --cookie "accessToken=ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "startup",
@@ -279,7 +279,7 @@ curl -X POST http://localhost:4000/api/admin/billing/plans \
 
 ```bash
 curl -X PATCH http://localhost:4000/api/admin/billing/subscriptions/123/override \
-  -H "Authorization: Bearer ADMIN_TOKEN" \
+  --cookie "accessToken=ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "override": {

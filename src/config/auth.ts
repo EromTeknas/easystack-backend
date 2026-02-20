@@ -8,6 +8,12 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secre
 const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY || '15m';
 const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '30d';
 const PASSWORD_RESET_EXPIRY_MINUTES = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINUTES || '30', 10);
+const AUTH_COOKIE_DOMAIN = process.env.AUTH_COOKIE_DOMAIN || undefined;
+const AUTH_COOKIE_PATH = process.env.AUTH_COOKIE_PATH || '/';
+const AUTH_COOKIE_SAMESITE = (process.env.AUTH_COOKIE_SAMESITE || 'strict').toLowerCase();
+const AUTH_COOKIE_SECURE = process.env.AUTH_COOKIE_SECURE
+  ? process.env.AUTH_COOKIE_SECURE === 'true'
+  : process.env.NODE_ENV === 'production';
 
 export const auth = {
   // Token expiry times (string format for jwt.sign)
@@ -39,10 +45,15 @@ export const auth = {
   
   // Cookie settings
   cookies: {
+    accessTokenName: 'accessToken',
     refreshTokenName: 'refreshToken',
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict' as const,
+    secure: AUTH_COOKIE_SECURE,
+    sameSite: (['lax', 'strict', 'none'] as const).includes(AUTH_COOKIE_SAMESITE as any)
+      ? (AUTH_COOKIE_SAMESITE as 'lax' | 'strict' | 'none')
+      : 'strict',
+    domain: AUTH_COOKIE_DOMAIN,
+    path: AUTH_COOKIE_PATH,
     maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
   },
   

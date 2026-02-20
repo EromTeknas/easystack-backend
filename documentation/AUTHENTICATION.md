@@ -9,9 +9,9 @@ Production-ready authentication system for EasyStack Backend with Next.js fronte
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                          Next.js Frontend                        │
-│  • Access token in memory                                        │
-│  • Refresh token in HttpOnly cookie (read-only)                 │
-│  • Auto-refresh on 401                                          │
+│  • Access token in HttpOnly cookie                              │
+│  • Refresh token in HttpOnly cookie                             │
+│  • Auto-rotate on /auth/me when access expires                  │
 └──────────────────────────────────────┬──────────────────────────┘
                                        │
                                        │ HTTP/HTTPS
@@ -21,8 +21,8 @@ Production-ready authentication system for EasyStack Backend with Next.js fronte
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │ Authentication Routes (/auth)                          │    │
 │  │ • POST /register - Create new account                 │    │
-│  │ • POST /login - Issue tokens                          │    │
-│  │ • POST /refresh - Renew access token                  │    │
+│  │ • POST /login - Issue auth cookies                    │    │
+│  │ • POST /refresh - Rotate cookies                      │    │
 │  │ • POST /logout - Revoke refresh token                 │    │
 │  │ • GET /me - Get current user                          │    │
 │  └────────────────────────────────────────────────────────┘    │
@@ -181,8 +181,8 @@ Client                          Backend                      Database
   │                              ├─ Send welcome email           │
   │                              │                               │
   │ ←─ 200 OK ─────────────────  │                               │
-  │  Body: {user, accessToken}   │                               │
-  │  Cookie: refreshToken=...    │                               │
+  │  Body: {user, verified}      │                               │
+  │  Cookie: accessToken, refreshToken │                         │
   │
 ```
 
@@ -210,8 +210,8 @@ Client                          Backend                      Database
   │                              │  (save in DB)                 │
   │                              │                              │
   │ ←─ 200 OK ─────────────────  │                               │
-  │  Body: {accessToken, user}   │                               │
-  │  Cookie: refreshToken=...    │                               │
+  │  Body: {user}                │                               │
+  │  Cookie: accessToken, refreshToken │                         │
   │
 ```
 
@@ -221,8 +221,7 @@ Client                          Backend                      Database
 Client                          Backend                      Database
   │                              │                               │
   ├─ GET /api/users ───────────→ │                               │
-  │  Header: Authorization:      │                               │
-  │  Bearer <accessToken>        │                               │
+  │  Cookie: accessToken         │                               │
   │                              ├─ authenticateToken()         │
   │                              │  • Verify JWT signature       │
   │                              │  • Check expiration           │
@@ -244,8 +243,7 @@ Client                          Backend                      Database
   │  [Access Token Expired]      │                               │
   │                              │                               │
   ├─ GET /api/users ───────────→ │                               │
-  │  Header: Authorization:      │                               │
-  │  Bearer <accessToken>        │                               │
+  │  Cookie: accessToken         │                               │
   │                              ├─ authenticateToken()         │
   │                              │  ❌ Token expired             │
   │                              │                               │
@@ -265,19 +263,18 @@ Client                          Backend                      Database
   │                              │ ←─ Token record ─────────────┤
   │                              │                               │
   │                              ├─ If valid:                   │
-  │                              │  • Rotate token (optional)   │
+  │                              │  • Rotate refresh token      │
   │                              │  • Issue new access token    │
   │                              │  • Update refresh token DB   │
   │                              │                               │
   │ ←─ 200 OK ─────────────────  │                               │
-  │  Body: {accessToken, user}   │                               │
-  │  Cookie: refreshToken=...(new)                              │
+  │  Body: {user}                │                               │
+  │  Cookie: accessToken, refreshToken (new)                    │
   │                              │                               │
-  │  [Frontend stores new token] │                               │
+  │  [Frontend continues with cookies]                          │
   │                              │                               │
   ├─ GET /api/users ───────────→ │                               │
-  │  Header: Authorization:      │                               │
-  │  Bearer <newAccessToken>     │                               │
+  │  Cookie: accessToken         │                               │
   │                              ├─ Process request ────────────→ │
   │ ←─ 200 OK ─────────────────  │                               │
   │
@@ -471,8 +468,6 @@ CREATE TABLE audit_logs (
       "firstName": "John",
       "lastName": "Doe"
     },
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 900,
     "verified": true,
     "message": "Email verified successfully"
   }
@@ -480,14 +475,14 @@ CREATE TABLE audit_logs (
 ```
 
 **Notes**:
-- Access token is returned upon successful verification
-- Refresh token is set as HttpOnly cookie
+- Access and refresh tokens are set as HttpOnly cookies
 - Email is marked as verified in the database
 - User can now login with email/password
 - Welcome email is sent to user
 
 **Cookies Set**:
 ```
+Set-Cookie: accessToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=900
 Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
 ```
 
@@ -604,15 +599,14 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
       "firstName": "John",
       "lastName": "Doe",
       "role": "USER"
-    },
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 900
+    }
   }
 }
 ```
 
 **Cookies Set**:
 ```
+Set-Cookie: accessToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=900
 Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
 ```
 
@@ -653,7 +647,7 @@ Set-Cookie: refreshToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=60480
 
 ### 5. POST /auth/refresh
 
-**Purpose**: Obtain new access token without re-authentication
+**Purpose**: Rotate refresh token and issue new access token cookie
 
 **Request**:
 ```
@@ -673,8 +667,7 @@ Headers:
       "lastName": "Doe",
       "role": "USER"
     },
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 900
+    "message": "Tokens refreshed"
   }
 }
 ```
@@ -692,6 +685,7 @@ Headers:
 
 **Cookies Set** (if token rotated):
 ```
+Set-Cookie: accessToken=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=900
 Set-Cookie: refreshToken=<newJwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
 ```
 
@@ -720,6 +714,7 @@ Headers:
 **Cookies Cleared**:
 ```
 Set-Cookie: refreshToken=; HttpOnly; Secure; SameSite=Strict; Max-Age=0
+Set-Cookie: accessToken=; HttpOnly; Secure; SameSite=Strict; Max-Age=0
 ```
 
 ---
@@ -731,7 +726,7 @@ Set-Cookie: refreshToken=; HttpOnly; Secure; SameSite=Strict; Max-Age=0
 **Request**:
 ```
 Headers:
-  Authorization: Bearer <accessToken>
+  Cookie: accessToken=<jwt>
 ```
 
 **Response (200 OK)**:
@@ -1002,18 +997,16 @@ CORS_ORIGIN=https://yourfrontend.com
 // hooks/useAuth.ts
 export const useAuth = () => {
   const [user, setUser] = useState(null);
-  const [accessToken, setAccessToken] = useState(null);
 
   // Store in memory only (never localStorage)
   const login = async (email, password) => {
     const res = await fetch('/auth/login', {
       method: 'POST',
-      credentials: 'include',  // Include refresh cookie
+      credentials: 'include',  // Include auth cookies
       body: JSON.stringify({ email, password })
     });
 
     const data = await res.json();
-    setAccessToken(data.data.accessToken);
     setUser(data.data.user);
   };
 
@@ -1022,7 +1015,6 @@ export const useAuth = () => {
       method: 'POST',
       credentials: 'include'
     });
-    setAccessToken(null);
     setUser(null);
   };
 
@@ -1032,16 +1024,10 @@ export const useAuth = () => {
       credentials: 'include'
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      setAccessToken(data.data.accessToken);
-      setUser(data.data.user);
-    } else {
-      logout();
-    }
+    if (!res.ok) logout();
   };
 
-  return { user, accessToken, login, logout, refresh };
+  return { user, login, logout, refresh };
 };
 ```
 
@@ -1049,17 +1035,14 @@ export const useAuth = () => {
 
 ```typescript
 // utils/api.ts
-export const createApiClient = (getAccessToken) => {
+export const createApiClient = () => {
   return {
     async request(url, options = {}) {
-      const token = getAccessToken();
-      
       let response = await fetch(url, {
         ...options,
         credentials: 'include',
         headers: {
-          ...options.headers,
-          'Authorization': `Bearer ${token}`
+          ...options.headers
         }
       });
 
@@ -1071,16 +1054,12 @@ export const createApiClient = (getAccessToken) => {
         });
 
         if (refreshResponse.ok) {
-          const { data } = await refreshResponse.json();
-          const newToken = data.accessToken;
-          
-          // Update token and retry
+          // Retry request with updated cookies
           response = await fetch(url, {
             ...options,
             credentials: 'include',
             headers: {
-              ...options.headers,
-              'Authorization': `Bearer ${newToken}`
+              ...options.headers
             }
           });
         } else {
@@ -1138,7 +1117,7 @@ describe('Authentication', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.data.user.email).toBe('test@example.com');
-      expect(response.body.data.accessToken).toBeDefined();
+      expect(response.headers['set-cookie']).toBeDefined();
     });
 
     it('should reject duplicate emails', async () => {
@@ -1158,7 +1137,7 @@ describe('Authentication', () => {
   });
 
   describe('Login', () => {
-    it('should return tokens on valid credentials', async () => {
+    it('should set auth cookies on valid credentials', async () => {
       // Setup user
       await User.create({
         email: 'test@example.com',
@@ -1173,7 +1152,6 @@ describe('Authentication', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.body.data.accessToken).toBeDefined();
       expect(response.headers['set-cookie']).toBeDefined();
     });
   });

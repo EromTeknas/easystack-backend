@@ -119,18 +119,13 @@
                   "    pm.expect(jsonData.success).to.equal(true);",
                   "});",
                   "",
-                  "pm.test(\"Response contains access token after verification\", function () {",
+                  "pm.test(\"Response contains user data after verification\", function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData.data).to.have.property('user');",
-                  "    pm.expect(jsonData.data).to.have.property('accessToken');",
                   "    pm.expect(jsonData.data).to.have.property('verified');",
                   "    pm.expect(jsonData.data.verified).to.equal(true);",
                   "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    pm.environment.set('accessToken', jsonData.data.accessToken);",
-                  "}"
+                  ""
                 ],
                 "type": "text/javascript"
               }
@@ -192,7 +187,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"1\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"expiresIn\": 900,\n    \"verified\": true,\n    \"message\": \"Email verified successfully\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"1\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\"\n    },\n    \"verified\": true,\n    \"message\": \"Email verified successfully\"\n  }\n}"
             },
             {
               "name": "401 - Invalid Verification Code",
@@ -248,16 +243,10 @@
                   "    pm.expect(jsonData.success).to.equal(true);",
                   "});",
                   "",
-                  "pm.test(\"Response contains tokens and user data\", function () {",
+                  "pm.test(\"Response contains user data\", function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.data).to.have.property('accessToken');",
                   "    pm.expect(jsonData.data).to.have.property('user');",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    pm.environment.set('accessToken', jsonData.data.accessToken);",
-                  "}"
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -315,7 +304,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\",\n      \"role\": \"user\",\n      \"status\": \"active\"\n    },\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\",\n      \"role\": \"user\",\n      \"status\": \"active\"\n    }\n  }\n}"
             }
           ]
         },
@@ -330,16 +319,11 @@
                   "    pm.response.to.have.status(200);",
                   "});",
                   "",
-                  "pm.test(\"Response contains new access token\", function () {",
+                  "pm.test(\"Response contains user data\", function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData).to.have.property('success');",
-                  "    pm.expect(jsonData.data).to.have.property('accessToken');",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    pm.environment.set('accessToken', jsonData.data.accessToken);",
-                  "}"
+                  "    pm.expect(jsonData.data).to.have.property('user');",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -379,7 +363,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"1\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\"\n    }\n  }\n}"
             }
           ]
         },
@@ -407,30 +391,20 @@
           ],
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
+            "header": [],
             "url": {
               "raw": "{{base_url}}/api/auth/me",
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "me"]
             },
-            "description": "Get the current authenticated user's profile (requires valid access token)"
+            "description": "Get the current authenticated user's profile (uses access token cookie)"
           },
           "response": [
             {
               "name": "200 - User Profile",
               "originalRequest": {
                 "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  }
-                ],
+                "header": [],
                 "url": {
                   "raw": "http://localhost:3000/api/auth/me",
                   "protocol": "http",
@@ -449,7 +423,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"email\": \"user@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"role\": \"user\",\n    \"status\": \"active\",\n    \"createdAt\": \"2026-01-27T10:30:45.123Z\"\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"1\",\n      \"email\": \"user@example.com\",\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\",\n      \"emailVerified\": true,\n      \"status\": \"ACTIVE\",\n      \"createdAt\": \"2026-01-27T10:30:45.123Z\"\n    },\n    \"workspaces\": [],\n    \"plan\": {\n      \"id\": \"plan-id\",\n      \"name\": \"free\",\n      \"displayName\": \"Free\",\n      \"limits\": {},\n      \"features\": {},\n      \"pricing\": {\n        \"monthly\": 0,\n        \"yearly\": 0,\n        \"currency\": \"USD\"\n      }\n    }\n  }\n}"
             }
           ]
         },
@@ -476,30 +450,20 @@
           ],
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
+            "header": [],
             "url": {
               "raw": "{{base_url}}/api/auth/logout",
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "logout"]
             },
-            "description": "Logout and revoke refresh token (invalidates the current session)"
+            "description": "Logout and revoke refresh token (invalidates the current session; clears auth cookies)"
           },
           "response": [
             {
               "name": "200 - Logout Success",
               "originalRequest": {
                 "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  }
-                ],
+                "header": [],
                 "url": {
                   "raw": "http://localhost:3000/api/auth/logout",
                   "protocol": "http",
@@ -807,12 +771,7 @@
           "name": "Get My Plan",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
+            "header": [],
             "url": {
               "raw": "{{base_url}}/api/billing/my-plan",
               "host": ["{{base_url}}"],
@@ -825,12 +784,7 @@
               "name": "200 - My Plan",
               "originalRequest": {
                 "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
+                "header": [],
                 "url": {
                   "raw": "http://localhost:3000/api/billing/my-plan",
                   "protocol": "http",
@@ -1219,11 +1173,6 @@
     {
       "key": "base_url",
       "value": "http://localhost:3000",
-      "type": "string"
-    },
-    {
-      "key": "accessToken",
-      "value": "",
       "type": "string"
     },
     {

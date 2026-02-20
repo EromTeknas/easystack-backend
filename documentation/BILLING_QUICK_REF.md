@@ -321,7 +321,7 @@ PATCH /api/admin/billing/subscriptions/123
 curl http://localhost:4000/api/billing/plans
 
 # Check if user has subscription
-curl -H "Authorization: Bearer TOKEN" \
+curl --cookie "accessToken=YOUR_ACCESS_TOKEN" \
      http://localhost:4000/api/billing/my-plan
 
 # Reseed plans

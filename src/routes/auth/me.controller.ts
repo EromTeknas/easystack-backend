@@ -12,6 +12,10 @@ import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
 import { getUserWorkspaces } from '../../services/workspace.service';
 import { BillingService } from '../../services/billing.service';
+import { verifyAccessToken } from '../../utils/jwt';
+import { auth } from '../../config/auth';
+import { rotateRefreshToken } from '../../services/auth-tokens.service';
+import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
 
 /**
  * Get current authenticated user with workspaces
@@ -21,10 +25,30 @@ export const getMeController = asyncHandler(async (req: any, res) => {
   logger.info('GET /api/auth/me start');
   try {
     try {
-      const userId = req.user?.id;
+      const accessToken = req.cookies?.[auth.cookies.accessTokenName];
+      let userId: string | null = null;
+
+      if (accessToken) {
+        try {
+          const decoded = verifyAccessToken(accessToken);
+          userId = decoded.sub;
+        } catch (error: any) {
+          if (error.message !== 'Token expired') {
+            throw new UnauthorizedError('Invalid token');
+          }
+        }
+      }
 
       if (!userId) {
-        throw new UnauthorizedError('Not authenticated');
+        const refreshToken = req.cookies?.[auth.cookies.refreshTokenName];
+        if (!refreshToken) {
+          throw new UnauthorizedError('Not authenticated');
+        }
+
+        const rotated = await rotateRefreshToken(refreshToken, req);
+        setAccessTokenCookie(res, rotated.accessToken);
+        setRefreshTokenCookie(res, rotated.refreshToken);
+        userId = rotated.user.id.toString();
       }
 
       // Get user details

@@ -1,6 +1,6 @@
 import { asyncHandler } from '../../utils/asyncHandler';
 import { verifyPassword, hashToken } from '../../utils/password';
-import { generateAccessToken, generateRefreshToken, getTokenExpiryInSeconds } from '../../utils/jwt';
+import { generateAccessToken, generateRefreshToken } from '../../utils/jwt';
 import { isValidEmail, getClientIP, getDeviceName } from '../../utils/validation';
 import { BadRequestError, UnauthorizedError, InternalServerError } from '../../errors';
 import { AUTH_ERROR_CODES } from '../../constants/errorCodes';
@@ -8,6 +8,7 @@ import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { ok } from '../../utils/response';
+import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
 
 /**
  * Login with email and password
@@ -131,13 +132,9 @@ export const loginController = asyncHandler(async (req, res) => {
         data: { lastLoginAt: new Date() }
       });
 
-      // Set refresh token cookie
-      res.cookie(auth.cookies.refreshTokenName, refreshToken, {
-        httpOnly: auth.cookies.httpOnly,
-        secure: auth.cookies.secure,
-        sameSite: auth.cookies.sameSite,
-        maxAge: auth.cookies.maxAge
-      });
+      // Set auth cookies (access + refresh)
+      setAccessTokenCookie(res, accessToken);
+      setRefreshTokenCookie(res, refreshToken);
 
       // Return response
       return ok(res, {
@@ -146,9 +143,7 @@ export const loginController = asyncHandler(async (req, res) => {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName
-        },
-        accessToken,
-        expiresIn: getTokenExpiryInSeconds(accessToken)
+        }
       });
     } catch (error: any) {
       if (error instanceof BadRequestError || error instanceof UnauthorizedError) {

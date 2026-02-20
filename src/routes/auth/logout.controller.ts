@@ -4,6 +4,7 @@ import { InternalServerError } from '../../errors';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
+import { clearAuthCookies } from '../../utils/auth-cookies';
 import { ok } from '../../utils/response';
 
 /**
@@ -18,7 +19,7 @@ export const logoutController = asyncHandler(async (req, res) => {
 
       if (!refreshToken) {
         // Even without a token, respond with success
-        res.clearCookie(auth.cookies.refreshTokenName);
+        clearAuthCookies(res);
         return ok(res, {
           message: 'Logged out successfully'
         });
@@ -30,7 +31,7 @@ export const logoutController = asyncHandler(async (req, res) => {
         decoded = verifyRefreshToken(refreshToken);
       } catch {
         // Token is invalid or expired, just clear cookie
-        res.clearCookie(auth.cookies.refreshTokenName);
+        clearAuthCookies(res);
         return ok(res, {
           message: 'Logged out successfully'
         });
@@ -54,11 +55,7 @@ export const logoutController = asyncHandler(async (req, res) => {
       });
 
       // Clear refresh token cookie
-      res.clearCookie(auth.cookies.refreshTokenName, {
-        httpOnly: auth.cookies.httpOnly,
-        secure: auth.cookies.secure,
-        sameSite: auth.cookies.sameSite
-      });
+      clearAuthCookies(res);
 
       return ok(res, {
         message: 'Logged out successfully'
@@ -69,7 +66,7 @@ export const logoutController = asyncHandler(async (req, res) => {
       });
 
       // Still clear cookie even if DB operation fails
-      res.clearCookie(auth.cookies.refreshTokenName);
+      clearAuthCookies(res);
 
       throw new InternalServerError('Logout failed');
     }

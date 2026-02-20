@@ -1,15 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
 import { UnauthorizedError, ForbiddenError } from '../errors';
+import { auth } from '../config/auth';
 
 /**
  * Middleware to authenticate requests using JWT access token
- * Verifies token from Authorization header
+ * Verifies token from HttpOnly access token cookie
  */
 export const authenticateToken = (req: any, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = req.cookies?.[auth.cookies.accessTokenName];
 
     if (!token) {
       throw new UnauthorizedError('No token provided');
@@ -69,8 +69,7 @@ export const authenticate = authenticateToken;
  */
 export const optionalAuth = (req: any, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = req.cookies?.[auth.cookies.accessTokenName];
 
     if (token) {
       const decoded = verifyAccessToken(token);

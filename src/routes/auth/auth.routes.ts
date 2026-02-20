@@ -9,7 +9,6 @@ import { resendOtpController } from './resend-otp.controller';
 import { forgotPasswordController } from './forgot-password.controller';
 import { resetPasswordController } from './reset-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
-import { authenticateToken } from '../../middlewares/authentication.middleware';
 
 const router = Router();
 
@@ -45,8 +44,7 @@ router.post('/register', authRateLimiter, registerController);
  * 
  * Response:
  *   - user object
- *   - accessToken (JWT)
- *   - expiresIn (seconds)
+ *   - Cookies: accessToken, refreshToken (HttpOnly)
  */
 router.post('/verify-email', authRateLimiter, verifyEmailController);
 
@@ -105,9 +103,7 @@ router.post('/reset-password', authRateLimiter, resetPasswordController);
  * 
  * Response:
  *   - user object
- *   - accessToken (JWT)
- *   - expiresIn (seconds)
- *   - refreshToken (HTTP-only cookie)
+ *   - Cookies: accessToken, refreshToken (HttpOnly)
  */
 router.post('/login', authRateLimiter, loginController);
 
@@ -123,9 +119,7 @@ router.post('/login', authRateLimiter, loginController);
  * 
  * Response:
  *   - user object
- *   - accessToken (JWT)
- *   - expiresIn (seconds)
- *   - refreshToken (HTTP-only cookie)
+ *   - Cookies: accessToken, refreshToken (HttpOnly)
  */
 router.post('/refresh', refreshController);
 
@@ -142,14 +136,11 @@ router.post('/logout', logoutController);
 /**
  * GET /auth/me
  * Get current authenticated user
- * Protected endpoint (requires valid access token)
- * 
- * Headers:
- *   - Authorization: Bearer <accessToken>
+ * Protected endpoint (uses access token cookie)
  * 
  * Response:
  *   - user object with workspaces
  */
-router.get('/me', authenticateToken, getMeController);
+router.get('/me', getMeController);
 
 export default router;
