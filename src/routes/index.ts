@@ -4,6 +4,7 @@ import helloRoutes from './hello/hello.routes';
 import authRoutes from './auth/auth.routes';
 import billingRoutes from './billing/billing.routes';
 import adminRoutes from './admin/admin.routes';
+import storageRoutes from './storage/storage.routes';
 
 const router = Router();
 
@@ -15,6 +16,9 @@ router.use('/billing', billingRoutes);
 
 // Admin routes
 router.use('/admin/billing', adminRoutes);
+
+// Storage routes
+router.use('/storage', storageRoutes);
 
 // Health routes
 router.use('/health', healthRoutes);

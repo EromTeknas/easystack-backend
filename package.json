@@ -18,6 +18,7 @@
   "author": "Sanket More",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.991.0",
     "@prisma/client": "^6.2.1",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.67.2",
@@ -43,8 +44,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.0.10",
     "nodemon": "^3.1.11",
+    "prisma": "^6.2.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "prisma": "^6.2.1"
+    "typescript": "^5.9.3"
   }
 }
