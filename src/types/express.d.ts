@@ -8,6 +8,10 @@ declare module 'express-serve-static-core' {
       email: string;
       role: string;
     };
+    workspace?: {
+      id: string;
+      role: string;
+    };
     billingCheck?: {
       allowed: boolean;
       limit: number | null;

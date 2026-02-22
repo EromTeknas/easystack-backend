@@ -810,6 +810,143 @@
       ]
     },
     {
+      "name": "Onboarding",
+      "description": "Onboarding status and completion endpoints",
+      "item": [
+        {
+          "name": "Get Onboarding Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/onboarding/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "onboarding", "status"]
+            },
+            "description": "Get onboarding completion status for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Onboarding Completed",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/onboarding/completed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "onboarding", "completed"]
+            },
+            "description": "Mark onboarding as completed for the authenticated user"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workspace",
+      "description": "Workspace management endpoints",
+      "item": [
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/workspace",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspace"]
+            },
+            "description": "List workspaces for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Workspace",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Workspace\",\n  \"logoUrl\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/workspace",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspace"]
+            },
+            "description": "Create a new workspace"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Workspace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/{{workspaceId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspace", "{{workspaceId}}"]
+            },
+            "description": "Get workspace by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Workspace (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Workspace Name\",\n  \"logoUrl\": \"https://cdn.example.com/logo.png\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/workspace/{{workspaceId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspace", "{{workspaceId}}"]
+            },
+            "description": "Replace workspace details"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Workspace (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Patched Workspace Name\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/workspace/{{workspaceId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspace", "{{workspaceId}}"]
+            },
+            "description": "Partially update workspace details"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Admin Billing",
       "description": "Internal admin dashboard billing endpoints",
       "item": [

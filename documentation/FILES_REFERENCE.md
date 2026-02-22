@@ -15,6 +15,12 @@
 - `src/services/email.service.ts` - Brevo email integration
 - `src/services/workspace.service.ts` - Workspace management operations
 
+### Routes
+- `src/routes/onboarding/onboarding.controller.ts` - Onboarding status and completion
+- `src/routes/onboarding/onboarding.routes.ts` - Onboarding routes
+- `src/routes/workspace/workspace.controller.ts` - Workspace CRUD endpoints
+- `src/routes/workspace/workspace.routes.ts` - Workspace routes
+
 ### Utilities
 - `src/utils/otp.ts` - OTP generation, hashing, and validation
 
@@ -23,6 +29,7 @@
 
 ### Middleware
 - `src/middlewares/authorization.middleware.ts` - Role-based access control
+- `src/middlewares/workspace-guard.middleware.ts` - Workspace membership guard
 
 ### Documentation
 - `documentation/AUTHENTICATION_ADVANCED.md` - Complete auth system reference
@@ -47,6 +54,7 @@
 
 ### Routes
 - `src/routes/auth/auth.routes.ts` - Added verify-email and resend-otp endpoints
+- `src/routes/index.ts` - Mounted onboarding and workspace routes
 
 ---
 
@@ -83,6 +91,7 @@ easystack-backend/
 │   ├── middlewares/
 │   │   ├── authentication.middleware.ts
 │   │   ├── authorization.middleware.ts  [NEW]
+│   │   ├── workspace-guard.middleware.ts [NEW]
 │   │   ├── error-handler.middleware.ts
 │   │   ├── rateLimit.middleware.ts
 │   │   └── request-context.middleware.ts
@@ -92,13 +101,19 @@ easystack-backend/
 │   │   └── workspace.service.ts         [NEW]
 │   │
 │   ├── routes/
-│   │   └── auth/
-│   │       ├── auth.routes.ts           [MODIFIED]
-│   │       ├── register.controller.ts   [MODIFIED]
-│   │       ├── login.controller.ts      [MODIFIED]
-│   │       ├── refresh.controller.ts    [MODIFIED]
-│   │       ├── logout-me.controller.ts  [MODIFIED]
-│   │       └── verify-email.controller.ts [NEW]
+│   │   ├── auth/
+│   │   │   ├── auth.routes.ts           [MODIFIED]
+│   │   │   ├── register.controller.ts   [MODIFIED]
+│   │   │   ├── login.controller.ts      [MODIFIED]
+│   │   │   ├── refresh.controller.ts    [MODIFIED]
+│   │   │   ├── logout-me.controller.ts  [MODIFIED]
+│   │   │   └── verify-email.controller.ts [NEW]
+│   │   ├── onboarding/
+│   │   │   ├── onboarding.controller.ts
+│   │   │   └── onboarding.routes.ts
+│   │   └── workspace/
+│   │       ├── workspace.controller.ts  [NEW]
+│   │       └── workspace.routes.ts      [NEW]
 │   │
 │   ├── utils/
 │   │   ├── jwt.ts
@@ -187,11 +202,12 @@ Continue using new tokens
 User → Workspace Membership → Role
                              ├── OWNER (full access)
                              ├── ADMIN (manage workspace)
-                             └── USER (basic access)
+                             ├── DEVELOPER (default)
+                             └── PUBLISHER (limited publish access)
 
-Authorization Middleware:
+Workspace Guard Middleware:
     ↓
-Extract workspace_id from request
+Extract workspaceId from request
     ↓
 Look up user's role in workspace
     ↓

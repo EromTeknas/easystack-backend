@@ -18,7 +18,7 @@ interface WorkspaceMember {
   id: string;
   workspaceId: string;
   userId: number;
-  role: 'OWNER' | 'ADMIN' | 'USER';
+  role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER';
   createdAt: Date;
 }
 
@@ -67,7 +67,7 @@ export async function createDefaultWorkspace(userId: number): Promise<string> {
 export async function addWorkspaceMember(
   workspaceId: string,
   userId: number,
-  role: 'OWNER' | 'ADMIN' | 'USER' = 'USER'
+  role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' = 'DEVELOPER'
 ): Promise<string> {
   const memberId = uuidv4();
 
@@ -131,7 +131,7 @@ export async function getUserWorkspaces(userId: number): Promise<any[]> {
 export async function getUserWorkspaceRole(
   workspaceId: string,
   userId: number
-): Promise<'OWNER' | 'ADMIN' | 'USER' | null> {
+): Promise<'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' | null> {
   try {
     const member = await prisma.workspaceMember.findFirst({
       where: {
@@ -143,7 +143,7 @@ export async function getUserWorkspaceRole(
       },
     });
 
-    return member?.role as 'OWNER' | 'ADMIN' | 'USER' | null;
+    return member?.role as 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' | null;
   } catch (error) {
     logger.error('Failed to fetch user role:', error);
     return null;

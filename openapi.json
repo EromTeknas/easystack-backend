@@ -50,6 +50,14 @@
     {
       "name": "Admin Billing",
       "description": "Internal admin dashboard billing endpoints"
+    },
+    {
+      "name": "Onboarding",
+      "description": "User onboarding status and completion endpoints"
+    },
+    {
+      "name": "Workspace",
+      "description": "Workspace management endpoints"
     }
   ],
   "paths": {
@@ -922,6 +930,375 @@
           }
         }
       }
+    },
+    "/api/onboarding/status": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Get onboarding status",
+        "description": "Get the onboarding status for the authenticated user",
+        "operationId": "getOnboardingStatus",
+        "security": [{ "CookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Onboarding status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/onboarding/completed": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Mark onboarding completed",
+        "description": "Mark onboarding as completed for the authenticated user",
+        "operationId": "markOnboardingCompleted",
+        "security": [{ "CookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Onboarding completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace": {
+      "get": {
+        "tags": ["Workspace"],
+        "summary": "List workspaces",
+        "description": "List workspaces for the authenticated user",
+        "operationId": "listWorkspaces",
+        "security": [{ "CookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Workspace list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Workspace"],
+        "summary": "Create workspace",
+        "description": "Create a new workspace and add the creator as OWNER",
+        "operationId": "createWorkspace",
+        "security": [{ "CookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "example": "My Workspace" },
+                  "logoUrl": { "type": "string", "nullable": true, "example": "https://cdn.example.com/logo.png" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workspace created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace/{workspaceId}": {
+      "get": {
+        "tags": ["Workspace"],
+        "summary": "Get workspace",
+        "description": "Get workspace details for the authenticated member",
+        "operationId": "getWorkspace",
+        "security": [{ "CookieAuth": [] }],
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Workspace"],
+        "summary": "Update workspace",
+        "description": "Replace workspace details (OWNER/ADMIN only)",
+        "operationId": "updateWorkspace",
+        "security": [{ "CookieAuth": [] }],
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "example": "New Workspace Name" },
+                  "logoUrl": { "type": "string", "nullable": true, "example": "https://cdn.example.com/logo.png" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Workspace"],
+        "summary": "Patch workspace",
+        "description": "Partially update workspace details (OWNER/ADMIN only)",
+        "operationId": "patchWorkspace",
+        "security": [{ "CookieAuth": [] }],
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "New Workspace Name" },
+                  "logoUrl": { "type": "string", "nullable": true, "example": "https://cdn.example.com/logo.png" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1143,6 +1520,69 @@
               }
             }
           }
+        }
+      },
+      "OnboardingStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "onboardingCompleted": {
+                "type": "boolean",
+                "example": true
+              }
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "example": "abc123def456"
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "logoUrl": { "type": "string", "nullable": true },
+          "createdBy": { "type": "string", "nullable": true },
+          "role": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time", "nullable": true },
+          "updatedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "WorkspaceResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "workspace": { "$ref": "#/components/schemas/Workspace" }
+            }
+          },
+          "requestId": { "type": "string", "example": "abc123def456" }
+        }
+      },
+      "WorkspaceListResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "workspaces": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/Workspace" }
+              }
+            }
+          },
+          "requestId": { "type": "string", "example": "abc123def456" }
         }
       },
       "HealthResponse": {

@@ -14,7 +14,8 @@ export const workspace = {
   roles: {
     OWNER: 'OWNER',
     ADMIN: 'ADMIN',
-    USER: 'USER'
+    DEVELOPER: 'DEVELOPER',
+    PUBLISHER: 'PUBLISHER'
   },
   
   // Workspace status

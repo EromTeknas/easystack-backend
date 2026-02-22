@@ -1,6 +1,5 @@
 import type { CookieOptions, Response } from 'express';
 import { auth } from '../config/auth';
-import { getTokenExpiryInSeconds } from './jwt';
 
 const baseCookieOptions = (): CookieOptions => ({
   httpOnly: auth.cookies.httpOnly,
@@ -11,7 +10,7 @@ const baseCookieOptions = (): CookieOptions => ({
 });
 
 export const setAccessTokenCookie = (res: Response, accessToken: string) => {
-  const maxAge = getTokenExpiryInSeconds(accessToken) * 1000;
+  const maxAge = auth.accessTokenExpirySeconds * 1000; // Convert to milliseconds
   res.cookie(auth.cookies.accessTokenName, accessToken, {
     ...baseCookieOptions(),
     maxAge
@@ -21,7 +20,7 @@ export const setAccessTokenCookie = (res: Response, accessToken: string) => {
 export const setRefreshTokenCookie = (res: Response, refreshToken: string) => {
   res.cookie(auth.cookies.refreshTokenName, refreshToken, {
     ...baseCookieOptions(),
-    maxAge: auth.cookies.maxAge
+    maxAge: auth.refreshTokenExpirySeconds * 1000 // Convert to milliseconds
   });
 };
 

@@ -1,22 +1,62 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { auth } from '../config/auth';
+import { app } from '../config';
+
+const TOKEN_AUDIENCE = 'easystack-frontend';
+const CLOCK_SKEW_SECONDS = 10;
+
+export type AccessTokenClaims = {
+  sub: string;
+  type: string;
+  iat: number;
+  nbf: number;
+  exp: number;
+  iss?: string;
+  aud?: string | string[];
+};
+
+export type RefreshTokenClaims = {
+  sub: string;
+  jti: string;
+  type: string;
+  iat: number;
+  nbf: number;
+  exp: number;
+  iss?: string;
+  aud?: string | string[];
+};
+
+const buildSignOptions = (expiresIn: number, subject: string): SignOptions => ({
+  expiresIn,
+  issuer: app.name,
+  audience: TOKEN_AUDIENCE,
+  subject
+});
+
+const buildTimingClaims = () => {
+  const now = Math.floor(Date.now() / 1000);
+  return { iat: now, nbf: now - CLOCK_SKEW_SECONDS };
+};
+
+const verifyToken = <T>(token: string, secret: string): T =>
+  jwt.verify(token, secret, {
+    issuer: app.name,
+    audience: TOKEN_AUDIENCE,
+    clockTolerance: CLOCK_SKEW_SECONDS
+  }) as T;
 
 /**
  * Generate access token (short-lived, for API requests)
  */
-export const generateAccessToken = (userId: string, email: string, role: string): string => {
-  const signOptions: SignOptions = { expiresIn: auth.accessTokenExpiry as any };
+export const generateAccessToken = (userId: string): string => {
   return jwt.sign(
     {
-      sub: userId,
-      email,
-      role,
-      type: 'access',
-      iat: Math.floor(Date.now() / 1000)
+      type: auth.cookies.accessTokenName,
+      ...buildTimingClaims()
     },
     auth.jwtSecret,
-    signOptions
+    buildSignOptions(auth.accessTokenExpirySeconds, userId)
   );
 };
 
@@ -24,34 +64,25 @@ export const generateAccessToken = (userId: string, email: string, role: string)
  * Generate refresh token (long-lived, for obtaining new access tokens)
  */
 export const generateRefreshToken = (userId: string): string => {
-  const signOptions: SignOptions = { expiresIn: auth.refreshTokenExpiry as any };
   return jwt.sign(
     {
-      sub: userId,
       jti: uuidv4(),
-      type: 'refresh',
-      iat: Math.floor(Date.now() / 1000)
+      type: auth.cookies.refreshTokenName,
+      ...buildTimingClaims()
     },
     auth.jwtRefreshSecret,
-    signOptions
+    buildSignOptions(auth.refreshTokenExpirySeconds, userId)
   );
 };
 
 /**
  * Verify and decode access token
  */
-export const verifyAccessToken = (token: string) => {
+export const verifyAccessToken = (token: string): AccessTokenClaims => {
   try {
-    const decoded = jwt.verify(token, auth.jwtSecret) as {
-      sub: string;
-      email: string;
-      role: string;
-      type: string;
-      iat: number;
-      exp: number;
-    };
+    const decoded = verifyToken<AccessTokenClaims>(token, auth.jwtSecret);
 
-    if (decoded.type !== 'access') {
+    if (decoded.type !== auth.cookies.accessTokenName) {
       throw new Error('Invalid token type');
     }
 
@@ -70,17 +101,11 @@ export const verifyAccessToken = (token: string) => {
 /**
  * Verify and decode refresh token
  */
-export const verifyRefreshToken = (token: string) => {
+export const verifyRefreshToken = (token: string): RefreshTokenClaims => {
   try {
-    const decoded = jwt.verify(token, auth.jwtRefreshSecret) as {
-      sub: string;
-      jti: string;
-      type: string;
-      iat: number;
-      exp: number;
-    };
+    const decoded = verifyToken<RefreshTokenClaims>(token, auth.jwtRefreshSecret);
 
-    if (decoded.type !== 'refresh') {
+    if (decoded.type !== auth.cookies.refreshTokenName) {
       throw new Error('Invalid token type');
     }
 
@@ -93,18 +118,5 @@ export const verifyRefreshToken = (token: string) => {
       throw new Error('Invalid token');
     }
     throw error;
-  }
-};
-
-/**
- * Get token expiration time in seconds from now
- */
-export const getTokenExpiryInSeconds = (token: string): number => {
-  try {
-    const decoded = jwt.decode(token) as { exp?: number };
-    if (!decoded?.exp) return 0;
-    return Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
-  } catch {
-    return 0;
   }
 };

@@ -12,28 +12,22 @@ datasource db {
 }
 
 model User {
-  id            Int      @id @default(autoincrement())
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  firstName     String?  @map("first_name")
-  lastName      String?  @map("last_name")
-  role          UserRole @default(USER)
-  status        UserStatus @default(PENDING_VERIFICATION)
-  emailVerified Boolean  @default(false) @map("email_verified")
-  lastLoginAt   DateTime? @map("last_login_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at")
+  id                      Int      @id @default(autoincrement())
+  email                   String   @unique
+  passwordHash            String   @map("password_hash")
+  firstName               String?  @map("first_name")
+  lastName                String?  @map("last_name")
+  status                  UserStatus @default(PENDING_VERIFICATION)
+  emailVerified           Boolean  @default(false) @map("email_verified")
+  onboardingCompleted     Boolean  @default(false) @map("onboarding_completed")
+  lastLoginAt             DateTime? @map("last_login_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt               DateTime? @map("deleted_at")
 
   refreshTokens RefreshToken[]
   workspaceMembers WorkspaceMember[]
   subscription Subscription?
-}
-
-enum UserRole {
-  USER
-  ADMIN
-  MODERATOR
 }
 
 enum UserStatus {
@@ -71,15 +65,22 @@ model Workspace {
 }
 
 model WorkspaceMember {
-  id          String   @id
-  workspaceId String   @map("workspace_id")
-  userId      Int      @map("user_id")
-  role        String
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  id          String            @id
+  workspaceId String            @map("workspace_id")
+  userId      Int               @map("user_id")
+  role        UserWorkspaceRole @map("role")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum UserWorkspaceRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  PUBLISHER
 }
 
 model Plan {

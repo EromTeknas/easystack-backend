@@ -63,7 +63,8 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           firstName: true,
           lastName: true,
           emailVerified: true,
-          status: true
+          status: true,
+          onboardingCompleted: true
         }
       });
 
@@ -97,7 +98,7 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       }
 
       // Generate tokens
-      const accessToken = generateAccessToken(userId.toString(), user.email, 'USER');
+      const accessToken = generateAccessToken(userId.toString());
       const refreshToken = generateRefreshToken(userId.toString());
       const refreshTokenHash = await hashToken(refreshToken);
 
@@ -139,7 +140,8 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           id: userId,
           email: user.email,
           firstName: user.firstName,
-          lastName: user.lastName
+          lastName: user.lastName,
+          onboardingCompleted: user.onboardingCompleted
         },
         verified: true,
         message: 'Email verified successfully'

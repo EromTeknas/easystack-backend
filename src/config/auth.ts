@@ -5,8 +5,8 @@
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
-const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY || '15m';
-const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '30d';
+const ACCESS_TOKEN_EXPIRY_MINUTES = parseInt(process.env.ACCESS_TOKEN_EXPIRY || '15', 10);
+const REFRESH_TOKEN_EXPIRY_MINUTES = parseInt(process.env.REFRESH_TOKEN_EXPIRY || '43200', 10); // Default to 30 days in minutes
 const PASSWORD_RESET_EXPIRY_MINUTES = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINUTES || '30', 10);
 const AUTH_COOKIE_DOMAIN = process.env.AUTH_COOKIE_DOMAIN || undefined;
 const AUTH_COOKIE_PATH = process.env.AUTH_COOKIE_PATH || '/';
@@ -17,12 +17,12 @@ const AUTH_COOKIE_SECURE = process.env.AUTH_COOKIE_SECURE
 
 export const auth = {
   // Token expiry times (string format for jwt.sign)
-  accessTokenExpiry: ACCESS_TOKEN_EXPIRY as string,
-  refreshTokenExpiry: REFRESH_TOKEN_EXPIRY as string,
+  accessTokenExpiryInMinutes: ACCESS_TOKEN_EXPIRY_MINUTES,
+  refreshTokenExpiryInMinutes: REFRESH_TOKEN_EXPIRY_MINUTES, // Default to 30 days in minutes
   
   // Token expiry in seconds (for calculations)
-  accessTokenExpirySeconds: 15 * 60, // 15 minutes
-  refreshTokenExpirySeconds: 30 * 24 * 60 * 60, // 30 days
+  accessTokenExpirySeconds: ACCESS_TOKEN_EXPIRY_MINUTES * 60, // 15 minutes
+  refreshTokenExpirySeconds: REFRESH_TOKEN_EXPIRY_MINUTES * 60, // 30 days
   
   // JWT Secrets
   jwtSecret: JWT_SECRET as string,
@@ -54,7 +54,6 @@ export const auth = {
       : 'strict',
     domain: AUTH_COOKIE_DOMAIN,
     path: AUTH_COOKIE_PATH,
-    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
   },
   
   // Rate limiting

@@ -44,7 +44,8 @@ export const loginController = asyncHandler(async (req, res) => {
           emailVerified: true,
           status: true,
           firstName: true,
-          lastName: true
+          lastName: true,
+          onboardingCompleted: true
         }
       });
 
@@ -100,7 +101,7 @@ export const loginController = asyncHandler(async (req, res) => {
       const userId = user.id.toString();
 
       // Generate tokens
-      const accessToken = generateAccessToken(userId, user.email, 'USER');
+          const accessToken = generateAccessToken(userId);
       const refreshToken = generateRefreshToken(userId);
       const refreshTokenHash = await hashToken(refreshToken);
 
@@ -142,7 +143,8 @@ export const loginController = asyncHandler(async (req, res) => {
           id: userId,
           email: user.email,
           firstName: user.firstName,
-          lastName: user.lastName
+          lastName: user.lastName,
+          onboardingCompleted: user.onboardingCompleted
         }
       });
     } catch (error: any) {

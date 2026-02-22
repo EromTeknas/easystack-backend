@@ -39,9 +39,6 @@ export const refreshController = asyncHandler(async (req, res) => {
       return ok(res, {
         user: {
           id: rotated.user.id.toString(),
-          email: rotated.user.email,
-          firstName: rotated.user.firstName,
-          lastName: rotated.user.lastName
         }
       });
     } catch (error: any) {
