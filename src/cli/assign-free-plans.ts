@@ -10,7 +10,7 @@ async function assignFreePlans() {
   
   const users = await prisma.user.findMany({
     where: {
-      subscription: null,
+      subscriptions: null,
     },
   });
 

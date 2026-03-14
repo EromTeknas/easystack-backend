@@ -16,8 +16,8 @@ interface WorkspaceInput {
 }
 
 interface WorkspaceMember {
-  id: string;
-  workspaceId: string;
+  id: number;
+  workspaceId: number;
   userId: number;
   role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER';
   createdAt: Date;
@@ -26,26 +26,23 @@ interface WorkspaceMember {
 /**
  * Create a new workspace
  */
-export async function createWorkspace(input: WorkspaceInput): Promise<string> {
-  const workspaceId = uuidv4();
-
+export async function createWorkspace(input: WorkspaceInput): Promise<number> {
   try {
-    await prisma.workspace.create({
+    const workspace = await prisma.workspace.create({
       data: {
-        id: workspaceId,
         name: input.name,
         logoUrl: input.logoUrl || null,
-        createdBy: BigInt(input.createdBy),
-      },
+        createdBy: input.createdBy,
+      } as any, // Type assertion since id is auto-generated
     });
 
     logger.info('Workspace created', {
-      workspaceId,
+      workspaceId: workspace.id,
       name: input.name,
       createdBy: input.createdBy,
     });
 
-    return workspaceId;
+    return workspace.id;
   } catch (error) {
     logger.error('Failed to create workspace:', error);
     throw error;
@@ -55,7 +52,7 @@ export async function createWorkspace(input: WorkspaceInput): Promise<string> {
 /**
  * Create default workspace for new user
  */
-export async function createDefaultWorkspace(userId: number): Promise<string> {
+export async function createDefaultWorkspace(userId: number): Promise<number> {
   return createWorkspace({
     name: workspaceConfig.defaults.name,
     createdBy: userId,
@@ -66,22 +63,19 @@ export async function createDefaultWorkspace(userId: number): Promise<string> {
  * Add user to workspace with role
  */
 export async function addWorkspaceMember(
-  workspaceId: string,
+  workspaceId: number,
   userId: number,
   role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' = 'DEVELOPER',
   isDefault = false
-): Promise<string> {
-  const memberId = uuidv4();
-
+): Promise<number> {
   try {
-    await prisma.workspaceMember.create({
+    const member = await prisma.workspaceMember.create({
       data: {
-        id: memberId,
         workspaceId,
         userId,
         role,
         isDefault,
-      },
+      } as any, // Type assertion since id is auto-generated
     });
 
     logger.info('User added to workspace', {
@@ -91,7 +85,7 @@ export async function addWorkspaceMember(
       isDefault,
     });
 
-    return memberId;
+    return member.id as unknown as number;
   } catch (error) {
     logger.error('Failed to add workspace member:', error);
     throw error;
@@ -134,7 +128,7 @@ export async function getUserWorkspaces(userId: number): Promise<any[]> {
  * Get user's role in a workspace
  */
 export async function getUserWorkspaceRole(
-  workspaceId: string,
+  workspaceId: number,
   userId: number
 ): Promise<'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' | null> {
   try {
@@ -159,7 +153,7 @@ export async function getUserWorkspaceRole(
  * Get workspace by ID with member info
  */
 export async function getWorkspaceWithRole(
-  workspaceId: string,
+  workspaceId: number,
   userId: number
 ): Promise<any> {
   try {
@@ -202,7 +196,7 @@ export async function getWorkspaceWithRole(
  * Check if user is workspace owner
  */
 export async function isWorkspaceOwner(
-  workspaceId: string,
+  workspaceId: number,
   userId: number
 ): Promise<boolean> {
   const role = await getUserWorkspaceRole(workspaceId, userId);
@@ -213,7 +207,7 @@ export async function isWorkspaceOwner(
  * Check if user has admin role in workspace
  */
 export async function isWorkspaceAdmin(
-  workspaceId: string,
+  workspaceId: number,
   userId: number
 ): Promise<boolean> {
   const role = await getUserWorkspaceRole(workspaceId, userId);

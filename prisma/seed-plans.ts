@@ -9,7 +9,7 @@ async function seedPlans() {
   console.log('🌱 Seeding default plans...');
 
   // Free Plan
-  await prisma.plan.upsert({
+  await prisma.plans.upsert({
     where: { name: 'free' },
     update: {},
     create: {
@@ -39,7 +39,7 @@ async function seedPlans() {
   });
 
   // Pro Plan
-  await prisma.plan.upsert({
+  await prisma.plans.upsert({
     where: { name: 'pro' },
     update: {},
     create: {
@@ -69,7 +69,7 @@ async function seedPlans() {
   });
 
   // Team Plan
-  await prisma.plan.upsert({
+  await prisma.plans.upsert({
     where: { name: 'team' },
     update: {},
     create: {
@@ -99,7 +99,7 @@ async function seedPlans() {
   });
 
   // Enterprise Plan
-  await prisma.plan.upsert({
+  await prisma.plans.upsert({
     where: { name: 'enterprise' },
     update: {},
     create: {

@@ -106,7 +106,7 @@ export const createWorkspaceController = asyncHandler(async (req: any, res: Resp
  */
 export const getWorkspaceById = asyncHandler(async (req: any, res: Response) => {
   const userId = Number(req.user!.id);
-  const { workspaceId } = req.params;
+  const workspaceId = Number(req.params.workspaceId);
 
   const workspace = await getWorkspaceWithRole(workspaceId, userId);
 
@@ -125,9 +125,9 @@ export const getWorkspaceById = asyncHandler(async (req: any, res: Response) => 
  * Replace workspace details (name and logoUrl)
  */
 export const updateWorkspace = asyncHandler(async (req: any, res: Response) => {
-
-    logger.debug('PUT /api/workspace/:workspaceId start', { workspaceId: req.params.workspaceId, userId: req.user!.id });
-  const { workspaceId } = req.params;
+  const workspaceId = Number(req.params.workspaceId);
+  logger.debug('PUT /api/workspace/:workspaceId start', { workspaceId, userId: req.user!.id });
+  
   const { name, logoUrl } = req.body;
 
   if (!name || typeof name !== 'string' || !isValidName(name)) {
@@ -152,7 +152,7 @@ export const updateWorkspace = asyncHandler(async (req: any, res: Response) => {
     throw new NotFoundError('Workspace not found');
   } 
 
-    logger.debug('Workspace updated via API', { workspaceId, userId: req.user!.id });
+  logger.debug('Workspace updated via API', { workspaceId, userId: req.user!.id });
 
   const normalized = normalizeWorkspace(workspace);
   const hydrated = normalized ? await ImageUrlService.hydrateObject(normalized, ['logoUrl']) : null;
@@ -166,8 +166,9 @@ export const updateWorkspace = asyncHandler(async (req: any, res: Response) => {
  * Update workspace details partially
  */
 export const patchWorkspace = asyncHandler(async (req: any, res: Response) => {
-    logger.debug('PATCH /api/workspace/:workspaceId start', { workspaceId: req.params.workspaceId, userId: req.user!.id });
-  const { workspaceId } = req.params;
+  const workspaceId = Number(req.params.workspaceId);
+  logger.debug('PATCH /api/workspace/:workspaceId start', { workspaceId, userId: req.user!.id });
+  
   const { name, logoUrl } = req.body;
 
   if (name === undefined && logoUrl === undefined) {

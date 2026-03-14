@@ -14,8 +14,8 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
   logger.debug('POST /api/projects start', { userId: req.user!.id });
   const { workspaceId, name, subdomain, description } = req.body;
 
-  if (!workspaceId || typeof workspaceId !== 'string') {
-    throw new BadRequestError('workspaceId is required');
+  if (!workspaceId || typeof workspaceId !== 'number') {
+    throw new BadRequestError('workspaceId is required and must be a number');
   }
 
   if (!name || typeof name !== 'string') {
@@ -56,7 +56,7 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
  * Get a project by ID
  */
 export const getProjectById = asyncHandler(async (req: any, res: Response) => {
-  const { projectId } = req.params;
+  const projectId = Number(req.params.projectId);
   const userId = Number(req.user!.id);
 
   const project = await prisma.project.findUnique({
@@ -87,7 +87,7 @@ export const getProjectById = asyncHandler(async (req: any, res: Response) => {
  * List all projects in a workspace
  */
 export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Response) => {
-  const { workspaceId } = req.params;
+  const workspaceId = Number(req.params.workspaceId);
   const userId = Number(req.user!.id);
 
   // Verify user has access to this workspace
@@ -114,8 +114,9 @@ export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Respon
  * Update a project (full replacement)
  */
 export const updateProject = asyncHandler(async (req: any, res: Response) => {
-  logger.debug('PUT /api/projects/:projectId start', { projectId: req.params.projectId, userId: req.user!.id });
-  const { projectId } = req.params;
+  const projectId = Number(req.params.projectId);
+  logger.debug('PUT /api/projects/:projectId start', { projectId, userId: req.user!.id });
+  
   const { name, subdomain, description } = req.body;
   const userId = Number(req.user!.id);
 
@@ -163,8 +164,9 @@ export const updateProject = asyncHandler(async (req: any, res: Response) => {
  * Partially update a project
  */
 export const patchProject = asyncHandler(async (req: any, res: Response) => {
-  logger.debug('PATCH /api/projects/:projectId start', { projectId: req.params.projectId, userId: req.user!.id });
-  const { projectId } = req.params;
+  const projectId = Number(req.params.projectId);
+  logger.debug('PATCH /api/projects/:projectId start', { projectId, userId: req.user!.id });
+  
   const userId = Number(req.user!.id);
 
   // Get project and verify access
@@ -209,8 +211,9 @@ export const patchProject = asyncHandler(async (req: any, res: Response) => {
  * Delete a project
  */
 export const deleteProject = asyncHandler(async (req: any, res: Response) => {
-  logger.debug('DELETE /api/projects/:projectId start', { projectId: req.params.projectId, userId: req.user!.id });
-  const { projectId } = req.params;
+  const projectId = Number(req.params.projectId);
+  logger.debug('DELETE /api/projects/:projectId start', { projectId, userId: req.user!.id });
+  
   const userId = Number(req.user!.id);
 
   // Get project and verify access

@@ -1,5 +1,4 @@
 import { prisma } from '../db';
-import { v4 as uuidv4 } from 'uuid';
 import { BadRequestError, NotFoundError } from '../errors';
 
 export const ProjectService = {
@@ -7,9 +6,9 @@ export const ProjectService = {
    * Create a new project in a workspace
    */
   async createProject(
-    workspaceId: string,
+    workspaceId: number,
     data: { name: string; subdomain: string; description?: string }
-  ): Promise<string> {
+  ): Promise<number> {
     const { name, subdomain, description } = data;
 
     // Validate inputs
@@ -36,20 +35,17 @@ export const ProjectService = {
       throw new BadRequestError('Subdomain is already taken');
     }
 
-    const projectId = uuidv4();
-
     try {
       const project = await prisma.project.create({
         data: {
-          id: projectId,
           workspaceId,
           name: name.trim(),
           subdomain: subdomain.toLowerCase().trim(),
           description: description?.trim() || null
-        }
+        } as any  // Type assertion since id is auto-generated
       });
 
-      return project.id;
+      return project.id as unknown as number;
     } catch (err: any) {
       if (err.code === 'P2002') {
         // Unique constraint violation
@@ -62,7 +58,7 @@ export const ProjectService = {
   /**
    * Get a project by ID
    */
-  async getProjectById(projectId: string): Promise<any> {
+  async getProjectById(projectId: number): Promise<any> {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -80,7 +76,7 @@ export const ProjectService = {
   /**
    * List all projects in a workspace
    */
-  async listProjectsByWorkspace(workspaceId: string): Promise<any[]> {
+  async listProjectsByWorkspace(workspaceId: number): Promise<any[]> {
     const projects = await prisma.project.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' }
@@ -93,7 +89,7 @@ export const ProjectService = {
    * Update a project
    */
   async updateProject(
-    projectId: string,
+    projectId: number,
     data: { name?: string; subdomain?: string; description?: string }
   ): Promise<any> {
     // Check if project exists
@@ -149,7 +145,7 @@ export const ProjectService = {
   /**
    * Delete a project
    */
-  async deleteProject(projectId: string): Promise<void> {
+  async deleteProject(projectId: number): Promise<void> {
     await prisma.project.delete({
       where: { id: projectId }
     });

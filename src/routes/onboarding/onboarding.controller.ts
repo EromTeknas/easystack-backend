@@ -13,7 +13,7 @@ import { prisma } from '../../db';
  *   - onboardingCompleted (boolean)
  */
 export const getOnboardingStatus = asyncHandler(async (req: any, res: Response) => {
-    const userId = req.user!.id;
+    const userId = Number(req.user!.id);
     const user = await prisma.user.findUnique({
         where: { id: userId }
     });
@@ -34,7 +34,7 @@ export const getOnboardingStatus = asyncHandler(async (req: any, res: Response) 
  *   - message: "Onboarding marked as completed"
  */
 export const markOnboardingCompleted = asyncHandler(async (req: any, res: Response) => {
-    const userId = req.user!.id;
+    const userId = Number(req.user!.id);
     await prisma.user.update({
         where: { id: userId },
         data: { onboardingCompleted: true }

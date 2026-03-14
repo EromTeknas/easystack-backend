@@ -32,7 +32,7 @@ export interface PlanConfig {
 }
 
 export interface EffectivePlan {
-  id: string;
+  id: number;
   name: string;
   displayName: string;
   config: PlanConfig;

@@ -15,7 +15,7 @@ declare global {
   namespace Express {
     interface Request {
       userId?: string;
-      workspaceId?: string;
+      workspaceId?: number;
       userRole?: string;
     }
   }
@@ -31,7 +31,13 @@ export function authorize(allowedRoles: ('OWNER' | 'ADMIN')[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Get workspace ID from params or body
-      const workspaceId = req.params.workspaceId || req.body.workspaceId;
+      let workspaceId = req.params.workspaceId || req.body.workspaceId;
+      
+      // Convert to number if it's a string
+      if (typeof workspaceId === 'string') {
+        workspaceId = parseInt(workspaceId, 10);
+      }
+      
       const userId = Number(req.userId);
 
       if (!userId) {

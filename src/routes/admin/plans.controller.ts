@@ -25,7 +25,7 @@ export const getPlanById = asyncHandler(async (req: any, res: Response) => {
     throw new AppError('Plan ID is required', 400, 'INVALID_PLAN_ID');
   }
   
-  const plan = await BillingService.getPlanById(id as string);
+  const plan = await BillingService.getPlanById(Number(id));
   
   return ok(res, plan);
 });
@@ -58,7 +58,7 @@ export const updatePlan = asyncHandler(async (req: any, res: Response) => {
     throw new AppError('Plan ID is required', 400, 'INVALID_PLAN_ID');
   }
   
-  const plan = await BillingService.updatePlan(id as string, config);
+  const plan = await BillingService.updatePlan(Number(id), config);
   
   return ok(res, plan);
 });

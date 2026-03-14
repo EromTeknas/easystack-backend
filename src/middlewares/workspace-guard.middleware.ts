@@ -7,20 +7,26 @@ export type WorkspaceGuardOptions = {
   workspaceIdParam?: string;
 };
 
-const resolveWorkspaceId = (req: any, paramName: string): string | null => {
+const resolveWorkspaceId = (req: any, paramName: string): number | null => {
   const fromParams = req?.params?.[paramName];
   if (typeof fromParams === 'string' && fromParams.trim().length > 0) {
-    return fromParams.trim();
+    const parsed = parseInt(fromParams.trim(), 10);
+    if (!isNaN(parsed)) return parsed;
   }
 
   const fromBody = req?.body?.workspaceId;
+  if (typeof fromBody === 'number') {
+    return fromBody;
+  }
   if (typeof fromBody === 'string' && fromBody.trim().length > 0) {
-    return fromBody.trim();
+    const parsed = parseInt(fromBody.trim(), 10);
+    if (!isNaN(parsed)) return parsed;
   }
 
   const fromQuery = req?.query?.workspaceId;
   if (typeof fromQuery === 'string' && fromQuery.trim().length > 0) {
-    return fromQuery.trim();
+    const parsed = parseInt(fromQuery.trim(), 10);
+    if (!isNaN(parsed)) return parsed;
   }
 
   return null;

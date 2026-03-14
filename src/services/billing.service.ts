@@ -53,7 +53,7 @@ export class BillingService {
     }
 
     // Fetch from database
-    const subscription = await prisma.subscription.findUnique({
+    const subscription = await prisma.subscriptions.findUnique({
       where: { userId },
       include: { plan: true },
     });
@@ -198,7 +198,7 @@ export class BillingService {
    */
   static async createFreeSubscription(userId: number): Promise<void> {
     // Find the free plan
-    const freePlan = await prisma.plan.findUnique({
+    const freePlan = await prisma.plans.findUnique({
       where: { name: PLAN_NAMES.FREE },
     });
 
@@ -207,7 +207,7 @@ export class BillingService {
     }
 
     // Create subscription
-    await prisma.subscription.create({
+    await prisma.subscriptions.create({
       data: {
         userId,
         planId: freePlan.id,
@@ -220,7 +220,7 @@ export class BillingService {
    * Get all available plans
    */
   static async getAllPlans() {
-    return prisma.plan.findMany({
+    return prisma.plans.findMany({
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -228,8 +228,8 @@ export class BillingService {
   /**
    * Get plan by ID
    */
-  static async getPlanById(planId: string) {
-    const plan = await prisma.plan.findUnique({
+  static async getPlanById(planId: number) {
+    const plan = await prisma.plans.findUnique({
       where: { id: planId },
     });
 
@@ -248,7 +248,7 @@ export class BillingService {
     displayName: string;
     config: PlanConfig;
   }) {
-    return prisma.plan.create({
+    return prisma.plans.create({
       data: {
         name: data.name,
         displayName: data.displayName,
@@ -260,11 +260,11 @@ export class BillingService {
   /**
    * Update a plan
    */
-  static async updatePlan(planId: string, config: PlanConfig) {
+  static async updatePlan(planId: number, config: PlanConfig) {
     // Create a version history entry
     const plan = await this.getPlanById(planId);
     
-    const latestVersion = await prisma.planVersion.findFirst({
+    const latestVersion = await prisma.plan_versions.findFirst({
       where: { planId },
       orderBy: { version: 'desc' },
     });
@@ -272,7 +272,7 @@ export class BillingService {
     const newVersion = (latestVersion?.version || 0) + 1;
 
     // Create version entry
-    await prisma.planVersion.create({
+    await prisma.plan_versions.create({
       data: {
         planId,
         version: newVersion,
@@ -281,7 +281,7 @@ export class BillingService {
     });
 
     // Update the plan
-    return prisma.plan.update({
+    return prisma.plans.update({
       where: { id: planId },
       data: { config: config as any },
     });
@@ -293,13 +293,13 @@ export class BillingService {
   static async updateSubscription(
     userId: number,
     data: {
-      planId?: string;
+      planId?: number;
       status?: 'ACTIVE' | 'TRIAL' | 'EXPIRED' | 'CANCELED';
       customOverride?: any;
       expiresAt?: Date;
     }
   ) {
-    const subscription = await prisma.subscription.update({
+    const subscription = await prisma.subscriptions.update({
       where: { userId },
       data,
     });
@@ -314,7 +314,7 @@ export class BillingService {
    * Set custom override for a user's subscription
    */
   static async setCustomOverride(userId: number, override: any) {
-    const subscription = await prisma.subscription.update({
+    const subscription = await prisma.subscriptions.update({
       where: { userId },
       data: { customOverride: override },
     });
