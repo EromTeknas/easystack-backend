@@ -60,6 +60,7 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           firstName: true,
           lastName: true,
           emailVerified: true,
+          onboardingCompleted: true,
           status: true,
           createdAt: true
         }
@@ -82,6 +83,7 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           firstName: user.firstName,
           lastName: user.lastName,
           emailVerified: user.emailVerified,
+          onboardingCompleted: user.onboardingCompleted,
           status: user.status,
           createdAt: user.createdAt
         },

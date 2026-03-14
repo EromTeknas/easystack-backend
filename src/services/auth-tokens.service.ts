@@ -36,7 +36,6 @@ export const rotateRefreshToken = async (refreshToken: string, req: any) => {
     where: { id: userId },
     select: {
       id: true,
-      email: true,
       status: true,
     }
   });
@@ -46,7 +45,7 @@ export const rotateRefreshToken = async (refreshToken: string, req: any) => {
   }
 
   const subject = userId.toString();
-  const newAccessToken = generateAccessToken(subject, user.email);
+  const newAccessToken = generateAccessToken(subject);
   const newRefreshToken = generateRefreshToken(subject);
   const newRefreshTokenHash = await hashToken(newRefreshToken);
 

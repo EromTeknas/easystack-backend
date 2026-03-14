@@ -3,8 +3,10 @@ import {
   HeadBucketCommand,
   ListObjectsV2Command,
   PutObjectCommand,
-  DeleteObjectCommand
+  DeleteObjectCommand,
+  GetObjectCommand
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3 as s3Config } from '../config';
 
 let s3Client: S3Client | null = null;
@@ -81,6 +83,31 @@ export const S3Service = {
       isTruncated: response.IsTruncated ?? false,
       nextToken: response.NextContinuationToken ?? null
     };
+  },
+
+  async generatePresignedUploadUrl(
+    key: string,
+    contentType: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    const client = getS3Client();
+    const command = new PutObjectCommand({
+      Bucket: s3Config.bucket,
+      Key: key,
+      ContentType: contentType
+    });
+
+    return getSignedUrl(client, command, { expiresIn });
+  },
+
+  async generatePresignedGetUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    const client = getS3Client();
+    const command = new GetObjectCommand({
+      Bucket: s3Config.bucket,
+      Key: key
+    });
+
+    return getSignedUrl(client, command, { expiresIn });
   }
 };
 

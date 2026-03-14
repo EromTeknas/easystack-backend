@@ -27,12 +27,12 @@ declare global {
  * @param allowedRoles - Array of roles that can access this endpoint
  * @returns Middleware function
  */
-export function authorize(allowedRoles: ('OWNER' | 'ADMIN' | 'USER')[]) {
+export function authorize(allowedRoles: ('OWNER' | 'ADMIN')[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Get workspace ID from params or body
       const workspaceId = req.params.workspaceId || req.body.workspaceId;
-      const userId = req.userId;
+      const userId = Number(req.userId);
 
       if (!userId) {
         throw new ForbiddenError('Authentication required');
@@ -54,7 +54,7 @@ export function authorize(allowedRoles: ('OWNER' | 'ADMIN' | 'USER')[]) {
       }
 
       // Check if user's role is in allowed roles
-      if (!allowedRoles.includes(userRole)) {
+      if (!allowedRoles.includes(userRole as any)) {
         logger.warn('Insufficient permissions for workspace operation', {
           userId,
           workspaceId,

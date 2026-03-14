@@ -1,9 +1,10 @@
 import { Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
-import { AppError } from '../../errors';
+import { AppError, BadRequestError } from '../../errors';
 import { s3 as s3Config } from '../../config';
 import { S3Service } from '../../services/s3.service';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * GET /storage/s3
@@ -98,5 +99,121 @@ export const deleteS3Object = asyncHandler(async (req: any, res: Response) => {
     ok: true,
     bucket: s3Config.bucket,
     key
+  });
+});
+
+type S3PathGenerator = (params: Record<string, string>) => string;
+
+const S3_PATH_TEMPLATES: Record<string, S3PathGenerator> = {
+  'workspace-logo': (params) => {
+    const { workspaceId, filename } = params;
+    if (!workspaceId) throw new BadRequestError('workspaceId is required for workspace-logo');
+    return `workspace/${workspaceId}/logo/${filename}`;
+  },
+  'workspace-asset': (params) => {
+    const { workspaceId, filename } = params;
+    if (!workspaceId) throw new BadRequestError('workspaceId is required for workspace-asset');
+    return `workspace/${workspaceId}/assets/${filename}`;
+  },
+  'user-avatar': (params) => {
+    const { userId, filename } = params;
+    if (!userId) throw new BadRequestError('userId is required for user-avatar');
+    return `user/${userId}/avatar/${filename}`;
+  },
+  'project-file': (params) => {
+    const { workspaceId, projectId, filename } = params;
+    if (!workspaceId) throw new BadRequestError('workspaceId is required for project-file');
+    if (!projectId) throw new BadRequestError('projectId is required for project-file');
+    return `workspace/${workspaceId}/project/${projectId}/files/${filename}`;
+  }
+};
+
+/**
+ * POST /storage/upload-url
+ * Generate a presigned URL for direct S3 upload
+ * 
+ * Request body:
+ * - type: string (e.g., 'workspace-logo', 'user-avatar')
+ * - contentType: string (e.g., 'image/png')
+ * - fileExtension: string (e.g., 'png', 'jpg')
+ * - workspaceId?: string (required for workspace-related uploads)
+ * - projectId?: string (required for project-related uploads)
+ * - userId?: string (required for user-related uploads)
+ * - expiresIn?: number (optional, default 3600 seconds)
+ */
+export const generateUploadUrl = asyncHandler(async (req: any, res: Response) => {
+  const { type, contentType, fileExtension, expiresIn = 3600, ...params } = req.body;
+
+  // Validate required fields
+  if (!type || typeof type !== 'string') {
+    throw new BadRequestError('type is required and must be a string');
+  }
+
+  if (!contentType || typeof contentType !== 'string') {
+    throw new BadRequestError('contentType is required and must be a string');
+  }
+
+  if (!fileExtension || typeof fileExtension !== 'string') {
+    throw new BadRequestError('fileExtension is required and must be a string');
+  }
+
+  // Validate type
+  const pathGenerator = S3_PATH_TEMPLATES[type];
+  if (!pathGenerator) {
+    throw new BadRequestError(
+      `Invalid upload type '${type}'. Supported types: ${Object.keys(S3_PATH_TEMPLATES).join(', ')}`
+    );
+  }
+
+  // Generate unique filename
+  const uuid = uuidv4();
+  const filename = `${uuid}.${fileExtension}`;
+
+  // Generate S3 path
+  const s3Key = pathGenerator({ ...params, filename });
+
+  // Generate presigned URL
+  const uploadUrl = await S3Service.generatePresignedUploadUrl(s3Key, contentType, expiresIn);
+
+  return ok(res, {
+    uploadUrl,
+    key: s3Key,
+    bucket: s3Config.bucket,
+    expiresIn,
+    publicUrl: s3Config.endpoint
+      ? `${s3Config.endpoint}/${s3Config.bucket}/${s3Key}`
+      : `https://${s3Config.bucket}.s3.${s3Config.region}.amazonaws.com/${s3Key}`
+  });
+});
+
+/**
+ * GET /storage/get-url
+ * Generate a presigned URL for direct S3 object download
+ *
+ * Query params:
+ * - key: string (required)
+ * - expiresIn?: number (optional, default 3600 seconds)
+ */
+export const generateGetUrl = asyncHandler(async (req: any, res: Response) => {
+  const key = typeof req.query?.key === 'string' ? req.query.key : undefined;
+  const expiresInRaw = req.query?.expiresIn;
+  const expiresIn =
+    typeof expiresInRaw === 'string' && expiresInRaw.trim().length > 0 ? Number(expiresInRaw) : 3600;
+
+  if (!key) {
+    throw new BadRequestError('key is required and must be a string');
+  }
+
+  if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new BadRequestError('expiresIn must be a positive number');
+  }
+
+  const downloadUrl = await S3Service.generatePresignedGetUrl(key, expiresIn);
+
+  return ok(res, {
+    downloadUrl,
+    key,
+    bucket: s3Config.bucket,
+    expiresIn
   });
 });

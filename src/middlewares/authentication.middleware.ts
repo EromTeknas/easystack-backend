@@ -19,9 +19,7 @@ export const authenticateToken = (req: any, res: Response, next: NextFunction) =
 
     // Attach user info to request
     req.user = {
-      id: decoded.sub,
-      email: decoded.email,
-      role: decoded.role
+      id: decoded.sub
     };
 
     next();
@@ -74,9 +72,7 @@ export const optionalAuth = (req: any, res: Response, next: NextFunction) => {
     if (token) {
       const decoded = verifyAccessToken(token);
       req.user = {
-        id: decoded.sub,
-        email: decoded.email,
-        role: decoded.role
+        id: decoded.sub
       };
     }
   } catch {

@@ -69,11 +69,14 @@ model WorkspaceMember {
   workspaceId String            @map("workspace_id")
   userId      Int               @map("user_id")
   role        UserWorkspaceRole @map("role")
+  isDefault   Boolean           @default(false) @map("is_default")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, isDefault])
 }
 
 enum UserWorkspaceRole {

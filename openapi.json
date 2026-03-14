@@ -58,6 +58,10 @@
     {
       "name": "Workspace",
       "description": "Workspace management endpoints"
+    },
+    {
+      "name": "Storage",
+      "description": "S3 storage and presigned URL endpoints"
     }
   ],
   "paths": {
@@ -993,6 +997,155 @@
         }
       }
     },
+    "/api/storage/upload-url": {
+      "post": {
+        "tags": ["Storage"],
+        "summary": "Generate presigned upload URL",
+        "description": "Generate a presigned URL for direct S3 upload with type-based path generation",
+        "operationId": "generateUploadUrl",
+        "security": [{ "CookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type", "contentType", "fileExtension"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["workspace-logo", "workspace-asset", "user-avatar", "project-file"],
+                    "example": "workspace-logo"
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "example": "image/png"
+                  },
+                  "fileExtension": {
+                    "type": "string",
+                    "example": "png"
+                  },
+                  "workspaceId": {
+                    "type": "string",
+                    "description": "Required for workspace-logo, workspace-asset, project-file types",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                  },
+                  "projectId": {
+                    "type": "string",
+                    "description": "Required for project-file type",
+                    "example": "660e8400-e29b-41d4-a716-446655440000"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "description": "Required for user-avatar type",
+                    "example": "1"
+                  },
+                  "expiresIn": {
+                    "type": "number",
+                    "description": "URL expiration in seconds (default 3600)",
+                    "example": 3600
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Presigned URL generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/storage/get-url": {
+      "get": {
+        "tags": ["Storage"],
+        "summary": "Generate presigned download URL",
+        "description": "Generate a presigned URL for direct S3 object download",
+        "operationId": "generateGetUrl",
+        "security": [{ "CookieAuth": [] }],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "S3 object key to download"
+          },
+          {
+            "name": "expiresIn",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 3600
+            },
+            "description": "URL expiration in seconds"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Presigned download URL generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspace": {
       "get": {
         "tags": ["Workspace"],
@@ -1579,6 +1732,71 @@
               "workspaces": {
                 "type": "array",
                 "items": { "$ref": "#/components/schemas/Workspace" }
+              }
+            }
+          },
+          "requestId": { "type": "string", "example": "abc123def456" }
+        }
+      },
+      "UploadUrlResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "uploadUrl": {
+                "type": "string",
+                "description": "Presigned URL for direct upload to S3",
+                "example": "https://bucket.s3.region.amazonaws.com/path/to/file.png?X-Amz-Algorithm=..."
+              },
+              "key": {
+                "type": "string",
+                "description": "S3 object key",
+                "example": "workspace/550e8400-e29b-41d4-a716-446655440000/logo/uuid.png"
+              },
+              "bucket": {
+                "type": "string",
+                "example": "my-bucket"
+              },
+              "expiresIn": {
+                "type": "number",
+                "example": 3600
+              },
+              "publicUrl": {
+                "type": "string",
+                "description": "Public URL to access the file after upload",
+                "example": "https://bucket.s3.region.amazonaws.com/workspace/550e8400-e29b-41d4-a716-446655440000/logo/uuid.png"
+              }
+            }
+          },
+          "requestId": { "type": "string", "example": "abc123def456" }
+        }
+      },
+      "DownloadUrlResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "downloadUrl": {
+                "type": "string",
+                "description": "Presigned URL for direct download from S3",
+                "example": "https://bucket.s3.region.amazonaws.com/path/to/file.png?X-Amz-Algorithm=..."
+              },
+              "key": {
+                "type": "string",
+                "description": "S3 object key",
+                "example": "workspace/550e8400-e29b-41d4-a716-446655440000/logo/uuid.png"
+              },
+              "bucket": {
+                "type": "string",
+                "example": "my-bucket"
+              },
+              "expiresIn": {
+                "type": "number",
+                "example": 3600
               }
             }
           },

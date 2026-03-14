@@ -7,6 +7,7 @@ import { prisma } from '../db/prisma';
 import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { workspace as workspaceConfig } from '../config/workspace';
+import { is } from 'zod/v4/locales';
 
 interface WorkspaceInput {
   name: string;
@@ -67,7 +68,8 @@ export async function createDefaultWorkspace(userId: number): Promise<string> {
 export async function addWorkspaceMember(
   workspaceId: string,
   userId: number,
-  role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' = 'DEVELOPER'
+  role: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'PUBLISHER' = 'DEVELOPER',
+  isDefault = false
 ): Promise<string> {
   const memberId = uuidv4();
 
@@ -78,6 +80,7 @@ export async function addWorkspaceMember(
         workspaceId,
         userId,
         role,
+        isDefault,
       },
     });
 
@@ -85,6 +88,7 @@ export async function addWorkspaceMember(
       workspaceId,
       userId,
       role,
+      isDefault,
     });
 
     return memberId;
@@ -116,6 +120,7 @@ export async function getUserWorkspaces(userId: number): Promise<any[]> {
       name: member.workspace.name,
       logo_url: member.workspace.logoUrl,
       role: member.role,
+      is_default: member.isDefault,
       created_at: member.workspace.createdAt,
       updated_at: member.workspace.updatedAt,
     }));
