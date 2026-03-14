@@ -7,6 +7,7 @@ import adminRoutes from './admin/admin.routes';
 import storageRoutes from './storage/storage.routes';
 import onboardingRoutes from './onboarding/onboarding.routes';
 import workspaceRoutes from './workspace/workspace.routes';
+import projectsRoutes from './projects/projects.routes';
 
 const router = Router();
 
@@ -27,6 +28,9 @@ router.use('/onboarding', onboardingRoutes);
 
 // Workspace routes
 router.use('/workspace', workspaceRoutes);
+
+// Projects routes
+router.use('/projects', projectsRoutes);
 
 // Health routes
 router.use('/health', healthRoutes);

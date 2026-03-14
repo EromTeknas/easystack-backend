@@ -62,6 +62,22 @@ model Workspace {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   members WorkspaceMember[]
+  projects Project[]
+}
+
+model Project {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  name        String
+  subdomain   String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, subdomain])
+  @@index([workspaceId])
 }
 
 model WorkspaceMember {

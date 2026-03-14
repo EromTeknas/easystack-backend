@@ -1117,6 +1117,151 @@
       ]
     },
     {
+      "name": "Projects",
+      "description": "Project management endpoints",
+      "item": [
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workspaceId\": \"{{workspaceId}}\",\n  \"name\": \"My Project\",\n  \"subdomain\": \"my-project\",\n  \"description\": \"A sample project\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects"]
+            },
+            "description": "Create a new project within a workspace"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Project",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{projectId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{projectId}}"]
+            },
+            "description": "Get a project by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "List Workspace Projects",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/workspaces/{{workspaceId}}/projects",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "workspaces", "{{workspaceId}}", "projects"]
+            },
+            "description": "List all projects in a workspace"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Project (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Project Name\",\n  \"subdomain\": \"updated-project\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{projectId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{projectId}}"]
+            },
+            "description": "Update a project (full replacement)"
+          },
+          "response": []
+        },
+        {
+          "name": "Patch Project (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Project Name Only\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{projectId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{projectId}}"]
+            },
+            "description": "Partially update a project"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{projectId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{projectId}}"]
+            },
+            "description": "Delete a project"
+          },
+          "response": []
+        },
+        {
+          "name": "Check Subdomain Availability",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/subdomain-available/my-project",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "subdomain-available", "my-project"]
+            },
+            "description": "Check if a subdomain is available"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Project By Subdomain (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/by-subdomain/my-project",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "by-subdomain", "my-project"]
+            },
+            "description": "Get project by subdomain (public endpoint, no auth required)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Admin Billing",
       "description": "Internal admin dashboard billing endpoints",
       "item": [
