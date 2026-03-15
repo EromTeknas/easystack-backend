@@ -63,7 +63,8 @@ export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
 
 /**
  * POST /workspace
- * Create a new workspace and add creator as OWNER
+ * Create a new workspace and add creator as OWNER (transactional)
+ * If any step fails, all changes are rolled back
  */
 export const createWorkspaceController = asyncHandler(async (req: any, res: Response) => {
   logger.debug('POST /api/workspace start');
@@ -78,21 +79,48 @@ export const createWorkspaceController = asyncHandler(async (req: any, res: Resp
     throw new BadRequestError('Invalid logoUrl');
   }
 
-  const workspaceId = await createWorkspace({
-    name: name.trim(),
-    logoUrl: logoUrl ?? undefined,
-    createdBy: userId
+  // Transactional: Create workspace + add member
+  const result = await prisma.$transaction(async (tx) => {
+    // Step 1: Create workspace
+    const workspace = await tx.workspace.create({
+      data: {
+        name: name.trim(),
+        logoUrl: logoUrl || null,
+        createdBy: userId,
+      },
+    });
+
+    logger.info('Workspace created in transaction', {
+      workspaceId: workspace.id,
+      name: workspace.name,
+      createdBy: userId,
+    });
+
+    // Step 2: Add creator as OWNER
+    await tx.workspaceMember.create({
+      data: {
+        workspaceId: workspace.id,
+        userId,
+        role: 'OWNER',
+        isDefault: true,
+      },
+    });
+
+    logger.info('User added as workspace owner in transaction', {
+      workspaceId: workspace.id,
+      userId,
+    });
+
+    return workspace;
   });
 
-  await addWorkspaceMember(workspaceId, userId, 'OWNER');
-
-  const workspace = await getWorkspaceWithRole(workspaceId, userId);
+  const workspace = await getWorkspaceWithRole(result.id, userId);
 
   if (!workspace) {
     throw new InternalServerError('Failed to create workspace');
   }
 
-  logger.debug('Workspace created via API', { workspaceId, userId });
+  logger.debug('Workspace created via API', { workspaceId: result.id, userId });
 
   const normalized = normalizeWorkspace(workspace);
   const hydrated = normalized ? await ImageUrlService.hydrateObject(normalized, ['logoUrl']) : null;

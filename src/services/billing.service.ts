@@ -258,32 +258,42 @@ export class BillingService {
   }
 
   /**
-   * Update a plan
+   * Update a plan (transactional)
+   * Creates version history and updates plan config atomically
    */
   static async updatePlan(planId: number, config: PlanConfig) {
-    // Create a version history entry
-    const plan = await this.getPlanById(planId);
-    
-    const latestVersion = await prisma.plan_versions.findFirst({
-      where: { planId },
-      orderBy: { version: 'desc' },
-    });
+    return prisma.$transaction(async (tx) => {
+      // Step 1: Get current plan
+      const plan = await tx.plans.findUnique({
+        where: { id: planId },
+      });
 
-    const newVersion = (latestVersion?.version || 0) + 1;
+      if (!plan) {
+        throw new Error(`Plan ${planId} not found`);
+      }
 
-    // Create version entry
-    await prisma.plan_versions.create({
-      data: {
-        planId,
-        version: newVersion,
-        config: config as any,
-      },
-    });
+      // Step 2: Get latest version
+      const latestVersion = await tx.plan_versions.findFirst({
+        where: { planId },
+        orderBy: { version: 'desc' },
+      });
 
-    // Update the plan
-    return prisma.plans.update({
-      where: { id: planId },
-      data: { config: config as any },
+      const newVersion = (latestVersion?.version || 0) + 1;
+
+      // Step 3: Create version entry in transaction
+      await tx.plan_versions.create({
+        data: {
+          planId,
+          version: newVersion,
+          config: config as any,
+        },
+      });
+
+      // Step 4: Update the plan in transaction
+      return tx.plans.update({
+        where: { id: planId },
+        data: { config: config as any },
+      });
     });
   }
 

@@ -80,69 +80,105 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
         });
       }
 
-      // Mark user email as verified and activate account
-      await prisma.user.update({
-        where: { id: userId },
-        data: { emailVerified: true, status: 'ACTIVE' }
-      });
+      // Transactional: Mark verified, create workspace, create refresh token
+      const result = await prisma.$transaction(async (tx) => {
+        // Step 1: Mark user email as verified and activate account
+        const updatedUser = await tx.user.update({
+          where: { id: userId },
+          data: { emailVerified: true, status: 'ACTIVE' }
+        });
 
-      // Ensure user has a default workspace and membership (created after verification)
-      const existingMembership = await prisma.workspaceMember.findFirst({
-        where: { userId: userId },
-        select: { id: true }
-      });
+        logger.info('User email marked as verified in transaction', { userId });
 
-      if (!existingMembership) {
-        const workspaceId = await createDefaultWorkspace(userId);
-        await addWorkspaceMember(workspaceId, userId, 'OWNER');
-      }
+        // Step 2: Ensure user has a default workspace and membership
+        const existingMembership = await tx.workspaceMember.findFirst({
+          where: { userId: userId },
+          select: { id: true }
+        });
 
-      // Generate tokens
-      const accessToken = generateAccessToken(userId.toString());
-      const refreshToken = generateRefreshToken(userId.toString());
-      const refreshTokenHash = await hashToken(refreshToken);
+        let workspaceId = 0;
+        if (!existingMembership) {
+          // Create default workspace
+          const workspace = await tx.workspace.create({
+            data: {
+              name: `${updatedUser.firstName}'s Workspace`,
+              createdBy: userId,
+            },
+          });
 
-      // Calculate expiration
-      const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
+          // Add user as owner
+          await tx.workspaceMember.create({
+            data: {
+              workspaceId: workspace.id,
+              userId,
+              role: 'OWNER',
+              isDefault: true,
+            },
+          });
 
-      // Store refresh token hash via Prisma
-      await prisma.refreshToken.create({
-        data: {
-          userId,
-          tokenHash: refreshTokenHash,
-          expiresAt,
-          ipAddress: getClientIP(req),
-          userAgent: (req.headers['user-agent'] as string) || 'Unknown',
-          deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+          workspaceId = workspace.id;
+
+          logger.info('Default workspace created for user in transaction', {
+            userId,
+            workspaceId,
+          });
         }
+
+        // Step 3: Generate tokens
+        const accessToken = generateAccessToken(userId.toString());
+        const refreshToken = generateRefreshToken(userId.toString());
+        const refreshTokenHash = await hashToken(refreshToken);
+
+        // Calculate expiration
+        const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
+
+        // Store refresh token hash via Prisma
+        await tx.refreshToken.create({
+          data: {
+            userId,
+            tokenHash: refreshTokenHash,
+            expiresAt,
+            ipAddress: getClientIP(req),
+            userAgent: (req.headers['user-agent'] as string) || 'Unknown',
+            deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+          }
+        });
+
+        logger.info('Refresh token created in transaction', { userId });
+
+        return {
+          user: {
+            id: userId,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            onboardingCompleted: user.onboardingCompleted
+          },
+          accessToken,
+          refreshToken,
+        };
       });
 
-      // Enqueue welcome email job (event-based)
+      // Enqueue welcome email job (event-based, outside transaction)
       await enqueueSendWelcomeEmailJob({
         email: user.email,
         firstName: user.firstName || ''
       });
 
       // Log verification
-      logger.info('User email verified', {
+      logger.info('User email verified successfully', {
         userId,
         email: user.email,
         ipAddress: getClientIP(req)
       });
 
       // Set auth cookies (access + refresh)
-      setAccessTokenCookie(res, accessToken);
-      setRefreshTokenCookie(res, refreshToken);
+      setAccessTokenCookie(res, result.accessToken);
+      setRefreshTokenCookie(res, result.refreshToken);
 
       // Return response with tokens
       return ok(res, {
-        user: {
-          id: userId,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          onboardingCompleted: user.onboardingCompleted
-        },
+        user: result.user,
         verified: true,
         message: 'Email verified successfully'
       });

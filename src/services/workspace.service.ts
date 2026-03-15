@@ -60,6 +60,83 @@ export async function createDefaultWorkspace(userId: number): Promise<number> {
 }
 
 /**
+ * Create workspace with initial setup (transactional)
+ * Creates workspace, adds owner as member, and assigns free plan
+ * If any step fails, all changes are rolled back
+ */
+export async function createWorkspaceWithSetup(
+  userId: number,
+  workspaceName: string,
+  options?: { assignFreePlan?: boolean }
+): Promise<{ workspaceId: number; memberId: number }> {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Step 1: Create workspace
+      const workspace = await tx.workspace.create({
+        data: {
+          name: workspaceName,
+          createdBy: userId,
+        },
+      });
+
+      logger.info('Workspace created in transaction', {
+        workspaceId: workspace.id,
+        name: workspaceName,
+        createdBy: userId,
+      });
+
+      // Step 2: Add user as owner
+      const member = await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId,
+          role: 'OWNER',
+          isDefault: true,
+        },
+      });
+
+      logger.info('User added as workspace owner in transaction', {
+        workspaceId: workspace.id,
+        userId,
+        memberId: member.id,
+      });
+
+      // Step 3: Assign free plan if requested
+      if (options?.assignFreePlan) {
+        const freePlan = await tx.plans.findFirst({
+          where: { name: 'free' },
+        });
+
+        if (freePlan) {
+          await tx.subscriptions.create({
+            data: {
+              userId,
+              planId: freePlan.id,
+              status: 'ACTIVE',
+            },
+          });
+
+          logger.info('Free plan assigned to user in transaction', {
+            userId,
+            planId: freePlan.id,
+          });
+        }
+      }
+
+      return {
+        workspaceId: workspace.id,
+        memberId: member.id,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    logger.error('Failed to create workspace with setup (transaction rolled back):', error);
+    throw error;
+  }
+}
+
+/**
  * Add user to workspace with role
  */
 export async function addWorkspaceMember(

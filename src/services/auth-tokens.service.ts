@@ -51,20 +51,25 @@ export const rotateRefreshToken = async (refreshToken: string, req: any) => {
 
   const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
 
-  await prisma.refreshToken.update({
-    where: { id: tokenRecord.id },
-    data: { revokedAt: new Date() }
-  });
+  // Transactional: Revoke old token + create new token (atomic)
+  await prisma.$transaction(async (tx) => {
+    // Step 1: Revoke old token
+    await tx.refreshToken.update({
+      where: { id: tokenRecord.id },
+      data: { revokedAt: new Date() }
+    });
 
-  await prisma.refreshToken.create({
-    data: {
-      userId,
-      tokenHash: newRefreshTokenHash,
-      expiresAt,
-      ipAddress: getClientIP(req),
-      userAgent: (req.headers['user-agent'] as string) || 'Unknown',
-      deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
-    }
+    // Step 2: Create new token
+    await tx.refreshToken.create({
+      data: {
+        userId,
+        tokenHash: newRefreshTokenHash,
+        expiresAt,
+        ipAddress: getClientIP(req),
+        userAgent: (req.headers['user-agent'] as string) || 'Unknown',
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+      }
+    });
   });
 
   return {

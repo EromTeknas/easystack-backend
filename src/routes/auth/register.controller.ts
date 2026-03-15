@@ -12,182 +12,183 @@ import { createEmailVerificationToken } from '../../services/email-verification-
 import { BillingService } from '../../services/billing.service';
 
 /**
- * Register a new user account
+ * Register a new user account (transactional)
  * POST /auth/register
  * 
  * Flow:
  * 1. Validate input
- * 2. Create or update unverified user
- * 3. Generate and send OTP
+ * 2. Create or update unverified user + assign plan (ATOMIC)
+ * 3. Generate and send OTP (outside transaction to avoid delays)
  * 4. Return user info (no tokens until verified)
  */
 export const registerController = asyncHandler(async (req, res) => {
   logger.info('POST /api/auth/register start');
-  try {
-    console.log('Register controller invoked', req.body);
-    const { email, password, confirmPassword, firstName, lastName, planId } = req.body;
+  const { email, password, confirmPassword, firstName, lastName, planId } = req.body;
 
-    // Validate input
-    if (!email || !password || !confirmPassword || !firstName || !lastName) {
-      throw new BadRequestError('Email, password, confirm password, first name, and last name are required');
-    }
-
-    if (!isValidEmail(email)) {
-      throw new BadRequestError('Invalid email format', { field: 'email' });
-    }
-
-    if (!isValidPassword(password)) {
-      throw new BadRequestError('Password does not meet requirements', {
-        field: 'password',
-        requirements: [
-          'At least 12 characters',
-          'At least one uppercase letter',
-          'At least one lowercase letter',
-          'At least one number',
-          'At least one special character'
-        ]
-      });
-    }
-
-    if (password !== confirmPassword) {
-      throw new BadRequestError('Password and confirm password do not match', {
-        field: 'confirmPassword'
-      });
-    }
-
-    if (!isValidName(firstName) || !isValidName(lastName)) {
-      throw new BadRequestError('Names must be valid and not exceed 100 characters');
-    }
-
-    // Check if email already exists (email is the identity)
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      select: {
-        id: true,
-        emailVerified: true,
-        status: true
-      }
-    });
-
-    try {
-      // Hash password
-      const passwordHash = await hashPassword(password);
-
-      let userId: string;
-      let isNewUser = false;
-
-      if (!existingUser) {
-        // New registration: create unverified user in PENDING_VERIFICATION state
-        const created = await prisma.user.create({
-          data: {
-            email: email.toLowerCase(),
-            passwordHash,
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            emailVerified: false,
-            status: 'PENDING_VERIFICATION'
-          }
-        });
-
-        userId = created.id.toString();
-        isNewUser = true;
-        
-        // Assign plan to new user (FREE by default, or custom planId from frontend)
-        try {
-          if (planId) {
-            // If planId provided from frontend (e.g., after purchase), use it
-            await BillingService.updateSubscription(created.id, {
-              planId: planId,
-              status: 'ACTIVE'
-            });
-            logger.info('Assigned custom plan to new user', { userId: created.id, planId });
-          } else {
-            // Default: assign FREE plan
-            await BillingService.createFreeSubscription(created.id);
-            logger.info('Assigned FREE plan to new user', { userId: created.id });
-          }
-        } catch (planError: any) {
-          logger.error('Failed to assign plan to new user', {
-            userId: created.id,
-            error: planError.message
-          });
-          // Don't fail registration if plan assignment fails - can be done later
-        }
-      } else {
-        // Email exists
-        if (existingUser.emailVerified) {
-          // Already verified: block registration and prompt login
-          throw new ConflictError(
-            'Email already registered. Please log in.',
-            AUTH_ERROR_CODES.EMAIL_ALREADY_VERIFIED,
-            {
-              field: 'email'
-            }
-          );
-        }
-
-        // Unverified user: treat as re-registration, update provisional details
-        await prisma.user.update({
-          where: { id: existingUser.id },
-          data: {
-            passwordHash,
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            status: 'PENDING_VERIFICATION'
-          }
-        });
-
-        userId = existingUser.id.toString();
-      }
-
-      // Generate OTP and hash it for secure storage
-      const otpCode = generateOtpCode();
-      const otpCodeHash = await hashOtp(otpCode);
-
-      // Create short-lived verification token in Redis with otpHash, userId, email, purpose
-      const verificationToken = await createEmailVerificationToken(
-        userId,
-        email.toLowerCase(),
-        otpCodeHash,
-        'EMAIL_VERIFICATION'
-      );
-
-      // Enqueue OTP email job via BullMQ (event-based email sending)
-      await enqueueSendOtpEmailJob({
-        email: email.toLowerCase(),
-        firstName,
-        otpCode
-      });
-
-      // Log registration
-      logger.info('User registered (awaiting email verification)', {
-        userId,
-        email: email.toLowerCase(),
-        ipAddress: getClientIP(req)
-      });
-
-      // Return response (no tokens until verified, no userId exposed)
-      return ok(
-        res,
-        {
-          email: email.toLowerCase(),
-          verificationToken
-        },
-        { statusCode: existingUser ? 200 : 201 }
-      );
-    } catch (error: any) {
-      logger.error('Registration failed', {
-        email: email.toLowerCase(),
-        error: error.message
-      });
-
-      if (error instanceof BadRequestError || error instanceof ConflictError) {
-        throw error;
-      }
-
-      throw new InternalServerError('Registration failed');
-    }
-  } finally {
-    logger.info('POST /api/auth/register end');
+  // Validate input
+  if (!email || !password || !confirmPassword || !firstName || !lastName) {
+    throw new BadRequestError('Email, password, confirm password, first name, and last name are required');
   }
+
+  if (!isValidEmail(email)) {
+    throw new BadRequestError('Invalid email format', { field: 'email' });
+  }
+
+  if (!isValidPassword(password)) {
+    throw new BadRequestError('Password does not meet requirements', {
+      field: 'password',
+      requirements: [
+        'At least 12 characters',
+        'At least one uppercase letter',
+        'At least one lowercase letter',
+        'At least one number',
+        'At least one special character'
+      ]
+    });
+  }
+
+  if (password !== confirmPassword) {
+    throw new BadRequestError('Password and confirm password do not match', {
+      field: 'confirmPassword'
+    });
+  }
+
+  if (!isValidName(firstName) || !isValidName(lastName)) {
+    throw new BadRequestError('Names must be valid and not exceed 100 characters');
+  }
+
+  // Check if email already exists
+  const existingUser = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: {
+      id: true,
+      emailVerified: true,
+      status: true
+    }
+  });
+
+  if (existingUser && existingUser.emailVerified) {
+    // Already verified: block registration
+    throw new ConflictError(
+      'Email already registered. Please log in.',
+      AUTH_ERROR_CODES.EMAIL_ALREADY_VERIFIED,
+      {
+        field: 'email'
+      }
+    );
+  }
+
+  // Hash password
+  const passwordHash = await hashPassword(password);
+
+  // Transactional: Create/update user + assign plan
+  const result = await prisma.$transaction(async (tx) => {
+    let userId: number;
+    let isNewUser = false;
+
+    if (!existingUser) {
+      // Step 1: Create new unverified user
+      const created = await tx.user.create({
+        data: {
+          email: email.toLowerCase(),
+          passwordHash,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          emailVerified: false,
+          status: 'PENDING_VERIFICATION'
+        }
+      });
+
+      userId = created.id;
+      isNewUser = true;
+      logger.info('New user created in transaction', { userId });
+    } else {
+      // Step 1: Update existing unverified user
+      const updated = await tx.user.update({
+        where: { id: existingUser.id },
+        data: {
+          passwordHash,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          status: 'PENDING_VERIFICATION'
+        }
+      });
+
+      userId = updated.id;
+      logger.info('Existing user updated in transaction', { userId });
+    }
+
+    // Step 2: Assign plan (inside transaction for atomicity)
+    if (planId) {
+      // Assign custom plan if provided
+      await tx.subscriptions.upsert({
+        where: { userId },
+        update: {
+          planId: planId,
+          status: 'ACTIVE'
+        },
+        create: {
+          userId,
+          planId: planId,
+          status: 'ACTIVE'
+        }
+      });
+      logger.info('Custom plan assigned in transaction', { userId, planId });
+    } else {
+      // Assign FREE plan by default
+      const freePlan = await tx.plans.findFirst({
+        where: { name: 'Free' }
+      });
+
+      if (freePlan) {
+        await tx.subscriptions.upsert({
+          where: { userId },
+          update: {
+            planId: freePlan.id,
+            status: 'ACTIVE'
+          },
+          create: {
+            userId,
+            planId: freePlan.id,
+            status: 'ACTIVE'
+          }
+        });
+        logger.info('FREE plan assigned in transaction', { userId });
+      }
+    }
+
+    return { userId, isNewUser };
+  });
+
+  // Step 3: Generate OTP and send email (outside transaction)
+  const otpCode = generateOtpCode();
+  const otpCodeHash = await hashOtp(otpCode);
+
+  const verificationToken = await createEmailVerificationToken(
+    result.userId.toString(),
+    email.toLowerCase(),
+    otpCodeHash,
+    'EMAIL_VERIFICATION'
+  );
+
+  await enqueueSendOtpEmailJob({
+    email: email.toLowerCase(),
+    firstName,
+    otpCode
+  });
+
+  logger.info('User registered (awaiting email verification)', {
+    userId: result.userId,
+    email: email.toLowerCase(),
+    ipAddress: getClientIP(req)
+  });
+
+  return ok(
+    res,
+    {
+      email: email.toLowerCase(),
+      verificationToken
+    },
+    { statusCode: result.isNewUser ? 201 : 200 }
+  );
 });
