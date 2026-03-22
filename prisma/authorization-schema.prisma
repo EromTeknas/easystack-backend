@@ -1,0 +1,148 @@
+/**
+ * Prisma Schema - Authorization Tables
+ * Add these models to your existing prisma/schema.prisma
+ *
+ * Integration guide:
+ * 1. Add these models to your schema.prisma
+ * 2. Run: npx prisma migrate dev --name "add_authorization_schema"
+ * 3. Seed role_permissions with: npm run seed-permissions
+ */
+
+// ============================================================================
+// Core Authorization Models
+// ============================================================================
+
+model workspace_members {
+  id              BigInt    @id @default(autoincrement())
+  workspace_id    BigInt
+  user_id         BigInt
+  role            String    @default("USER") // OWNER | ADMIN | USER
+  is_active       Boolean   @default(true)
+  joined_at       DateTime  @default(now()) @db.DateTime(3)
+  updated_at      DateTime  @default(now()) @updatedAt @db.DateTime(3)
+
+  workspace                      workspaces                        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user                           users                             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  workspace_member_permissions   workspace_member_permissions[]
+  project_members                project_members[]
+  assigned_project_members       project_members[]                 @relation("assigned_by")
+
+  @@unique([workspace_id, user_id], name: "uk_workspace_user")
+  @@index([user_id])
+  @@index([role])
+  @@index([is_active])
+}
+
+model workspace_member_permissions {
+  id                    BigInt    @id @default(autoincrement())
+  workspace_member_id   BigInt
+  workspace_id          BigInt
+  action                String    // e.g., "workspace.update.name"
+  is_allowed            Boolean   @default(true)
+  granted_at            DateTime  @default(now()) @db.DateTime(3)
+  granted_by_user_id    BigInt?
+  reason                String?   @db.VarChar(500)
+
+  workspace_member    workspace_members  @relation(fields: [workspace_member_id], references: [id], onDelete: Cascade)
+  workspace           workspaces         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  granted_by_user     users?             @relation(fields: [granted_by_user_id], references: [id], onDelete: SetNull)
+
+  @@unique([workspace_member_id, action], name: "uk_member_action")
+  @@index([workspace_id])
+  @@index([is_allowed])
+}
+
+model role_permissions {
+  id          BigInt    @id @default(autoincrement())
+  role        String    // OWNER | ADMIN | USER
+  action      String    // e.g., "workspace.update.name"
+  is_default  Boolean   @default(true)
+
+  @@unique([role, action], name: "uk_role_action")
+  @@index([role])
+}
+
+model project_members {
+  id                  BigInt    @id @default(autoincrement())
+  project_id          BigInt
+  workspace_id        BigInt
+  user_id             BigInt
+  is_active           Boolean   @default(true)
+  assigned_at         DateTime  @default(now()) @db.DateTime(3)
+  assigned_by_user_id BigInt?
+
+  project              projects           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  workspace            workspaces         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user                 users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  assigned_by_user     users?             @relation("assigned_by", fields: [assigned_by_user_id], references: [id], onDelete: SetNull)
+  workspace_member     workspace_members  @relation(fields: [workspace_id, user_id], references: [workspace_id, user_id], onDelete: Cascade)
+
+  @@unique([project_id, user_id], name: "uk_project_user")
+  @@index([user_id])
+  @@index([workspace_id])
+  @@index([is_active])
+}
+
+// ============================================================================
+// Related Models (already in schema, shown for reference)
+// ============================================================================
+
+model workspaces {
+  id                    BigInt    @id @default(autoincrement())
+  name                  String
+  logo_url              String?
+  created_by_user_id    BigInt
+  created_at            DateTime  @default(now()) @db.DateTime(3)
+  updated_at            DateTime  @default(now()) @updatedAt @db.DateTime(3)
+
+  created_by_user                workspaces_created_by_user[]
+  workspace_members              workspace_members[]
+  projects                       projects[]
+  workspace_member_permissions   workspace_member_permissions[]
+  project_members                project_members[]
+
+  @@index([created_by_user_id])
+  @@index([created_at])
+}
+
+model projects {
+  id                  BigInt    @id @default(autoincrement())
+  workspace_id        BigInt
+  name                String
+  description         String?   @db.Text
+  created_by_user_id  BigInt
+  created_at          DateTime  @default(now()) @db.DateTime(3)
+  updated_at          DateTime  @default(now()) @updatedAt @db.DateTime(3)
+
+  workspace       workspaces         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  created_by_user users              @relation(fields: [created_by_user_id], references: [id], onDelete: Restrict)
+  project_members project_members[]
+
+  @@index([workspace_id])
+  @@index([created_by_user_id])
+  @@index([created_at])
+}
+
+model users {
+  id                  BigInt    @id @default(autoincrement())
+  email               String    @unique
+  password_hash       String
+  first_name          String?
+  last_name           String?
+  created_at          DateTime  @default(now()) @db.DateTime(3)
+  updated_at          DateTime  @default(now()) @updatedAt @db.DateTime(3)
+
+  workspace_members              workspace_members[]
+  created_workspaces             workspaces[]                       @relation("created_by_user")
+  workspace_member_permissions   workspace_member_permissions[]
+  created_projects               projects[]
+  project_members                project_members[]
+  assigned_project_members       project_members[]                  @relation("assigned_by")
+
+  @@index([email])
+  @@index([created_at])
+}
+
+// Note: Add composite index if querying frequently:
+// CREATE INDEX idx_workspace_member_action ON workspace_member_permissions(workspace_member_id, action);
+// CREATE INDEX idx_project_workspace_user ON project_members(workspace_id, user_id);

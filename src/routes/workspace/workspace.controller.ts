@@ -12,7 +12,6 @@ import { ImageUrlService } from '../../services/image-url.service';
 import { isValidName } from '../../utils/validation';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
-import { log } from 'node:console';
 
 const normalizeWorkspace = (workspace: any) => {
   if (!workspace) return null;
@@ -194,6 +193,7 @@ export const updateWorkspace = asyncHandler(async (req: any, res: Response) => {
  * Update workspace details partially
  */
 export const patchWorkspace = asyncHandler(async (req: any, res: Response) => {
+
   const workspaceId = Number(req.params.workspaceId);
   logger.debug('PATCH /api/workspace/:workspaceId start', { workspaceId, userId: req.user!.id });
   
@@ -211,24 +211,28 @@ export const patchWorkspace = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('Invalid logoUrl');
   }
 
-  await prisma.workspace.update({
-    where: { id: workspaceId },
-    data: {
-      ...(name !== undefined ? { name: name.trim() } : {}),
-      ...(logoUrl !== undefined ? { logoUrl } : {})
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(logoUrl !== undefined ? { logoUrl } : {})
+      }
+    });
+
+    const workspace = await getWorkspaceWithRole(workspaceId, Number(req.user!.id));
+
+    if (!workspace) {
+      throw new NotFoundError('Workspace not found');
     }
+
+      logger.debug('Workspace partially updated via API', { workspaceId, userId: req.user!.id });
+
+    const normalized = normalizeWorkspace(workspace);
+    const hydrated = normalized ? await ImageUrlService.hydrateObject(normalized, ['logoUrl']) : null;
+
+    return hydrated;
   });
 
-  const workspace = await getWorkspaceWithRole(workspaceId, Number(req.user!.id));
-
-  if (!workspace) {
-    throw new NotFoundError('Workspace not found');
-  }
-
-    logger.debug('Workspace partially updated via API', { workspaceId, userId: req.user!.id });
-
-  const normalized = normalizeWorkspace(workspace);
-  const hydrated = normalized ? await ImageUrlService.hydrateObject(normalized, ['logoUrl']) : null;
-
-  return ok(res, { workspace: hydrated });
+  return ok(res, { workspace: result });
 });

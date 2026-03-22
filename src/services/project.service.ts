@@ -1,5 +1,6 @@
 import { prisma } from '../db';
 import { BadRequestError, NotFoundError } from '../errors';
+import { authorizationService } from './authorization.service';
 import logger from '../utils/logger';
 
 export const ProjectService = {
@@ -90,6 +91,9 @@ export const ProjectService = {
         return project.id as unknown as number;
       });
 
+      // Auto-add OWNER and ADMIN workspace members to this new project (outside transaction)
+      await authorizationService.autoAddWorkspaceAdminsToProject(projectId, workspaceId);
+
       return projectId;
     } catch (err: any) {
       logger.error('Failed to create project with validation (transaction rolled back):', err);
@@ -139,6 +143,9 @@ export const ProjectService = {
           description: description?.trim() || null
         } as any  // Type assertion since id is auto-generated
       });
+
+      // Auto-add OWNER and ADMIN workspace members to this new project
+      await authorizationService.autoAddWorkspaceAdminsToProject(project.id, workspaceId);
 
       return project.id as unknown as number;
     } catch (err: any) {

@@ -9,53 +9,62 @@ datasource db {
 }
 
 model Project {
-  id          Int       @id @default(autoincrement())
-  workspaceId Int       @map("workspace_id")
+  id          Int      @id @default(autoincrement())
+  workspaceId Int      @map("workspace_id")
   name        String
-  subdomain   String    @unique
+  subdomain   String   @unique
   description String?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectMembers ProjectMember[]
 
   @@unique([workspaceId, subdomain])
   @@index([workspaceId])
 }
 
 model RefreshToken {
-  id        Int       @id @default(autoincrement())
-  userId    Int       @map("user_id")
-  tokenHash String    @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  ipAddress String?   @map("ip_address")
-  userAgent String?   @map("user_agent")
-  deviceName String?  @map("device_name")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
-  
+  id         Int       @id @default(autoincrement())
+  userId     Int       @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+  deviceName String?   @map("device_name")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId], map: "RefreshToken_user_id_fkey")
 }
 
 model User {
-  id                   Int               @id @default(autoincrement())
-  email                String            @unique
-  passwordHash         String            @map("password_hash")
-  firstName            String?           @map("first_name")
-  lastName             String?           @map("last_name")
-  status               User_status       @default(PENDING_VERIFICATION)
-  emailVerified        Boolean           @default(false) @map("email_verified")
-  lastLoginAt          DateTime?         @map("last_login_at")
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at")
-  deletedAt            DateTime?         @map("deleted_at")
-  onboardingCompleted  Boolean           @default(false) @map("onboarding_completed")
-  
-  refreshTokens    RefreshToken[]
-  workspaceMembers WorkspaceMember[]
-  subscriptions    subscriptions?
+  id                  Int         @id @default(autoincrement())
+  email               String      @unique
+  passwordHash        String      @map("password_hash")
+  firstName           String?     @map("first_name")
+  lastName            String?     @map("last_name")
+  status              User_status @default(PENDING_VERIFICATION)
+  emailVerified       Boolean     @default(false) @map("email_verified")
+  lastLoginAt         DateTime?   @map("last_login_at")
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @default(now()) @updatedAt @map("updated_at")
+  deletedAt           DateTime?   @map("deleted_at")
+  onboardingCompleted Boolean     @default(false) @map("onboarding_completed")
+
+  refreshTokens              RefreshToken[]
+  workspaceMembers           WorkspaceMember[]
+  rolesChangedByMe           WorkspaceMember[]           @relation("roleChangedBy")
+  membersRemovedByMe         WorkspaceMember[]           @relation("removedBy")
+  subscriptions              subscriptions?
+  grantedPermissions         WorkspaceMemberPermission[] @relation("grantedBy")
+  projectMembers             ProjectMember[]
+  projectMembersAssignedByMe ProjectMember[]             @relation("assignedBy")
+  projectMembersRemovedByMe  ProjectMember[]             @relation("removedBy")
+  projectMemberRolesAssignedByMe ProjectMemberRole[]     @relation("projectRoleAssignedBy")
 }
 
 model Workspace {
@@ -66,62 +75,160 @@ model Workspace {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  members  WorkspaceMember[]
-  projects Project[]
+  members        WorkspaceMember[]
+  projects       Project[]
+  projectMembers ProjectMember[]
 }
 
 model WorkspaceMember {
-  id          Int               @id @default(autoincrement())
-  workspaceId Int               @map("workspace_id")
-  userId      Int               @map("user_id")
-  role        WorkspaceMember_role @map("role")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
-  isDefault   Boolean           @default(false) @map("is_default")
+  id                  Int                  @id @default(autoincrement())
+  workspaceId         Int                  @map("workspace_id")
+  userId              Int                  @map("user_id")
+  role                WorkspaceMember_role @map("role")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at")
+  isDefault           Boolean              @default(false) @map("is_default")
+  roleChangedAt       DateTime?            @map("role_changed_at") @db.DateTime(3)
+  roleChangedByUserId Int?                 @map("role_changed_by_user_id")
+  removedAt           DateTime?            @map("removed_at") @db.DateTime(3)
+  removedByUserId     Int?                 @map("removed_by_user_id")
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace                  Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  roleChangedByUser          User?                       @relation("roleChangedBy", fields: [roleChangedByUserId], references: [id], onDelete: SetNull)
+  removedByUser              User?                       @relation("removedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  workspaceMemberPermissions WorkspaceMemberPermission[]
+  projectMembers             ProjectMember[]
 
-  @@unique([workspaceId, userId, isDefault])
+  @@unique([workspaceId, userId, isDefault], name: "uk_workspace_user_default")
+  @@unique([workspaceId, userId], name: "uk_workspace_user")
   @@index([userId], map: "WorkspaceMember_user_id_fkey")
+  @@index([role])
+  @@index([workspaceId, role], name: "idx_workspace_role")
+  @@index([workspaceId, userId], name: "idx_workspace_user")
+}
+
+// ============================================================================
+// Authorization Models
+// ============================================================================
+
+model WorkspaceMemberPermission {
+  id                Int      @id @default(autoincrement())
+  workspaceMemberId Int      @map("workspace_member_id")
+  action            String   @db.VarChar(120) // e.g., "workspace.update.name" - normalized permission action
+  isAllowed         Boolean  @default(true) @map("is_allowed")
+  grantedAt         DateTime @default(now()) @map("granted_at") @db.DateTime(3)
+  grantedByUserId   Int?     @map("granted_by_user_id")
+  reason            String?  @db.VarChar(500)
+
+  workspaceMember WorkspaceMember @relation(fields: [workspaceMemberId], references: [id], onDelete: Cascade)
+  grantedByUser   User?           @relation(fields: [grantedByUserId], references: [id], onDelete: SetNull, name: "grantedBy")
+
+  @@unique([workspaceMemberId, action], name: "uk_member_action")
+  @@index([action])
+  @@index([isAllowed])
+}
+
+model RolePermission {
+  id     Int                  @id @default(autoincrement())
+  role   WorkspaceMember_role
+  action String               @db.VarChar(120) // e.g., "workspace.update.name" - normalized permission action
+
+  @@unique([role, action], name: "uk_role_action")
+  @@index([role])
+  @@index([action])
+}
+
+model ProjectMember {
+  id               Int       @id @default(autoincrement())
+  projectId        Int       @map("project_id")
+  workspaceId      Int       @map("workspace_id")
+  userId           Int       @map("user_id")
+  isActive         Boolean   @default(true) @map("is_active")
+  assignedAt       DateTime  @default(now()) @map("assigned_at") @db.DateTime(3)
+  assignedByUserId Int?      @map("assigned_by_user_id")
+  removedAt        DateTime? @map("removed_at") @db.DateTime(3)
+  removedByUserId  Int?      @map("removed_by_user_id")
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceMember WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+  assignedByUser  User?           @relation("assignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  removedByUser   User?           @relation("removedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  projectMemberRoles ProjectMemberRole[]
+
+  @@unique([projectId, userId], name: "uk_project_user")
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([isActive])
+}
+
+// ============================================================================
+// Project Authorization Models
+// ============================================================================
+
+model ProjectMemberRole {
+  id        Int       @id @default(autoincrement())
+  projectMemberId Int @map("project_member_id")
+  role      ProjectRole @map("role")
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.DateTime(3)
+  assignedByUserId Int? @map("assigned_by_user_id")
+
+  projectMember ProjectMember @relation(fields: [projectMemberId], references: [id], onDelete: Cascade)
+  assignedByUser User? @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull, name: "projectRoleAssignedBy")
+
+  @@unique([projectMemberId, role], name: "uk_project_member_role")
+  @@index([role])
+  @@index([projectMemberId])
+}
+
+model ProjectRolePermission {
+  id     Int @id @default(autoincrement())
+  role   ProjectRole
+  action String @db.VarChar(120) // e.g., "project.model.create"
+
+  @@unique([role, action], name: "uk_project_role_action")
+  @@index([role])
+  @@index([action])
 }
 
 model plan_versions {
-  id        Int     @id @default(autoincrement())
-  planId    Int     @map("plan_id")
+  id        Int      @id @default(autoincrement())
+  planId    Int      @map("plan_id")
   version   Int
   config    Json
   createdAt DateTime @default(now()) @map("created_at")
-  
+
   plan plans @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, version])
 }
 
 model plans {
-  id           Int             @id @default(autoincrement())
-  name         String          @unique
-  displayName  String          @map("display_name")
-  config       Json
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at")
-  
-  versions plan_versions[]
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  displayName String   @map("display_name")
+  config      Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  versions      plan_versions[]
   subscriptions subscriptions[]
 }
 
 model subscriptions {
-  id              Int                  @id @default(autoincrement())
-  userId          Int                  @unique @map("user_id")
-  planId          Int                  @map("plan_id")
-  status          subscriptions_status @default(TRIAL)
-  customOverride  Json?                @map("custom_override")
-  expiresAt       DateTime?            @map("expires_at")
-  createdAt       DateTime             @default(now()) @map("created_at")
-  updatedAt       DateTime             @default(now()) @updatedAt @map("updated_at")
-  
-  plan  plans @relation(fields: [planId], references: [id])
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             Int                  @id @default(autoincrement())
+  userId         Int                  @unique @map("user_id")
+  planId         Int                  @map("plan_id")
+  status         subscriptions_status @default(TRIAL)
+  customOverride Json?                @map("custom_override")
+  expiresAt      DateTime?            @map("expires_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  plan plans @relation(fields: [planId], references: [id])
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([planId], map: "subscriptions_plan_id_fkey")
 }
@@ -136,8 +243,14 @@ enum subscriptions_status {
 enum WorkspaceMember_role {
   OWNER
   ADMIN
-  DEVELOPER
+  USER
+}
+
+enum ProjectRole {
+  EDITOR
   PUBLISHER
+  RELEASE_MANAGER
+  VIEWER
 }
 
 enum User_status {
