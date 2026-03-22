@@ -1,8 +1,9 @@
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
-import { BadRequestError, NotFoundError } from '../../errors';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../../errors';
 import { ProjectService } from '../../services/project.service';
+import { authorizationService } from '../../services/authorization.service';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
 
@@ -52,61 +53,116 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
 });
 
 /**
- * GET /projects/:projectId
- * Get a project by ID
+ * GET /api/projects/:projectId
+ * Get a project with authorization check
+ * User must have workspace membership and either be OWNER or explicitly assigned
  */
 export const getProjectById = asyncHandler(async (req: any, res: Response) => {
-  const projectId = Number(req.params.projectId);
   const userId = Number(req.user!.id);
+  const workspaceId = Number(req.params.workspaceId);
+  const projectId = Number(req.params.projectId);
 
+  // 1. Check workspace membership
+  const workspaceMember = await prisma.workspaceMember.findUnique({
+    where: {
+      uk_workspace_user: {
+        workspaceId,
+        userId,
+      },
+    },
+  });
+
+  if (!workspaceMember) {
+    throw new ForbiddenError('Not a workspace member');
+  }
+
+  // 2. Get visible project IDs
+  const visibleProjectIds = await authorizationService.getVisibleProjectIds(
+    userId,
+    workspaceId
+  );
+
+  // 3. Check if user can access this specific project
+  if (!visibleProjectIds.includes(projectId)) {
+    throw new ForbiddenError('Not authorized to view this project');
+  }
+
+  // 4. Fetch project
   const project = await prisma.project.findUnique({
-    where: { id: projectId }
+    where: { id: projectId },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   if (!project) {
     throw new NotFoundError('Project not found');
   }
 
-  // Verify user has access to this project's workspace
-  const workspace = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId: project.workspaceId,
-      userId
-    }
-  });
-
-  if (!workspace) {
-    throw new BadRequestError('You do not have access to this project');
-  }
-
   return ok(res, { project });
 });
 
 /**
- * GET /workspaces/:workspaceId/projects
- * List all projects in a workspace
+ * GET /api/workspaces/:workspaceId/projects
+ * List all projects in a workspace visible to the current user
+ * Authorization: OWNER sees all, ADMIN see all, USER sees only assigned
  */
 export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Response) => {
-  const workspaceId = Number(req.params.workspaceId);
   const userId = Number(req.user!.id);
+  const workspaceId = Number(req.params.workspaceId);
 
-  // Verify user has access to this workspace
-  const workspace = await prisma.workspaceMember.findFirst({
+  // 1. Check workspace membership
+  const workspaceMember = await prisma.workspaceMember.findUnique({
     where: {
-      workspaceId,
-      userId
-    }
+      uk_workspace_user: {
+        workspaceId,
+        userId,
+      },
+    },
   });
 
-  if (!workspace) {
-    throw new BadRequestError('Workspace not found or you do not have access');
+  if (!workspaceMember) {
+    throw new ForbiddenError('Not a workspace member');
   }
 
-  const projects = await ProjectService.listProjectsByWorkspace(workspaceId);
+  // 2. Get visible project IDs based on authorization
+  // - OWNER sees all projects
+  // - ADMIN sees all projects
+  // - USER sees only explicitly assigned projects
+  const visibleProjectIds = await authorizationService.getVisibleProjectIds(
+    userId,
+    workspaceId
+  );
 
-  logger.debug('Projects listed for workspace', { workspaceId, projectCount: projects.length });
+  // 3. Fetch projects
+  const projects = await prisma.project.findMany({
+    where: {
+      workspaceId,
+      id: {
+        in: visibleProjectIds,
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
 
-  return ok(res, { projects });
+  return ok(res, {
+    projects,
+    total: projects.length,
+    workspaceId: workspaceId.toString(),
+  });
 });
 
 /**
@@ -244,53 +300,62 @@ export const deleteProject = asyncHandler(async (req: any, res: Response) => {
 });
 
 /**
- * GET /projects/subdomain-available/:subdomain
- * Check if a subdomain is available
+ * GET /api/projects/:projectId/members
+ * Get all members assigned to a project with their roles
+ * Requires workspace membership
  */
-export const checkSubdomainAvailability = asyncHandler(async (req: any, res: Response) => {
-  const { subdomain } = req.params;
+export const getProjectMembers = asyncHandler(async (req: any, res: Response) => {
+  const userId = Number(req.user!.id);
+  const workspaceId = Number(req.params.workspaceId);
+  const projectId = Number(req.params.projectId);
 
-  if (!subdomain || typeof subdomain !== 'string') {
-    throw new BadRequestError('subdomain is required');
-  }
-
-  const isAvailable = await ProjectService.isSubdomainAvailable(subdomain);
-
-  return ok(res, {
-    subdomain,
-    available: isAvailable,
-    message: isAvailable ? 'Subdomain is available' : 'Subdomain is not available'
+  // 1. Check workspace membership
+  const workspaceMember = await prisma.workspaceMember.findUnique({
+    where: {
+      uk_workspace_user: {
+        workspaceId,
+        userId,
+      },
+    },
   });
-});
 
-/**
- * GET /projects/by-subdomain/:subdomain (PUBLIC)
- * Get a project by subdomain (public lookup, no auth required)
- */
-export const getProjectBySubdomain = asyncHandler(async (req: any, res: Response) => {
-  const { subdomain } = req.params;
-
-  if (!subdomain || typeof subdomain !== 'string') {
-    throw new BadRequestError('subdomain is required');
+  if (!workspaceMember) {
+    throw new ForbiddenError('Not a workspace member');
   }
 
+  // 2. Verify project exists in workspace
   const project = await prisma.project.findUnique({
-    where: { subdomain: subdomain.toLowerCase().trim() }
+    where: { id: projectId },
+    select: { id: true, workspaceId: true },
   });
 
-  if (!project) {
+  if (!project || project.workspaceId !== workspaceId) {
     throw new NotFoundError('Project not found');
   }
 
-  // Optionally hide sensitive data for public access
-  const publicProject = {
-    id: project.id,
-    name: project.name,
-    subdomain: project.subdomain,
-    description: project.description,
-    workspaceId: project.workspaceId,
-    createdAt: project.createdAt
-  };
+  // 3. Get all project members with their roles
+  const projectMembers = await prisma.projectMember.findMany({
+    where: {
+      projectId,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      userId: true,
+      assignedAt: true,
+      projectMemberRoles: {
+        select: {
+          role: true,
+        },
+      },
+    },
+  });
 
-  return ok(res, { project: publicProject });
+  const members = projectMembers.map((m: any) => ({
+    userId: m.userId.toString(),
+    assignedAt: m.assignedAt,
+    roles: m.projectMemberRoles.map((pmr: any) => pmr.role),
+  }));
+
+  return ok(res, { members, total: members.length });
 });

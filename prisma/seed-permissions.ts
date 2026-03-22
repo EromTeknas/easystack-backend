@@ -34,7 +34,7 @@ const ROLE_PERMISSIONS: Array<{ role: WorkspaceMember_role; action: string }> = 
   { role: 'ADMIN', action: 'project.members.remove' },
 
   // MEMBER permissions (limited, project-scoped)
-  { role: 'MEMBER', action: 'project.update.name' },
+  { role: 'USER', action: 'project.update.name' },
 ];
 
 async function seedPermissions() {

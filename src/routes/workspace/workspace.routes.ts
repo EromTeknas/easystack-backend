@@ -9,7 +9,7 @@ const router = Router();
 router.post('/', authenticate, workspaceController.createWorkspaceController);
 
 // List user workspaces - userId as query parameter
-router.get('/user', authenticate, workspaceController.listWorkspaces);
+router.get('/', authenticate, workspaceController.listWorkspaces);
 
 // Get specific workspace
 router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);

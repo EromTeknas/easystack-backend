@@ -31,33 +31,39 @@ const normalizeWorkspace = (workspace: any) => {
 };
 
 /**
- * GET /workspace/user?userId=1
- * List workspaces for a specific user (requires authentication)
+ * GET /workspace
+ * List all workspaces for the authenticated user
  */
 export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
-  logger.debug('GET /api/workspace/user start');
-  const { userId } = req.query;
-  const authenticatedUserId = Number(req.user!.id);
-  const requestedUserId = Number(userId);
+  logger.debug('GET /api/workspace start');
+  
+  const userId = Number(req.user!.id);
 
-  // Validate userId is provided and valid
-  if (!userId || isNaN(requestedUserId)) {
-    throw new BadRequestError('Valid userId query parameter is required');
+  try {
+    logger.debug('Fetching workspaces for user', { userId });
+    const workspaces = await getUserWorkspaces(userId);
+
+    if (!Array.isArray(workspaces)) {
+      logger.error('Invalid workspaces data received', { userId, data: workspaces });
+      throw new InternalServerError('Failed to retrieve workspaces');
+    }
+
+    const normalized = workspaces
+      .map(normalizeWorkspace)
+      .filter((w): w is typeof normalizeWorkspace extends (...args: any[]) => infer R ? R & {} : never => w !== null);
+    
+    const hydrated = await ImageUrlService.hydrateArray(normalized as Record<string, any>[], ['logoUrl']);
+
+    logger.debug('Workspaces retrieved successfully', { userId, count: hydrated.length });
+    return ok(res, { workspaces: hydrated });
+
+  } catch (error) {
+    logger.error('Error fetching workspaces', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new InternalServerError('Failed to retrieve workspaces');
   }
-
-  // Users can only fetch their own workspaces (for now)
-  // In the future, you might add admin privileges to fetch any user's workspaces
-  if (authenticatedUserId !== requestedUserId) {
-    throw new BadRequestError('You can only fetch your own workspaces');
-  }
-
-  const workspaces = await getUserWorkspaces(requestedUserId);
-  console.log('Workspaces fetched for user', { userId: requestedUserId, workspaceCount: workspaces });
-  const normalized = workspaces.map(normalizeWorkspace).filter((w): w is typeof normalizeWorkspace extends (...args: any[]) => infer R ? R & {} : never => w !== null);
-  const hydrated = await ImageUrlService.hydrateArray(normalized as Record<string, any>[], ['logoUrl']);
-
-  logger.debug('Workspaces retrieved for user', { userId: requestedUserId, workspace: hydrated });
-  return ok(res, { workspaces: hydrated });
 });
 
 /**

@@ -3,14 +3,14 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 interface RolePermissionSeed {
-  role: 'ADMIN' | 'MEMBER';
+  role: 'ADMIN' | 'USER';
   actions: string[];
 }
 
 /**
  * Seed role-based permissions
  * 
- * IMPORTANT: Only ADMIN and MEMBER (USER) defaults are seeded
+ * IMPORTANT: Only ADMIN and USER defaults are seeded
  * OWNER permissions are implicit (not stored in database)
  * 
  * OWNER has all permissions granted implicitly:
@@ -41,7 +41,7 @@ const rolePermissions: RolePermissionSeed[] = [
     ],
   },
   {
-    role: 'MEMBER',
+    role: 'USER',
     actions: [
       'workspace.read',
       'project.read',
