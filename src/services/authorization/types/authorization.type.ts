@@ -3,7 +3,7 @@ import { AuthorizationScope } from "../configs/roles-registry.config";
 export interface AuthorizationNode {
   roles: string[];
 
-  permissions: Set<string>;
+  permissions: string[];
 
   version: number;
 

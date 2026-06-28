@@ -73,7 +73,7 @@ export class AuthorizationRepository {
           deniedPermissions: [],
         });
       }
-    }
+    } 
 
     return assignments;
   }

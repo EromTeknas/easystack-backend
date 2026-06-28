@@ -18,11 +18,11 @@ const repository = new AuthorizationRepository();
 const builder = new AuthorizationBuilder(repository);
 class AuthorizationService {
   static async get(userId: string): Promise<AuthorizationCache> {
-    let cache = await AuthorizationCacheService.get(userId);
+    // let cache = await AuthorizationCacheService.get(userId);
 
-    if (!cache) {
-      cache = await this.rebuild(userId);
-    }
+    // if (!cache) {
+      const cache = await this.rebuild(userId);
+    // }
 
     return cache;
   }
@@ -53,7 +53,7 @@ class AuthorizationService {
     node: AuthorizationNode | null,
     permission: string,
   ) {
-    return node?.permissions.has(permission) ?? false;
+    return new Set(node?.permissions ?? []).has(permission);
   }
 
   static async getNode(

@@ -6,11 +6,10 @@ import {
 import { AuthorizationRepository } from "../repositories/authorization.repository";
 
 import { PermissionResolver } from "./resolve-permissions";
+import logger from "../../../logger";
 
 export class AuthorizationBuilder {
-  constructor(
-    private readonly repository: AuthorizationRepository,
-  ) {}
+  constructor(private readonly repository: AuthorizationRepository) {}
 
   async build(userId: string): Promise<AuthorizationCache> {
     const assignments = await this.repository.getAssignments(Number(userId));
@@ -29,13 +28,14 @@ export class AuthorizationBuilder {
       const node: AuthorizationNode = {
         roles: assignment.roles,
 
-        permissions: new Set<string>(PermissionResolver.resolve({
-          permissions: assignment.permissions,
+        permissions:
+          PermissionResolver.resolve({
+            permissions: assignment.permissions,
 
-          customPermissions: assignment.customPermissions,
+            customPermissions: assignment.customPermissions,
 
-          deniedPermissions: assignment.deniedPermissions,
-        })),
+            deniedPermissions: assignment.deniedPermissions,
+          }),
 
         version: 1,
 

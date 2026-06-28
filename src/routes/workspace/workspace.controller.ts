@@ -174,3 +174,7 @@ export const getWorkspaceById = asyncHandler(
     return ok(res, { workspace: hydrated });
   },
 );
+
+export const updateWorkspace = asyncHandler( async (req: any, res: Response) => {
+  return ok(res, { message: "Update workspace endpoint is under construction" });
+});

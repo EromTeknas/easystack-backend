@@ -21,7 +21,7 @@ export function authorize({
     res: Response,
     next: NextFunction,
   ) => {
-    const userId = req?.user?.id;
+    const userId = req.body.userId
 
     const allowed = await AuthorizationService.can(
       userId!.toString(),

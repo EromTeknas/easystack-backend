@@ -1,7 +1,7 @@
 import {
   AUTHORIZATION_CACHE_PREFIX,
   AUTHORIZATION_CACHE_VERSION,
-} from "./constants.cache";
+} from "./cache.constants";
 
 export class AuthorizationCacheKeys {
   /**
