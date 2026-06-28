@@ -78,23 +78,15 @@ async function seedUsers() {
         const workspaceName =
           userData.workspaceName ?? `${userData.firstName}'s Workspace`;
 
-        const slug = `${userData.firstName.toLowerCase()}-workspace`;
 
-        let workspace = await tx.workspace.findUnique({
-          where: {
-            slug,
+        
+        const workspace = await tx.workspace.create({
+          data: {
+            name: workspaceName,
+            createdById: user.id,
           },
         });
-
-        if (!workspace) {
-          workspace = await tx.workspace.create({
-            data: {
-              name: workspaceName,
-              slug,
-              createdById: user.id,
-            },
-          });
-        }
+        
 
         await tx.workspaceMember.upsert({
           where: {

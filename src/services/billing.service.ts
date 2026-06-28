@@ -1,6 +1,6 @@
 import { prisma } from '../db/prisma';
 import { redisClient } from '../config/redis';
-import { getUserUsage, getCurrentMonth, incrementUsage as incrementUsageModel } from '../models/usage.model';
+import { getUserUsage, getCurrentMonth, incrementUsage as incrementUsageModel } from '../repositories/usage.model';
 import { BILLING_CACHE_KEYS, BILLING_CACHE_TTL, PLAN_NAMES } from '../constants/billing';
 import { AppError } from '../errors';
 import type { EffectivePlan, PlanConfig, UsageData } from '../types/billing';
@@ -53,9 +53,11 @@ export class BillingService {
     }
 
     // Fetch from database
-    const subscription = await prisma.subscriptions.findUnique({
+    const subscription = await prisma.subscription.findUnique({
       where: { userId },
-      include: { plan: true },
+      include: { planVersion: {
+        include: { plan: true }
+      } },
     });
 
     if (!subscription) {
@@ -63,19 +65,16 @@ export class BillingService {
     }
 
     // Base plan config
-    const basePlan = subscription.plan.config as unknown as PlanConfig;
+    const basePlan = subscription.planVersion.config;
 
     // Apply custom overrides if they exist
-    let finalConfig = basePlan;
-    if (subscription.customOverride) {
-      finalConfig = this.deepMerge(basePlan, subscription.customOverride as unknown);
-    }
+    let finalConfig = basePlan as unknown as PlanConfig;
 
     const effectivePlan: EffectivePlan = {
-      id: subscription.plan.id,
-      name: subscription.plan.name,
-      displayName: subscription.plan.displayName,
-      config: finalConfig,
+      id: subscription.planVersion.planId,
+      name: subscription.planVersion.plan.key,
+      displayName: subscription.planVersion.plan.displayName,
+      config: finalConfig
     };
 
     // Cache the result
@@ -191,147 +190,5 @@ export class BillingService {
     } catch (err) {
       console.error('Redis cache del error:', err);
     }
-  }
-
-  /**
-   * Create a default free plan subscription for a new user
-   */
-  static async createFreeSubscription(userId: number): Promise<void> {
-    // Find the free plan
-    const freePlan = await prisma.plans.findUnique({
-      where: { name: PLAN_NAMES.FREE },
-    });
-
-    if (!freePlan) {
-      throw new AppError('Free plan not found', 500, 'FREE_PLAN_NOT_FOUND');
-    }
-
-    // Create subscription
-    await prisma.subscriptions.create({
-      data: {
-        userId,
-        planId: freePlan.id,
-        status: 'ACTIVE',
-      },
-    });
-  }
-
-  /**
-   * Get all available plans
-   */
-  static async getAllPlans() {
-    return prisma.plans.findMany({
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  /**
-   * Get plan by ID
-   */
-  static async getPlanById(planId: number) {
-    const plan = await prisma.plans.findUnique({
-      where: { id: planId },
-    });
-
-    if (!plan) {
-      throw new AppError('Plan not found', 404, 'PLAN_NOT_FOUND');
-    }
-
-    return plan;
-  }
-
-  /**
-   * Create a new plan
-   */
-  static async createPlan(data: {
-    name: string;
-    displayName: string;
-    config: PlanConfig;
-  }) {
-    return prisma.plans.create({
-      data: {
-        name: data.name,
-        displayName: data.displayName,
-        config: data.config as any,
-      },
-    });
-  }
-
-  /**
-   * Update a plan (transactional)
-   * Creates version history and updates plan config atomically
-   */
-  static async updatePlan(planId: number, config: PlanConfig) {
-    return prisma.$transaction(async (tx) => {
-      // Step 1: Get current plan
-      const plan = await tx.plans.findUnique({
-        where: { id: planId },
-      });
-
-      if (!plan) {
-        throw new Error(`Plan ${planId} not found`);
-      }
-
-      // Step 2: Get latest version
-      const latestVersion = await tx.plan_versions.findFirst({
-        where: { planId },
-        orderBy: { version: 'desc' },
-      });
-
-      const newVersion = (latestVersion?.version || 0) + 1;
-
-      // Step 3: Create version entry in transaction
-      await tx.plan_versions.create({
-        data: {
-          planId,
-          version: newVersion,
-          config: config as any,
-        },
-      });
-
-      // Step 4: Update the plan in transaction
-      return tx.plans.update({
-        where: { id: planId },
-        data: { config: config as any },
-      });
-    });
-  }
-
-  /**
-   * Update user subscription
-   */
-  static async updateSubscription(
-    userId: number,
-    data: {
-      planId?: number;
-      status?: 'ACTIVE' | 'TRIAL' | 'EXPIRED' | 'CANCELED';
-      customOverride?: any;
-      expiresAt?: Date;
-    }
-  ) {
-    const subscription = await prisma.subscriptions.update({
-      where: { userId },
-      data,
-    });
-
-    // Invalidate cache
-    await this.invalidatePlanCache(userId);
-
-    return subscription;
-  }
-
-  /**
-   * Set custom override for a user's subscription
-   */
-  static async setCustomOverride(userId: number, override: any) {
-    const subscription = await prisma.subscriptions.update({
-      where: { userId },
-      data: { customOverride: override },
-    });
-
-    // Invalidate cache
-    await this.invalidatePlanCache(userId);
-
-    return subscription;
   }
 }

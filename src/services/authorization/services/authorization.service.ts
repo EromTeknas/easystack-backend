@@ -8,6 +8,7 @@ import {
 } from "../types/authorization.type";
 import { AuthorizationBuilder } from "./buid-cache.service";
 import { AuthorizationScope } from "../configs/roles-registry.config";
+import { AppRoleKey } from "../constants/role.constants";
 // AuthorizationService.rebuild(userId)
 
 // AuthorizationService.invalidate(userId)
@@ -69,7 +70,7 @@ class AuthorizationService {
     userId: string,
     scope: AuthorizationScope,
     scopeId: string,
-    role: string,
+    role: AppRoleKey,
   ): Promise<boolean> {
     const node = await this.getNode(userId, scope, scopeId);
 

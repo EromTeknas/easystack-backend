@@ -1,34 +1,17 @@
 import { prisma } from "../db";
-import { RoleScope } from "@prisma/client";
+import { NotFoundError } from "../errors";
+import { AppRoleKey } from "../services/authorization/constants/role.constants";
 
-export function findById(id: number) {
-    return prisma.role.findUnique({
-        where: { id },
-    });
-}
 
-export function findRoleByKey(scope: RoleScope, key: string) {
-    return prisma.role.findUnique({
-        where: { scope: scope, key: key  },
+export class RoleRepository {
+  /**
+   * Find a role by its unique key.
+   */
+  static async findByKey(key: AppRoleKey) {
+    return await prisma.role.findUnique({
+      where: {
+        key,
+      },
     });
-}
-
-export function findSystemRoles() {
-    return prisma.role.findMany({
-        where: { isSystem: true },
-        orderBy: { id: "asc" },
-    });
-}
-
-export function findCustomRoles(workspaceId: number) {
-    return prisma.role.findMany({
-        where: { workspaceId },
-        orderBy: { id: "asc" },
-    });
-}
-
-export function findAll() {
-    return prisma.role.findMany({
-        orderBy: { id: "asc" },
-    });
+  }
 }

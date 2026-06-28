@@ -5,8 +5,6 @@ import {
   isValidEmail,
   isValidPassword,
   isValidName,
-  getClientIP,
-  getDeviceName,
 } from "../../utils/validation";
 import {
   BadRequestError,
@@ -14,13 +12,12 @@ import {
   InternalServerError,
 } from "../../errors";
 import { AUTH_ERROR_CODES } from "../../constants/errorCodes";
-import { ok } from "../../utils/response";
 import { prisma } from "../../db";
 import logger from "../../utils/logger";
+import { SubscriptionStatus, UserStatus } from "@prisma/client";
+import { ok } from '../../utils/response';
 import { enqueueSendOtpEmailJob } from "../../queues/email-otp.queue";
 import { createEmailVerificationToken } from "../../services/email-verification-redis.service";
-import { BillingService } from "../../services/billing.service";
-import { SubscriptionStatus, UserStatus } from "@prisma/client";
 
 /**
  * Register a new user account (transactional)
@@ -189,9 +186,28 @@ export const registerController = asyncHandler(async (req, res) => {
       version: latestVersion.version,
     });
 
-    return {
-      userId,
-      isNewUser,
-    };
+    // Step 3: Generate OTP and send email (outside transaction)
+    const otpCode = generateOtpCode();
+    const otpCodeHash = await hashOtp(otpCode);
+
+    const verificationToken = await createEmailVerificationToken(
+      userId.toString(),
+      email.toLowerCase(),
+      otpCodeHash,
+      "EMAIL_VERIFICATION",
+    );
+
+    await enqueueSendOtpEmailJob({
+      email: email.toLowerCase(),
+      firstName,
+      otpCode,
+    });
+
+    return ok(res, {
+      
+        email: email.toLowerCase(),
+        verificationToken: verificationToken,
+      
+    });
   });
 });

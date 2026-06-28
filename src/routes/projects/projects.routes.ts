@@ -5,12 +5,10 @@ import {
   listProjectsByWorkspace,
   updateProject,
   patchProject,
-  deleteProject,
-  getProjectMembers
+  deleteProject
 } from './projects.controller';
 import {
-  checkSubdomainAvailability,
-  getProjectBySubdomain
+  checkSubdomainAvailability
 } from './projects.public.controller';
 import { authenticate } from '../../middlewares/authentication.middleware';
 
@@ -26,12 +24,6 @@ const router = Router();
  * Check if a subdomain is available (public, rate-limited)
  */
 router.get('/subdomain-available/:subdomain', checkSubdomainAvailability);
-
-/**
- * GET /api/projects/by-subdomain/:subdomain
- * Get a project by subdomain (public lookup)
- */
-router.get('/by-subdomain/:subdomain', getProjectBySubdomain);
 
 // ============================================================================
 // PROTECTED ROUTES (require authentication)
@@ -79,11 +71,5 @@ router.patch('/:projectId', authenticate, patchProject);
  * Delete a project
  */
 router.delete('/:projectId', authenticate, deleteProject);
-
-/**
- * GET /api/projects/:projectId/members
- * Get all members assigned to a project with their roles
- */
-router.get('/:projectId/members', authenticate, getProjectMembers);
 
 export default router;

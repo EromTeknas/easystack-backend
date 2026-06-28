@@ -29,18 +29,22 @@ model User {
 
   deletedAt DateTime? @map("deleted_at")
 
+  defaultWorkspaceId Int? @map("default_workspace_id") 
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   refreshTokens RefreshToken[]
 
   workspaceMemberships WorkspaceMember[]
-
+  
   createdWorkspaces Workspace[] @relation("WorkspaceCreatedBy")
   createdProjects   Project[]   @relation("ProjectCreatedBy")
 
   subscription Subscription?
   roles        Role[]
+  
+  defaultWorkspace   Workspace? @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id])
 
   @@index([status])
 }
@@ -88,8 +92,6 @@ model Workspace {
 
   name String
 
-  slug String @unique
-
   logoUrl String? @map("logo_url")
 
   createdById Int @map("created_by")
@@ -104,9 +106,9 @@ model Workspace {
 
   projects Project[]
   roles    Role[]
-
+  defaultForUsers User[] @relation("UserDefaultWorkspace")
+  
   @@index([createdById])
-  @@index([slug])
 }
 
 //////////////////////////////////////////////////////////////
@@ -120,7 +122,7 @@ model Project {
 
   name String
 
-  slug String
+  slug String @unique
 
   description String?
 
@@ -139,6 +141,7 @@ model Project {
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
+  @@index([slug])
 }
 
 //////////////////////////////////////////////////////////////
@@ -284,109 +287,109 @@ model RolePermission {
   @@index([permissionId])
 }
 
-//////////////////////////////////////////////////////////////
-// PLANS
-//////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////
+  // PLANS
+  //////////////////////////////////////////////////////////////
 
-model Plan {
-  id Int @id @default(autoincrement())
+  model Plan {
+    id Int @id @default(autoincrement())
 
-  key String @unique
+    key String @unique
 
-  displayName String
+    displayName String
 
-  description String?
+    description String?
 
-  isActive Boolean @default(true)
+    isActive Boolean @default(true)
 
-  createdAt DateTime @default(now()) @map("created_at")
+    createdAt DateTime @default(now()) @map("created_at")
 
-  updatedAt DateTime @updatedAt @map("updated_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-  versions PlanVersion[]
+    versions PlanVersion[]
 
-  subscriptions Subscription[]
-}
+    subscriptions Subscription[]
+  }
 
-//////////////////////////////////////////////////////////////
-// PLAN VERSIONS
-//////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////
+  // PLAN VERSIONS
+  //////////////////////////////////////////////////////////////
 
-model PlanVersion {
-  id Int @id @default(autoincrement())
+  model PlanVersion {
+    id Int @id @default(autoincrement())
 
-  planId Int
+    planId Int
 
-  version Int
+    version Int
 
-  config Json
+    config Json
 
-  createdAt DateTime @default(now()) @map("created_at")
+    createdAt DateTime @default(now()) @map("created_at")
 
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+    plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  subscriptions Subscription[]
+    subscriptions Subscription[]
 
-  @@unique([planId, version])
-  @@index([planId])
-}
+    @@unique([planId, version])
+    @@index([planId])
+  }
 
-//////////////////////////////////////////////////////////////
-// SUBSCRIPTIONS
-//////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////
+  // SUBSCRIPTIONS
+  //////////////////////////////////////////////////////////////
 
-model Subscription {
-  id Int @id @default(autoincrement())
+  model Subscription {
+    id Int @id @default(autoincrement())
 
-  userId Int @unique @map("user_id")
+    userId Int @unique @map("user_id")
 
-  planVersionId Int @map("plan_version_id")
+    planVersionId Int @map("plan_version_id")
 
-  status SubscriptionStatus @default(TRIAL)
+    status SubscriptionStatus @default(TRIAL)
 
-  customOverride Json? @map("custom_override")
+    customOverride Json? @map("custom_override")
 
-  startsAt DateTime @map("starts_at")
+    startsAt DateTime @map("starts_at")
 
-  expiresAt DateTime? @map("expires_at")
+    expiresAt DateTime? @map("expires_at")
 
-  cancelledAt DateTime? @map("cancelled_at")
+    cancelledAt DateTime? @map("cancelled_at")
 
-  createdAt DateTime @default(now()) @map("created_at")
+    createdAt DateTime @default(now()) @map("created_at")
 
-  updatedAt DateTime @updatedAt @map("updated_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
-  plan        Plan?       @relation(fields: [planId], references: [id])
-  planId      Int?
+    planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
+    plan        Plan?       @relation(fields: [planId], references: [id])
+    planId      Int?
 
-  @@index([planVersionId])
-  @@index([status])
-  @@index([expiresAt])
-}
+    @@index([planVersionId])
+    @@index([status])
+    @@index([expiresAt])
+  }
 
-//////////////////////////////////////////////////////////////
-// ENUMS
-//////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////
+  // ENUMS
+  //////////////////////////////////////////////////////////////
 
-enum UserStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-  PENDING_VERIFICATION
-  EXPIRED
-}
+  enum UserStatus {
+    ACTIVE
+    INACTIVE
+    SUSPENDED
+    PENDING_VERIFICATION
+    EXPIRED
+  }
 
-enum SubscriptionStatus {
-  TRIAL
-  ACTIVE
-  EXPIRED
-  CANCELLED
-}
+  enum SubscriptionStatus {
+    TRIAL
+    ACTIVE
+    EXPIRED
+    CANCELLED
+  }
 
-enum RoleScope {
-  WORKSPACE
-  PROJECT
-}
+  enum RoleScope {
+    WORKSPACE
+    PROJECT
+  }

@@ -9,7 +9,7 @@ async function main() {
   await seedPlans(prisma);
 }
 
-seedPlans(prisma)
+seedAuthorization(prisma)
   .then(async () => {
     await prisma.$disconnect();
   })

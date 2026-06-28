@@ -19,12 +19,3 @@ export const getMyPlan = asyncHandler(async (req: any, res: Response) => {
   });
 });
 
-/**
- * GET /billing/plans
- * Get all available plans (public)
- */
-export const getAvailablePlans = asyncHandler(async (req: any, res: Response) => {
-  const plans = await BillingService.getAllPlans();
-  
-  return ok(res, plans);
-});

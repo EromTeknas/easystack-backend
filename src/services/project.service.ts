@@ -1,106 +1,8 @@
 import { prisma } from '../db';
 import { BadRequestError, NotFoundError } from '../errors';
-import { authorizationService } from './authorization.service';
 import logger from '../utils/logger';
 
 export const ProjectService = {
-  /**
-   * Create a new project in a workspace (transactional)
-   * Validates all data before creating and rolls back if any validation fails
-   */
-  async createProjectWithValidation(
-    workspaceId: number,
-    data: { name: string; subdomain: string; description?: string },
-    options?: { validateWorkspaceAccess?: boolean; userId?: number }
-  ): Promise<number> {
-    const { name, subdomain, description } = data;
-
-    // Validate inputs
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      throw new BadRequestError('Project name is required');
-    }
-
-    if (!subdomain || typeof subdomain !== 'string' || subdomain.trim().length === 0) {
-      throw new BadRequestError('Subdomain is required');
-    }
-
-    const subdomainRegex = /^[a-z0-9_-]+$/i;
-    if (!subdomainRegex.test(subdomain)) {
-      throw new BadRequestError('Subdomain can only contain alphanumeric characters, hyphens, and underscores');
-    }
-
-    try {
-      const projectId = await prisma.$transaction(async (tx) => {
-        // Step 1: Verify workspace exists (if userId provided, verify user has access)
-        if (options?.validateWorkspaceAccess && options?.userId) {
-          const member = await tx.workspaceMember.findFirst({
-            where: {
-              workspaceId,
-              userId: options.userId,
-            },
-          });
-
-          if (!member) {
-            throw new BadRequestError('You do not have access to this workspace');
-          }
-
-          logger.info('Workspace access verified in transaction', {
-            workspaceId,
-            userId: options.userId,
-          });
-        } else {
-          const workspace = await tx.workspace.findUnique({
-            where: { id: workspaceId },
-          });
-
-          if (!workspace) {
-            throw new BadRequestError('Workspace not found');
-          }
-        }
-
-        // Step 2: Check if subdomain already exists globally
-        const existingProject = await tx.project.findUnique({
-          where: { subdomain: subdomain.toLowerCase().trim() },
-        });
-
-        if (existingProject) {
-          throw new BadRequestError('Subdomain is already taken');
-        }
-
-        logger.info('Subdomain availability verified in transaction', {
-          workspaceId,
-          subdomain,
-        });
-
-        // Step 3: Create project
-        const project = await tx.project.create({
-          data: {
-            workspaceId,
-            name: name.trim(),
-            subdomain: subdomain.toLowerCase().trim(),
-            description: description?.trim() || null,
-          },
-        });
-
-        logger.info('Project created in transaction', {
-          projectId: project.id,
-          workspaceId,
-          subdomain: project.subdomain,
-        });
-
-        return project.id as unknown as number;
-      });
-
-      // Auto-add OWNER and ADMIN workspace members to this new project (outside transaction)
-      await authorizationService.autoAddWorkspaceAdminsToProject(projectId, workspaceId);
-
-      return projectId;
-    } catch (err: any) {
-      logger.error('Failed to create project with validation (transaction rolled back):', err);
-      throw err;
-    }
-  },
-
   /**
    * Create a new project in a workspace
    */
@@ -127,8 +29,8 @@ export const ProjectService = {
 
     // Check if subdomain already exists globally
     const existingProject = await prisma.project.findUnique({
-      where: { subdomain }
-    });
+      where: { slug: subdomain.toLowerCase().trim() }
+    })
 
     if (existingProject) {
       throw new BadRequestError('Subdomain is already taken');
@@ -143,9 +45,6 @@ export const ProjectService = {
           description: description?.trim() || null
         } as any  // Type assertion since id is auto-generated
       });
-
-      // Auto-add OWNER and ADMIN workspace members to this new project
-      await authorizationService.autoAddWorkspaceAdminsToProject(project.id, workspaceId);
 
       return project.id as unknown as number;
     } catch (err: any) {
@@ -204,7 +103,7 @@ export const ProjectService = {
     }
 
     // If subdomain is being changed, check if new one is available
-    if (data.subdomain && data.subdomain !== existingProject.subdomain) {
+    if (data.subdomain && data.subdomain !== existingProject.slug) {
       const normalizedNewSubdomain = data.subdomain.toLowerCase().trim();
 
       const subdomainRegex = /^[a-z0-9_-]+$/i;
@@ -213,7 +112,7 @@ export const ProjectService = {
       }
 
       const conflictingProject = await prisma.project.findUnique({
-        where: { subdomain: normalizedNewSubdomain }
+        where: { slug: normalizedNewSubdomain }
       });
 
       if (conflictingProject) {
@@ -269,7 +168,7 @@ export const ProjectService = {
     }
 
     const existingProject = await prisma.project.findUnique({
-      where: { subdomain: normalizedSubdomain }
+      where: { slug: normalizedSubdomain }
     });
 
     return !existingProject;
@@ -280,7 +179,7 @@ export const ProjectService = {
    */
   async getProjectBySubdomain(subdomain: string): Promise<any> {
     const project = await prisma.project.findUnique({
-      where: { subdomain: subdomain.toLowerCase().trim() },
+      where: { slug: subdomain.toLowerCase().trim() },
       include: {
         workspace: true
       }

@@ -3,7 +3,6 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../errors';
 import { ProjectService } from '../../services/project.service';
-import { authorizationService } from '../../services/authorization.service';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
 
@@ -62,32 +61,6 @@ export const getProjectById = asyncHandler(async (req: any, res: Response) => {
   const workspaceId = Number(req.params.workspaceId);
   const projectId = Number(req.params.projectId);
 
-  // 1. Check workspace membership
-  const workspaceMember = await prisma.workspaceMember.findUnique({
-    where: {
-      uk_workspace_user: {
-        workspaceId,
-        userId,
-      },
-    },
-  });
-
-  if (!workspaceMember) {
-    throw new ForbiddenError('Not a workspace member');
-  }
-
-  // 2. Get visible project IDs
-  const visibleProjectIds = await authorizationService.getVisibleProjectIds(
-    userId,
-    workspaceId
-  );
-
-  // 3. Check if user can access this specific project
-  if (!visibleProjectIds.includes(projectId)) {
-    throw new ForbiddenError('Not authorized to view this project');
-  }
-
-  // 4. Fetch project
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: {
@@ -116,51 +89,52 @@ export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Respon
   const workspaceId = Number(req.params.workspaceId);
 
   // 1. Check workspace membership
-  const workspaceMember = await prisma.workspaceMember.findUnique({
+  const workspaceMember = await prisma.workspaceMember.findMany({
     where: {
-      uk_workspace_user: {
         workspaceId,
         userId,
       },
-    },
+      include: {
+        projectMemberships: {
+          include: {
+            project: true,
+          }
+        }
+      }
   });
 
   if (!workspaceMember) {
     throw new ForbiddenError('Not a workspace member');
   }
 
-  // 2. Get visible project IDs based on authorization
-  // - OWNER sees all projects
-  // - ADMIN sees all projects
-  // - USER sees only explicitly assigned projects
-  const visibleProjectIds = await authorizationService.getVisibleProjectIds(
-    userId,
-    workspaceId
-  );
-
   // 3. Fetch projects
-  const projects = await prisma.project.findMany({
+  const projects = await prisma.projectMember.findMany({
     where: {
-      workspaceId,
-      id: {
-        in: visibleProjectIds,
-      },
+      workspaceMember:{
+        workspaceId: workspaceId,
+        userId: userId
+      }
     },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-    orderBy: {
-      createdAt: 'desc',
+    include: {
+      project: true,
+      workspaceMember: {
+        include: {
+          workspace: true,
+        }
+      }
     },
   });
 
+  const projectList = projects.map(pm => ({
+    id: pm.project.id,
+    name: pm.project.name,
+    description: pm.project.description,
+    createdAt: pm.project.createdAt,
+    updatedAt: pm.project.updatedAt,
+  }));
   return ok(res, {
-    projects,
-    total: projects.length,
+    projects: projectList,
+    total: projectList.length,
     workspaceId: workspaceId.toString(),
   });
 });
@@ -297,65 +271,4 @@ export const deleteProject = asyncHandler(async (req: any, res: Response) => {
   logger.debug('Project deleted via API', { projectId, userId });
 
   return ok(res, { message: 'Project deleted successfully' });
-});
-
-/**
- * GET /api/projects/:projectId/members
- * Get all members assigned to a project with their roles
- * Requires workspace membership
- */
-export const getProjectMembers = asyncHandler(async (req: any, res: Response) => {
-  const userId = Number(req.user!.id);
-  const workspaceId = Number(req.params.workspaceId);
-  const projectId = Number(req.params.projectId);
-
-  // 1. Check workspace membership
-  const workspaceMember = await prisma.workspaceMember.findUnique({
-    where: {
-      uk_workspace_user: {
-        workspaceId,
-        userId,
-      },
-    },
-  });
-
-  if (!workspaceMember) {
-    throw new ForbiddenError('Not a workspace member');
-  }
-
-  // 2. Verify project exists in workspace
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, workspaceId: true },
-  });
-
-  if (!project || project.workspaceId !== workspaceId) {
-    throw new NotFoundError('Project not found');
-  }
-
-  // 3. Get all project members with their roles
-  const projectMembers = await prisma.projectMember.findMany({
-    where: {
-      projectId,
-      isActive: true,
-    },
-    select: {
-      id: true,
-      userId: true,
-      assignedAt: true,
-      projectMemberRoles: {
-        select: {
-          role: true,
-        },
-      },
-    },
-  });
-
-  const members = projectMembers.map((m: any) => ({
-    userId: m.userId.toString(),
-    assignedAt: m.assignedAt,
-    roles: m.projectMemberRoles.map((pmr: any) => pmr.role),
-  }));
-
-  return ok(res, { members, total: members.length });
 });

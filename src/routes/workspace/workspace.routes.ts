@@ -14,17 +14,4 @@ router.get('/', authenticate, workspaceController.listWorkspaces);
 // Get specific workspace
 router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);
 
-router.put(
-    '/:workspaceId',
-    authenticate,
-    // workspaceGuard({ roles: ['OWNER', 'ADMIN'] }),
-    workspaceController.updateWorkspace
-);
-router.patch(
-    '/:workspaceId',
-    authenticate,
-    // workspaceGuard({ roles: ['OWNER', 'ADMIN'] }),
-    workspaceController.patchWorkspace
-);
-
 export default router;

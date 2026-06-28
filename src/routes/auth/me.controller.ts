@@ -10,12 +10,12 @@ import { UnauthorizedError, InternalServerError } from '../../errors';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
-import { getUserWorkspaces } from '../../services/workspace.service';
 import { BillingService } from '../../services/billing.service';
 import { verifyAccessToken } from '../../utils/jwt';
 import { auth } from '../../config/auth';
 import { rotateRefreshToken } from '../../services/auth-tokens.service';
 import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
+import WorkspaceRepository from '../../repositories/workspace.repository';
 
 /**
  * Get current authenticated user with workspaces
@@ -71,7 +71,7 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       }
 
       // Get user's workspaces
-      const workspaces = await getUserWorkspaces(Number(userId));
+      const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
       
       // Get user's effective plan (with custom overrides applied)
       const effectivePlan = await BillingService.getEffectivePlan(Number(userId));

@@ -29,12 +29,10 @@ import {
   setAccessTokenCookie,
   setRefreshTokenCookie,
 } from "../../utils/auth-cookies";
-import { ProjectRoleEnum } from "../../constants";
-import { ProjectRoles } from "../../services/authorization/configs/project-roles.config";
-import { UserStatus } from "@prisma/client";
-import { findRoleByKey } from "../../repositories/role.repository";
-import { RoleScope } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { APP_ROLES } from "../../services/authorization/constants/role.constants";
+import { UserStatus } from "@prisma/client";
+import { RoleRepository } from "../../repositories/role.repository";
 
 export const verifyEmailController = asyncHandler(async (req, res) => {
   logger.info("POST /api/auth/verify-email start");
@@ -110,7 +108,7 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           where: { id: userId },
           data: {
             emailVerified: true,
-            status: "ACTIVE",
+            status: UserStatus.ACTIVE,
           },
         });
 
@@ -129,23 +127,19 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
         });
 
         if (!existingMembership) {
-          // Get OWNER role
-          const ownerRole = await tx.role.findUnique({
-            where: {
-              key: "workspace.owner",
-            },
-          });
+          const ownerRole = await RoleRepository.findByKey(
+            APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
+          );
 
           if (!ownerRole) {
             throw new InternalServerError(
-              "System role 'workspace.owner' not found",
+              "Workspace owner role not found. Ensure roles are seeded.",
             );
           }
 
           const workspace = await tx.workspace.create({
             data: {
               name: `${updatedUser.firstName}'s Workspace`,
-              slug: `ws-${updatedUser.id}`,
               createdById: updatedUser.id,
             },
           });
