@@ -1,9 +1,5 @@
-import { RoleRegistry, AuthorizationScope } from "../configs/roles-registry.config";
-
 export interface ResolvePermissionsOptions {
-  scope: AuthorizationScope;
-
-  roles: string[];
+  permissions: string[];
 
   customPermissions: string[];
 
@@ -12,35 +8,20 @@ export interface ResolvePermissionsOptions {
 
 export class PermissionResolver {
   static resolve({
-    scope,
-    roles,
+    permissions,
     customPermissions = [],
     deniedPermissions = [],
   }: ResolvePermissionsOptions): string[] {
-    const permissions = new Set<string>();
-
-    const roleMap = RoleRegistry[scope];
-
-    for (const role of roles) {
-      const roleDefinition = roleMap[
-        role as keyof typeof roleMap
-      ];
-
-      if (!roleDefinition) continue;
-
-      for (const permission of roleDefinition.permissions) {
-        permissions.add(permission);
-      }
-    }
+    const resolved = new Set<string>(permissions);
 
     for (const permission of customPermissions) {
-      permissions.add(permission);
+      resolved.add(permission);
     }
 
     for (const permission of deniedPermissions) {
-      permissions.delete(permission);
+      resolved.delete(permission);
     }
 
-    return [...permissions];
+    return [...resolved];
   }
 }

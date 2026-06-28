@@ -7,8 +7,6 @@ import { AuthorizationRepository } from "../repositories/authorization.repositor
 
 import { PermissionResolver } from "./resolve-permissions";
 
-import { RoleRegistry } from "../configs/roles-registry.config";
-
 export class AuthorizationBuilder {
   constructor(
     private readonly repository: AuthorizationRepository,
@@ -17,17 +15,12 @@ export class AuthorizationBuilder {
   async build(userId: string): Promise<AuthorizationCache> {
     const assignments = await this.repository.getAssignments(Number(userId));
 
-    const authorization = Object.keys(RoleRegistry).reduce(
-      (acc, scope) => {
-        acc[scope as keyof typeof RoleRegistry] = {};
-        return acc;
-      },
-      {} as AuthorizationCache["authorization"],
-    );
-
     const cache: AuthorizationCache = {
       userId,
-      authorization,
+      authorization: {
+        workspace: {},
+        project: {},
+      },
     };
 
     const now = Date.now();
@@ -37,9 +30,7 @@ export class AuthorizationBuilder {
         roles: assignment.roles,
 
         permissions: PermissionResolver.resolve({
-          scope: assignment.scope,
-
-          roles: assignment.roles,
+          permissions: assignment.permissions,
 
           customPermissions: assignment.customPermissions,
 
