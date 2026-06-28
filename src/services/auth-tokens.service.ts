@@ -67,7 +67,8 @@ export const rotateRefreshToken = async (refreshToken: string, req: any) => {
         expiresAt,
         ipAddress: getClientIP(req),
         userAgent: (req.headers['user-agent'] as string) || 'Unknown',
-        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || ''),
+        familyId: tokenRecord.familyId
       }
     });
   });

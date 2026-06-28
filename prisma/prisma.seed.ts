@@ -1,13 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 import { seedAuthorization } from "./seeders/authorization.seeder";
+import { seedPlans } from "./seeders/plans.seeder";
 
 const prisma = new PrismaClient();
 
 async function main() {
   await seedAuthorization(prisma);
+  await seedPlans(prisma);
 }
 
-seedAuthorization(prisma)
+seedPlans(prisma)
   .then(async () => {
     await prisma.$disconnect();
   })

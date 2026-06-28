@@ -52,7 +52,7 @@ class AuthorizationService {
     node: AuthorizationNode | null,
     permission: string,
   ) {
-    return node?.permissions.includes(permission) ?? false;
+    return node?.permissions.has(permission) ?? false;
   }
 
   static async getNode(

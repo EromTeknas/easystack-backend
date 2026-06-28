@@ -9,6 +9,7 @@ import logger from '../../utils/logger';
 import { auth } from '../../config/auth';
 import { ok } from '../../utils/response';
 import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Login with email and password (transactional)
@@ -105,6 +106,7 @@ export const loginController = asyncHandler(async (req, res) => {
   const accessToken = generateAccessToken(userId);
   const refreshToken = generateRefreshToken(userId);
   const refreshTokenHash = await hashToken(refreshToken);
+  const familyId = randomUUID(); // Unique identifier for this refresh token family
 
   // Calculate expiration
   const expiresAt = new Date(Date.now() + auth.refreshTokenExpirySeconds * 1000);
@@ -119,7 +121,8 @@ export const loginController = asyncHandler(async (req, res) => {
         expiresAt,
         ipAddress: getClientIP(req),
         userAgent: (req.headers['user-agent'] as string) || 'Unknown',
-        deviceName: getDeviceName((req.headers['user-agent'] as string) || '')
+        deviceName: getDeviceName((req.headers['user-agent'] as string) || ''),
+        familyId
       }
     });
 

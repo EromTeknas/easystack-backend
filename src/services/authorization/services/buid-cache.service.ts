@@ -29,13 +29,13 @@ export class AuthorizationBuilder {
       const node: AuthorizationNode = {
         roles: assignment.roles,
 
-        permissions: PermissionResolver.resolve({
+        permissions: new Set<string>(PermissionResolver.resolve({
           permissions: assignment.permissions,
 
           customPermissions: assignment.customPermissions,
 
           deniedPermissions: assignment.deniedPermissions,
-        }),
+        })),
 
         version: 1,
 
