@@ -1,0 +1,528 @@
+### generators/permission.generator.ts ###
+type PermissionMap<T extends Record<string, readonly string[]>> = {
+  [R in keyof T as Uppercase<R & string>]: {
+    [A in T[R][number] as Uppercase<A & string>]: `${R & string}:${A & string}`;
+  };
+};
+
+export function generatePermissions<T extends Record<string, readonly string[]>>(
+  config: T,
+): PermissionMap<T> {
+  const permissions = {} as PermissionMap<T>;
+
+  for (const [resource, actions] of Object.entries(config)) {
+    const resourceKey = resource.toUpperCase() as keyof PermissionMap<T>;
+
+    permissions[resourceKey] = {} as PermissionMap<T>[typeof resourceKey];
+
+    for (const action of actions) {
+      permissions[resourceKey][
+        action.toUpperCase() as keyof PermissionMap<T>[typeof resourceKey]
+      ] = `${resource}:${action}` as never;
+    }
+  }
+
+  return permissions;
+}
+
+### cache/delete-authorization.cache.ts ###
+import redis from "../../../config/redis";
+
+import { AuthorizationCacheKeys } from "./keys.cache";
+
+export async function deleteAuthorizationCache(
+  userId: string,
+): Promise<void> {
+  await redis.del(
+    AuthorizationCacheKeys.user(userId),
+  );
+}
+
+### cache/set-authorization.cache.ts ###
+import redis from "../../../config/redis";
+
+import { AuthorizationCache } from "../types/authorization.types";
+
+import {
+  AUTHORIZATION_CACHE_TTL,
+} from "./constants.cache";
+
+import { AuthorizationCacheKeys } from "./keys.cache";
+
+export async function setAuthorizationCache(
+  authorization: AuthorizationCache,
+): Promise<void> {
+  await redis.set(
+    AuthorizationCacheKeys.user(
+      authorization.userId,
+    ),
+    JSON.stringify(authorization),
+    "EX",
+    AUTHORIZATION_CACHE_TTL,
+  );
+}
+
+### cache/constants.cache.ts ###
+export const AUTHORIZATION_CACHE_PREFIX = "authorization";
+
+export const AUTHORIZATION_CACHE_TTL = 60 * 60; // 1 Hour
+
+### cache/keys.cache.ts ###
+import { AUTHORIZATION_CACHE_PREFIX } from "./constants.cache";
+
+export class AuthorizationCacheKeys {
+  /**
+   * authorization:userId
+   *
+   * Example:
+   * authorization:usr_123
+   */
+  static user(userId: string): string {
+    return `${AUTHORIZATION_CACHE_PREFIX}:${userId}`;
+  }
+}
+
+### cache/authorization.cache.ts ###
+import {
+  AuthorizationCache,
+} from "../types/authorization.types";
+
+import { getAuthorizationCache } from "./get-authorization.cache";
+import { setAuthorizationCache } from "./set-authorization.cache";
+import { deleteAuthorizationCache } from "./delete-authorization.cache";
+
+export class AuthorizationCacheService {
+  static async get(
+    userId: string,
+  ): Promise<AuthorizationCache | null> {
+    return getAuthorizationCache(userId);
+  }
+
+  static async set(
+    authorization: AuthorizationCache,
+  ): Promise<void> {
+    return setAuthorizationCache(authorization);
+  }
+
+  static async invalidate(
+    userId: string,
+  ): Promise<void> {
+    return deleteAuthorizationCache(userId);
+  }
+}
+
+### cache/get-authorization.cache.ts ###
+import redis from "@/config/redis";
+
+import { AuthorizationCache } from "../types/authorization.types";
+import { AuthorizationCacheKeys } from "./cache.keys";
+
+export async function getAuthorizationCache(
+  userId: string,
+): Promise<AuthorizationCache | null> {
+  const cache = await redis.get(
+    AuthorizationCacheKeys.user(userId),
+  );
+
+  if (!cache) {
+    return null;
+  }
+
+  return JSON.parse(cache) as AuthorizationCache;
+}
+
+### file_list.txt ###
+generators/permission.generator.ts
+cache/delete-authorization.cache.ts
+cache/set-authorization.cache.ts
+cache/constants.cache.ts
+cache/keys.cache.ts
+cache/authorization.cache.ts
+cache/get-authorization.cache.ts
+file_list.txt
+configs/project-roles.config.ts
+configs/workspace-roles.config.ts
+configs/permission.config.ts
+configs/roles-registry.config.ts
+types/authorization.types.ts
+services/buid-cache.service.ts
+services/resolve-permissions.ts
+repositories/authorization.repository.ts
+repositories/workspace.repository.ts
+constants/permission-groups.constants.ts
+constants/permission.constants.ts
+
+
+### configs/project-roles.config.ts ###
+import { PermissionGroups } from "../constants/permission-groups.constants";
+import { PERMISSIONS } from "../constants/permission.constants";
+
+export const ProjectRoles = {
+  OWNER: {
+    key: "OWNER",
+    name: "Owner",
+    description: "Full control over the project.",
+    permissions: [...PermissionGroups.PROJECT_ALL],
+  },
+
+  ADMIN: {
+    key: "ADMIN",
+    name: "Admin",
+    description: "Can manage the project and its members.",
+    permissions: [...PermissionGroups.PROJECT_ALL],
+  },
+
+  EDITOR: {
+    key: "EDITOR",
+    name: "Editor",
+    description: "Can create and modify project content.",
+    permissions: [PERMISSIONS.PROJECT.READ, PERMISSIONS.PROJECT.UPDATE],
+  },
+
+  CONTRIBUTOR: {
+    key: "CONTRIBUTOR",
+    name: "Contributor",
+    description: "Can contribute to the project.",
+    permissions: [
+      PERMISSIONS.PROJECT.READ,
+      PERMISSIONS.PROJECT.CREATE,
+      PERMISSIONS.PROJECT.UPDATE,
+    ],
+  },
+
+  VIEWER: {
+    key: "VIEWER",
+    name: "Viewer",
+    description: "Read-only access to the project.",
+    permissions: [PERMISSIONS.PROJECT.READ],
+  },
+} as const;
+
+export type ProjectRole = keyof typeof ProjectRoles;
+
+
+### configs/workspace-roles.config.ts ###
+import { PERMISSIONS } from "../constants/permission.constants";
+import { PermissionGroups } from "../constants/permission-groups.constants";
+
+export const WorkspaceRoles = {
+  OWNER: {
+    key: "OWNER",
+    name: "Owner",
+    description: "Can perform all operations inside the Workspace",
+    permissions: [
+      ...PermissionGroups.WORKSPACE_ALL,
+      ...PermissionGroups.PROJECT_ALL
+    ],
+  },
+
+  ADMIN: {
+      key: "ADMIN",
+      name: "Admin",
+      description: "Can perform some operation inside the workspace",
+      permissions: [
+          ...PermissionGroups.PROJECT_ALL,
+
+      PERMISSIONS.WORKSPACE.READ,
+      PERMISSIONS.WORKSPACE.UPDATE,
+      PERMISSIONS.WORKSPACE.INVITE,
+    ],
+  },
+
+  MEMBER: {
+    key: "MEMBER",
+    name: "Member",
+    description: "Can work on assigned projects.",
+    permissions: [
+      PERMISSIONS.WORKSPACE.READ,
+
+      PERMISSIONS.PROJECT.CREATE,
+      PERMISSIONS.PROJECT.READ,
+      PERMISSIONS.PROJECT.UPDATE,
+    ],
+  },
+
+  VIEWER: {
+    key: "VIEWER",
+    name: "Viewer",
+    description: "Read-only access.",
+    permissions: [
+      PERMISSIONS.WORKSPACE.READ,
+      PERMISSIONS.PROJECT.READ
+    ],
+  },
+} as const;
+
+### configs/permission.config.ts ###
+export const PermissionConfig = {
+  workspace: [
+    "create",
+    "read",
+    "update",
+    "delete",
+    "invite",
+    "transfer",
+  ],
+
+  project: [
+    "create",
+    "read",
+    "update",
+  ]
+} as const;
+
+### configs/roles-registry.config.ts ###
+import { WorkspaceRoles } from "./workspace-roles.config";
+import { ProjectRoles } from "./project-roles.config";
+
+export const RoleRegistry = {
+  workspace: WorkspaceRoles,
+  project: ProjectRoles,
+} as const;
+
+export type AuthorizationScope = keyof typeof RoleRegistry;
+
+export type RoleRegistryType = typeof RoleRegistry;
+
+### types/authorization.types.ts ###
+import { AuthorizationScope } from "../configs/roles-registry.config";
+
+export interface AuthorizationNode {
+  roles: string[];
+
+  permissions: string[];
+
+  version: number;
+
+  updatedAt: number;
+}
+
+export type AuthorizationScopes = {
+  [K in AuthorizationScope]: Record<string, AuthorizationNode>;
+};
+
+export interface AuthorizationCache {
+  userId: string;
+
+  authorization: AuthorizationScopes;
+}
+
+### services/buid-cache.service.ts ###
+import {
+  AuthorizationCache,
+  AuthorizationNode,
+} from "../types/authorization.types";
+
+import { AuthorizationRepository } from "../repositories/authorization.repository";
+
+import { PermissionResolver } from "./resolve-permissions";
+
+import { RoleRegistry } from "../configs/roles-registry.config";
+
+export class AuthorizationBuilder {
+  constructor(
+    private readonly repository: AuthorizationRepository,
+  ) {}
+
+  async build(userId: string): Promise<AuthorizationCache> {
+    const assignments = await this.repository.getAssignments(Number(userId));
+
+    const authorization = Object.keys(RoleRegistry).reduce(
+      (acc, scope) => {
+        acc[scope as keyof typeof RoleRegistry] = {};
+        return acc;
+      },
+      {} as AuthorizationCache["authorization"],
+    );
+
+    const cache: AuthorizationCache = {
+      userId,
+      authorization,
+    };
+
+    const now = Date.now();
+
+    for (const assignment of assignments) {
+      const node: AuthorizationNode = {
+        roles: assignment.roles,
+
+        permissions: PermissionResolver.resolve({
+          scope: assignment.scope,
+
+          roles: assignment.roles,
+
+          customPermissions: assignment.customPermissions,
+
+          deniedPermissions: assignment.deniedPermissions,
+        }),
+
+        version: 1,
+
+        updatedAt: now,
+      };
+
+      cache.authorization[assignment.scope][assignment.scopeId] = node;
+    }
+
+    return cache;
+  }
+}
+
+### services/resolve-permissions.ts ###
+import { RoleRegistry, AuthorizationScope } from "../configs/roles-registry.config";
+
+export interface ResolvePermissionsOptions {
+  scope: AuthorizationScope;
+
+  roles: string[];
+
+  customPermissions: string[];
+
+  deniedPermissions: string[];
+}
+
+export class PermissionResolver {
+  static resolve({
+    scope,
+    roles,
+    customPermissions = [],
+    deniedPermissions = [],
+  }: ResolvePermissionsOptions): string[] {
+    const permissions = new Set<string>();
+
+    const roleMap = RoleRegistry[scope];
+
+    for (const role of roles) {
+      const roleDefinition = roleMap[
+        role as keyof typeof roleMap
+      ];
+
+      if (!roleDefinition) continue;
+
+      for (const permission of roleDefinition.permissions) {
+        permissions.add(permission);
+      }
+    }
+
+    for (const permission of customPermissions) {
+      permissions.add(permission);
+    }
+
+    for (const permission of deniedPermissions) {
+      permissions.delete(permission);
+    }
+
+    return [...permissions];
+  }
+}
+
+### all_content.txt ###
+
+
+### repositories/authorization.repository.ts ###
+import { AuthorizationScope } from "../configs/roles-registry.config";
+
+export interface AuthorizationAssignment {
+  scope: AuthorizationScope;
+
+  scopeId: string;
+
+  roles: string[];
+
+  customPermissions: string[];
+
+  deniedPermissions: string[];
+}
+
+export interface AuthorizationRepository {
+  getAssignments(
+    userId: number,
+  ): Promise<AuthorizationAssignment[]>;
+}
+
+### repositories/workspace.repository.ts ###
+// import { PrismaClient } from "@prisma/client";
+
+// import {
+//   AuthorizationAssignment,
+//   AuthorizationRepository,
+// } from "./authorization.repository";
+
+// export class PrismaAuthorizationRepository
+//   implements AuthorizationRepository
+// {
+//   constructor(
+//     private readonly prisma: PrismaClient,
+//   ) {}
+
+//   async getAssignments(
+//     userId: number,
+//   ): Promise<AuthorizationAssignment[]> {
+//     const assignments: AuthorizationAssignment[] = [];
+
+//     const workspaceMembers =
+//       await this.prisma.workspaceMember.findMany({
+//         where: {
+//           userId,
+//           removedAt: null,
+//         },
+//       });
+
+//     for (const member of workspaceMembers) {
+//       assignments.push({
+//         scope: "workspace",
+
+//         scopeId: member.workspaceId.toString(),
+
+//         roles: [member.role],
+
+//         customPermissions: [],
+
+//         deniedPermissions: [],
+//       });
+//     }
+
+//     const projectMembers =
+//       await this.prisma.projectMember.findMany({
+//         where: {
+//           userId,
+//           removedAt: null,
+//         },
+//       });
+
+//     for (const member of projectMembers) {
+//       assignments.push({
+//         scope: "project",
+
+//         scopeId: member.projectId.toString(),
+
+//         roles: [member.role],
+
+//         customPermissions: [],
+
+//         deniedPermissions: [],
+//       });
+//     }
+
+//     return assignments;
+//   }
+// }
+
+### constants/permission-groups.constants.ts ###
+import { PERMISSIONS } from './permission.constants'
+
+export const PermissionGroups = {
+  WORKSPACE_ALL: Object.values(PERMISSIONS.WORKSPACE),
+
+  PROJECT_ALL: Object.values(PERMISSIONS.PROJECT),
+} as const;
+
+### constants/permission.constants.ts ###
+import { PermissionConfig } from "../configs/permission.config.ts";
+import { generatePermissions } from "../generators/permission.generator";
+
+type Permission =
+  (typeof PERMISSIONS)[keyof typeof PERMISSIONS][keyof (typeof PERMISSIONS)[keyof typeof PERMISSIONS]];
+
+export const PERMISSIONS = generatePermissions(PermissionConfig);
+

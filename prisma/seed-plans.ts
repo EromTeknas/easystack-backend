@@ -9,122 +9,126 @@ async function seedPlans() {
   console.log('🌱 Seeding default plans...');
 
   // Free Plan
-  await prisma.plans.upsert({
-    where: { name: 'free' },
+  await prisma.plan.upsert({
+    where: { key: 'free' },
     update: {},
     create: {
-      name: 'free',
+      key: 'free',
       displayName: 'Free',
-      config: {
-        limits: {
-          projects: 3,
-          environments: 1,
-          users: 1,
-          api_requests_per_minute: 60,
-          storage_mb: 500,
-          ai_tokens_monthly: 100000,
-        },
-        features: {
-          custom_domain: false,
-          team_collaboration: false,
-          audit_logs: false,
-        },
-        pricing: {
-          monthly: 0,
-          yearly: 0,
-          currency: 'USD',
-        },
-      },
+      // config: {
+      //   limits: {
+      //     projects: 3,
+      //     environments: 1,
+      //     users: 1,
+      //     api_requests_per_minute: 60,
+      //     storage_mb: 500,
+      //     ai_tokens_monthly: 100000,
+      //   },
+      //   features: {
+      //     custom_domain: false,
+      //     team_collaboration: false,
+      //     audit_logs: false,
+      //   },
+      //   pricing: {
+      //     monthly: 0,
+      //     yearly: 0,
+      //     currency: 'USD',
+      //   },
+      // },
     },
   });
 
   // Pro Plan
-  await prisma.plans.upsert({
-    where: { name: 'pro' },
+  await prisma.plan.upsert({
+    where: { key: 'pro' },
     update: {},
     create: {
-      name: 'pro',
-      displayName: 'Pro',
-      config: {
-        limits: {
-          projects: 20,
-          environments: 5,
-          users: 3,
-          api_requests_per_minute: 300,
-          storage_mb: 5000,
-          ai_tokens_monthly: 1000000,
-        },
-        features: {
-          custom_domain: true,
-          team_collaboration: false,
-          audit_logs: false,
-        },
-        pricing: {
-          monthly: 29,
-          yearly: 290,
-          currency: 'USD',
-        },
-      },
-    },
+      key: 'pro',
+      displayName: 'Pro'
+      // create: {
+      //   name: 'pro',
+      //   displayName: 'Pro',
+      //   config: {
+      //     limits: {
+      //       projects: 20,
+      //       environments: 5,
+      //       users: 3,
+      //       api_requests_per_minute: 300,
+      //       storage_mb: 5000,
+      //       ai_tokens_monthly: 1000000,
+      //     },
+      //     features: {
+      //       custom_domain: true,
+      //       team_collaboration: false,
+      //       audit_logs: false,
+      //     },
+      //     pricing: {
+      //       monthly: 29,
+      //       yearly: 290,
+      //       currency: 'USD',
+      //     },
+      //   },
+      // },
+    }
   });
 
   // Team Plan
-  await prisma.plans.upsert({
-    where: { name: 'team' },
+  await prisma.plan.upsert({
+    where: { key: 'team' },
     update: {},
     create: {
-      name: 'team',
+      key: 'team',
       displayName: 'Team',
-      config: {
-        limits: {
-          projects: 100,
-          environments: 20,
-          users: 10,
-          api_requests_per_minute: 1000,
-          storage_mb: 20000,
-          ai_tokens_monthly: 5000000,
-        },
-        features: {
-          custom_domain: true,
-          team_collaboration: true,
-          audit_logs: true,
-        },
-        pricing: {
-          monthly: 99,
-          yearly: 990,
-          currency: 'USD',
-        },
-      },
+      // config: {
+      //   limits: {
+      //     projects: 100,
+      //     environments: 20,
+      //     users: 10,
+      //     api_requests_per_minute: 1000,
+      //     storage_mb: 20000,
+      //     ai_tokens_monthly: 5000000,
+      //   },
+      //   features: {
+      //     custom_domain: true,
+      //     team_collaboration: true,
+      //     audit_logs: true,
+      //   },
+      //   pricing: {
+      //     monthly: 99,
+      //     yearly: 990,
+      //     currency: 'USD',
+      //   },
+      // },
     },
   });
 
   // Enterprise Plan
-  await prisma.plans.upsert({
-    where: { name: 'enterprise' },
+  await prisma.plan.upsert({
+    where: { key: 'enterprise' },
     update: {},
     create: {
-      name: 'enterprise',
+      key: 'enterprise',
       displayName: 'Enterprise',
-      config: {
-        limits: {
-          projects: null, // unlimited
-          environments: null,
-          users: null,
-          api_requests_per_minute: null,
-          storage_mb: null,
-          ai_tokens_monthly: null,
-        },
-        features: {
-          custom_domain: true,
-          team_collaboration: true,
-          audit_logs: true,
-        },
-        pricing: {
-          monthly: 499,
-          yearly: 4990,
-          currency: 'USD',
-        },
-      },
+      // config: {
+      //   limits: {
+      //     projects: null, // unlimited
+      //     environments: null,
+      //     users: null,
+      //     api_requests_per_minute: null,
+      //     storage_mb: null,
+      //     ai_tokens_monthly: null,
+      //   },
+      //   features: {
+      //     custom_domain: true,
+      //     team_collaboration: true,
+      //     audit_logs: true,
+      //   },
+      //   pricing: {
+      //     monthly: 499,
+      //     yearly: 4990,
+      //     currency: 'USD',
+      //   },
+      // },
     },
   });
 

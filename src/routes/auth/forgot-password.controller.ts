@@ -95,7 +95,7 @@ export const forgotPasswordController = asyncHandler(async (req, res) => {
       logger.info('Password reset requested for verified user', { userId, email: user.email });
 
       return ok(res, {
-        message: 'If an account exists with this email, we have sent password reset instructions.'
+        message: `If an account exists with this email ${normalizedEmail}, we have sent password reset instructions.`
       });
     } catch (error: any) {
       logger.error('Forgot password request failed', {

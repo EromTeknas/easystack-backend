@@ -80,9 +80,9 @@ export const createWorkspaceController = asyncHandler(async (req: any, res: Resp
     throw new BadRequestError('Invalid workspace name');
   }
 
-  if (logoUrl !== undefined && logoUrl !== null && typeof logoUrl !== 'string') {
-    throw new BadRequestError('Invalid logoUrl');
-  }
+  // if (logoUrl !== undefined && logoUrl !== null && typeof logoUrl !== 'string') {
+  //   throw new BadRequestError('Invalid logoUrl');
+  // }
 
   // Transactional: Create workspace + add member
   const result = await prisma.$transaction(async (tx) => {

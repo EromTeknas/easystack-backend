@@ -15,11 +15,10 @@
     "worker": "ts-node src/workers/index.worker.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
     "seed:plans": "ts-node prisma/seed-plans.ts",
-    "seed:authorization": "ts-node prisma/seed-authorization.ts",
-    "seed:permissions": "ts-node prisma/seed-permissions.ts",
     "seed:users": "ts-node prisma/seed-users.ts",
-    "seed:core": "npm run seed:plans && npm run seed:authorization && npm run seed:permissions",
+    "seed:core": "npm run seed:plans && seed:authorization",
     "seed:all": "npm run seed:core && npm run seed:users",
+    "seed:authorization": "ts-node prisma/prisma.seed.ts",
     "billing:assign-free": "ts-node src/cli/assign-free-plans.ts"
   },
   "keywords": [],
