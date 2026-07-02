@@ -29,7 +29,7 @@ model User {
 
   deletedAt DateTime? @map("deleted_at")
 
-  defaultWorkspaceId Int? @map("default_workspace_id") 
+  defaultWorkspaceId Int? @map("default_workspace_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -37,14 +37,15 @@ model User {
   refreshTokens RefreshToken[]
 
   workspaceMemberships WorkspaceMember[]
-  
+
   createdWorkspaces Workspace[] @relation("WorkspaceCreatedBy")
   createdProjects   Project[]   @relation("ProjectCreatedBy")
 
-  subscription Subscription?
-  roles        Role[]
-  
-  defaultWorkspace   Workspace? @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id])
+  subscription     Subscription?
+  roles            Role[]
+  usage            Usage[]
+  defaultWorkspace Workspace?      @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id])
+  discountUsages   DiscountUsage[]
 
   @@index([status])
 }
@@ -104,10 +105,10 @@ model Workspace {
 
   members WorkspaceMember[]
 
-  projects Project[]
-  roles    Role[]
-  defaultForUsers User[] @relation("UserDefaultWorkspace")
-  
+  projects        Project[]
+  roles           Role[]
+  defaultForUsers User[]    @relation("UserDefaultWorkspace")
+
   @@index([createdById])
 }
 
@@ -287,109 +288,533 @@ model RolePermission {
   @@index([permissionId])
 }
 
-  //////////////////////////////////////////////////////////////
-  // PLANS
-  //////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+// PLANS
+//////////////////////////////////////////////////////////////
+model Plan {
+  id Int @id @default(autoincrement())
 
-  model Plan {
-    id Int @id @default(autoincrement())
+  key String @unique
 
-    key String @unique
+  displayName String
 
-    displayName String
+  description String?
 
-    description String?
+  isPublic Boolean @default(true)
 
-    isActive Boolean @default(true)
+  isEnterprise Boolean @default(false)
 
-    createdAt DateTime @default(now()) @map("created_at")
+  isActive Boolean @default(true)
 
-    updatedAt DateTime @updatedAt @map("updated_at")
+  displayOrder Int @default(0)
 
-    versions PlanVersion[]
+  createdAt DateTime @default(now()) @map("created_at")
 
-    subscriptions Subscription[]
-  }
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  //////////////////////////////////////////////////////////////
-  // PLAN VERSIONS
-  //////////////////////////////////////////////////////////////
+  versions PlanVersion[]
 
-  model PlanVersion {
-    id Int @id @default(autoincrement())
+  @@index([isActive])
+}
 
-    planId Int
+//////////////////////////////////////////////////////////////
+// PLAN VERSIONS
+//////////////////////////////////////////////////////////////
 
-    version Int
+model PlanVersion {
+  id Int @id @default(autoincrement())
 
-    config Json
+  planId Int
 
-    createdAt DateTime @default(now()) @map("created_at")
+  version Int
 
-    plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  isLatest Boolean @default(true)
 
-    subscriptions Subscription[]
+  createdAt DateTime @default(now()) @map("created_at")
 
-    @@unique([planId, version])
-    @@index([planId])
-  }
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  //////////////////////////////////////////////////////////////
-  // SUBSCRIPTIONS
-  //////////////////////////////////////////////////////////////
+  trial TrialConfiguration?
 
-  model Subscription {
-    id Int @id @default(autoincrement())
+  pricing PlanPricing[]
 
-    userId Int @unique @map("user_id")
+  features PlanFeature[]
 
-    planVersionId Int @map("plan_version_id")
+  quotas PlanQuota[]
 
-    status SubscriptionStatus @default(TRIAL)
+  subscriptions         Subscription[]
+  subscriptionHistories SubscriptionHistory[]
 
-    customOverride Json? @map("custom_override")
+  @@unique([planId, version])
+  @@index([planId])
+  @@index([isLatest])
+}
 
-    startsAt DateTime @map("starts_at")
+//////////////////////////////////////////////////////////////
+// TRIAL CONFIGURATION
+//////////////////////////////////////////////////////////////
+model TrialConfiguration {
+  id Int @id @default(autoincrement())
 
-    expiresAt DateTime? @map("expires_at")
+  planVersionId Int @unique
 
-    cancelledAt DateTime? @map("cancelled_at")
+  durationDays Int
 
-    createdAt DateTime @default(now()) @map("created_at")
+  enabled Boolean @default(true)
 
-    updatedAt DateTime @updatedAt @map("updated_at")
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+}
 
-    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+//////////////////////////////////////////////////////////////
+// PLAN PRICING
+//////////////////////////////////////////////////////////////
+model PlanPricing {
+  id Int @id @default(autoincrement())
 
-    planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
-    plan        Plan?       @relation(fields: [planId], references: [id])
-    planId      Int?
+  planVersionId Int
 
-    @@index([planVersionId])
-    @@index([status])
-    @@index([expiresAt])
-  }
+  displayName String?
 
-  //////////////////////////////////////////////////////////////
-  // ENUMS
-  //////////////////////////////////////////////////////////////
+  currency String
 
-  enum UserStatus {
-    ACTIVE
-    INACTIVE
-    SUSPENDED
-    PENDING_VERIFICATION
-    EXPIRED
-  }
+  billingCycle BillingCycle
 
-  enum SubscriptionStatus {
-    TRIAL
-    ACTIVE
-    EXPIRED
-    CANCELLED
-  }
+  amount Decimal @db.Decimal(12, 2)
 
-  enum RoleScope {
-    WORKSPACE
-    PROJECT
-  }
+  compareAtAmount Decimal? @db.Decimal(12, 2)
+
+  isDefault Boolean @default(false)
+
+  activeFrom DateTime?
+
+  activeUntil DateTime?
+
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+
+  discounts PricingDiscount[]
+
+  @@index([planVersionId])
+}
+
+////////////////////////////////////////////////////////////////
+// DISCOUNTS
+////////////////////////////////////////////////////////////
+
+model Discount {
+  id Int @id @default(autoincrement())
+
+  code String @unique
+
+  displayName String
+
+  description String?
+
+  type DiscountType
+
+  priority Int @default(0)
+
+  percentage Decimal? @db.Decimal(5, 2)
+
+  fixedAmount Decimal? @db.Decimal(12, 2)
+
+  maxUses Int?
+
+  usedCount Int @default(0)
+
+  startsAt DateTime?
+
+  expiresAt DateTime?
+
+  isActive Boolean @default(true)
+
+  pricing PricingDiscount[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt      DateTime        @updatedAt
+  discountUsages DiscountUsage[]
+}
+
+//////////////////////////////////////////////////////////////
+// DISCOUNT USAGE
+//////////////////////////////////////////////////////////////
+
+model DiscountUsage {
+  id Int @id @default(autoincrement())
+
+  discountId Int
+
+  userId Int
+
+  subscriptionId Int?
+
+  paymentId Int?
+
+  redeemedAt DateTime @default(now())
+
+  discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@unique([discountId, userId, subscriptionId])
+  @@index([discountId])
+  @@index([userId])
+}
+
+////////////////////////////////////////////////////////////////
+// PRICING DISCOUNT
+////////////////////////////////////////////////////////////
+model PricingDiscount {
+  pricingId Int
+
+  discountId Int
+
+  pricing PlanPricing @relation(fields: [pricingId], references: [id], onDelete: Cascade)
+
+  discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+
+  @@id([pricingId, discountId])
+}
+
+///////////////////////////////////////////////////////////////
+// FEATURES
+///////////////////////////////////////////////////////////////
+model Feature {
+  id Int @id @default(autoincrement())
+
+  key String @unique
+
+  displayName String
+
+  description String?
+
+  category String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  plans PlanFeature[]
+
+  sortOrder Int @default(0)
+}
+
+///////////////////////////////////////////////////////////////
+// PLAN FEATURES
+///////////////////////////////////////////////////////////////
+model PlanFeature {
+  planVersionId Int
+
+  featureId Int
+
+  enabled Boolean @default(true)
+
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planVersionId, featureId])
+}
+
+////////////////////////////////////////////////////////////////
+// QUOTAS
+////////////////////////////////////////////////////////////
+model Quota {
+  id Int @id @default(autoincrement())
+
+  key String @unique
+
+  displayName String
+
+  description String?
+
+  unit String
+
+  resetPolicy QuotaResetPolicy
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  plans PlanQuota[]
+
+  usage Usage[]
+
+  sortOrder Int @default(0)
+}
+
+////////////////////////////////////////////////////////////////
+// PLAN QUOTAS
+////////////////////////////////////////////////////////////
+model PlanQuota {
+  planVersionId Int
+
+  quotaId Int
+
+  value Int?
+
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+
+  quota Quota @relation(fields: [quotaId], references: [id], onDelete: Cascade)
+
+  @@id([planVersionId, quotaId])
+}
+
+//////////////////////////////////////////////////////////////
+// SUBSCRIPTIONS
+//////////////////////////////////////////////////////////////
+
+model Subscription {
+  id Int @id @default(autoincrement())
+
+  userId Int @unique
+
+  planVersionId Int
+
+  status SubscriptionStatus
+
+  gateway PaymentGateway?
+
+  trialEndsAt DateTime?
+
+  startsAt DateTime
+
+  expiresAt DateTime?
+
+  cancelledAt DateTime?
+
+  customOverride Json?
+
+  gatewayCustomerId String?
+
+  gatewaySubscriptionId String?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  planVersion           PlanVersion           @relation(fields: [planVersionId], references: [id])
+  discountUsages        DiscountUsage[]
+  subscriptionHistories SubscriptionHistory[]
+  payments              Payment[]
+  invoices              Invoice[]
+
+  @@index([status])
+  @@index([planVersionId])
+}
+
+//////////////////////////////////////////////////////////////
+// SUBSCRIPTION HISTORY
+//////////////////////////////////////////////////////////////
+
+model SubscriptionHistory {
+  id Int @id @default(autoincrement())
+
+  subscriptionId Int
+
+  planVersionId Int
+
+  status SubscriptionStatus
+
+  startsAt DateTime
+
+  endsAt DateTime?
+
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([planVersionId])
+}
+
+//////////////////////////////////////////////////////////////
+// USAGE
+//////////////////////////////////////////////////////////////
+model Usage {
+  id Int @id @default(autoincrement())
+
+  userId  Int
+  quotaId Int
+
+  value Int @default(0)
+
+  resetAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  quota Quota @relation(fields: [quotaId], references: [id])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quotaId])
+}
+
+//////////////////////////////////////////////////////////////
+// PAYMENTS
+//////////////////////////////////////////////////////////////
+
+model Payment {
+  id Int @id @default(autoincrement())
+
+  subscriptionId Int
+
+  gateway PaymentGateway
+
+  gatewayPaymentId String
+
+  gatewayInvoiceId String?
+
+  gatewayCustomerId String?
+
+  gatewayPriceId String?
+
+  amount Decimal @db.Decimal(12, 2)
+
+  currency String
+
+  status PaymentStatus
+
+  billingCycle BillingCycle?
+
+  paidAt DateTime?
+
+  refundedAt DateTime?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  discountUsages DiscountUsage[]
+  invoices       Invoice[]
+
+  @@index([subscriptionId])
+  @@index([gatewayPaymentId])
+  @@index([status])
+}
+
+//////////////////////////////////////////////////////////////
+// INVOICES
+//////////////////////////////////////////////////////////////
+
+model Invoice {
+  id Int @id @default(autoincrement())
+
+  subscriptionId Int
+
+  paymentId Int?
+
+  invoiceNumber String @unique
+
+  amount Decimal @db.Decimal(12, 2)
+
+  taxAmount Decimal @db.Decimal(12, 2)
+
+  total Decimal @db.Decimal(12, 2)
+
+  currency String
+
+  issuedAt DateTime
+
+  dueAt DateTime?
+
+  paidAt DateTime?
+
+  pdfUrl String?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([subscriptionId])
+}
+
+//////////////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////////////
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+  EXPIRED
+}
+
+enum RoleScope {
+  WORKSPACE
+  PROJECT
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum QuotaResetPolicy {
+  NEVER
+  DAILY
+  WEEKLY
+  MONTHLY
+  BILLING_CYCLE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentGateway {
+  STRIPE
+  RAZORPAY
+  PADDLE
+  LEMON_SQUEEZY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+}
+
+
+// CouponCampaign
+// TaxRate
+// PaymentMethod
+// Refund
+// CheckoutSession
+// SubscriptionSchedule
+// SubscriptionItem
+// PlanAddon
