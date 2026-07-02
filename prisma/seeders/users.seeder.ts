@@ -162,7 +162,7 @@ export async function seedUsers(prisma: PrismaClient) {
         );
       }
 
-      await tx.subscription.upsert({
+      const subscription = await tx.subscription.upsert({
         where: {
           userId: user.id,
         },
@@ -184,6 +184,26 @@ export async function seedUsers(prisma: PrismaClient) {
           expiresAt: null,
         },
       });
+
+      const existingHistory = await tx.subscriptionHistory.findFirst({
+        where: {
+          subscriptionId: subscription.id,
+        },
+      });
+
+      if (!existingHistory) {
+        await tx.subscriptionHistory.create({
+          data: {
+            subscriptionId: subscription.id,
+            planVersionId: subscription.planVersionId,
+            status: subscription.status,
+            startsAt: subscription.startsAt,
+            endsAt:
+              subscription.expiresAt ?? subscription.trialEndsAt,
+            reason: "Initial subscription",
+          },
+        });
+      }
     });
 
     console.log(`✓ ${fakeUser.email}`);

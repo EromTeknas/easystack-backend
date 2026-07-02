@@ -10,7 +10,6 @@ import { UnauthorizedError, InternalServerError } from '../../errors';
 import { prisma } from '../../db';
 import logger from '../../utils/logger';
 import { ok } from '../../utils/response';
-import { BillingService } from '../../services/billing.service';
 import { verifyAccessToken } from '../../utils/jwt';
 import { auth } from '../../config/auth';
 import { rotateRefreshToken } from '../../services/auth-tokens.service';
@@ -73,9 +72,6 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       // Get user's workspaces
       const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
       
-      // Get user's effective plan (with custom overrides applied)
-      const effectivePlan = await BillingService.getEffectivePlan(Number(userId));
-
       return ok(res, {
         user: {
           id: user.id.toString(),
@@ -94,14 +90,6 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           role: w.role,
           createdAt: w.created_at
         })),
-        plan: {
-          id: effectivePlan.id,
-          name: effectivePlan.name,
-          displayName: effectivePlan.displayName,
-          limits: effectivePlan.config.limits,
-          features: effectivePlan.config.features,
-          pricing: effectivePlan.config.pricing
-        }
       });
     } catch (error: any) {
       if (error instanceof UnauthorizedError) {
