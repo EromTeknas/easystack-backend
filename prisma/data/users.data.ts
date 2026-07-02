@@ -7,9 +7,12 @@ interface FakeUserConfig {
   firstName: string;
   lastName: string;
   password: string;
-  status?: UserStatus;
-  emailVerified?: boolean;
-  workspace: Record<string, string>;
+  status: UserStatus;
+  emailVerified: boolean;
+  workspace: {
+    name: string;
+    slug: string;
+  };
   subscription?: {
     plan: string;
     trial?: boolean;
@@ -23,7 +26,7 @@ export const fakeUsers: FakeUserConfig[] = [
     firstName: "Alice",
     lastName: "Johnson",
     password: "Test@12345678",
-    status: "ACTIVE",
+    status: UserStatus.ACTIVE,
     emailVerified: true,
     workspace: {
       name: "Alice's Workspace",
@@ -39,7 +42,7 @@ export const fakeUsers: FakeUserConfig[] = [
     firstName: "Bob",
     lastName: "Smith",
     password: "Test@98765432",
-    status: "ACTIVE",
+    status: UserStatus.ACTIVE,
     emailVerified: true,
     workspace: {
       name: "Bob's Workspace",
@@ -54,7 +57,7 @@ export const fakeUsers: FakeUserConfig[] = [
     firstName: "Charlie",
     lastName: "Brown",
     password: "Test@11223344",
-    status: "ACTIVE",
+    status: UserStatus.ACTIVE,
     emailVerified: true,
     workspace: {
       name: "Charlie's Workspace",

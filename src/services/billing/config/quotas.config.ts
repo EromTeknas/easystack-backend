@@ -1,11 +1,11 @@
-import { QuotaResetPolicies } from "./quota-reset-policy.config";
+import { QuotaResetPolicy } from "@prisma/client";
 export const Quotas = {
   PROJECTS: {
     key: "projects",
     displayName: "Projects",
     description: "Maximum projects",
     unit: "count",
-    resetPolicy: QuotaResetPolicies.NEVER,
+    resetPolicy: QuotaResetPolicy.NEVER,
   },
 
   STORAGE: {
@@ -13,7 +13,7 @@ export const Quotas = {
     displayName: "Storage",
     description: "Maximum storage",
     unit: "GB",
-    resetPolicy: QuotaResetPolicies.NEVER,
+    resetPolicy: QuotaResetPolicy.NEVER,
   },
 
   API_REQUESTS: {
@@ -21,7 +21,7 @@ export const Quotas = {
     displayName: "API Requests",
     description: "Monthly API Requests",
     unit: "requests",
-    resetPolicy: QuotaResetPolicies.BILLING_CYCLE,
+    resetPolicy: QuotaResetPolicy.BILLING_CYCLE,
   },
 } as const;
 

@@ -1,6 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Quota, QuotaResetPolicy } from "@prisma/client";
 
 import { Quotas } from "../../src/services/billing/config/quotas.config";
+
 
 export async function seedBillingQuotas(prisma: PrismaClient) {
   console.log("🌱 Seeding Billing Quotas...");
@@ -16,7 +17,7 @@ export async function seedBillingQuotas(prisma: PrismaClient) {
           displayName: quota.displayName,
           description: quota.description,
           unit: quota.unit,
-          resetPolicy: quota.resetPolicy,
+          resetPolicy: quota.resetPolicy as QuotaResetPolicy,
         },
 
         create: {
@@ -24,7 +25,7 @@ export async function seedBillingQuotas(prisma: PrismaClient) {
           displayName: quota.displayName,
           description: quota.description,
           unit: quota.unit,
-          resetPolicy: quota.resetPolicy,
+          resetPolicy: quota.resetPolicy as QuotaResetPolicy,
         },
       });
     }

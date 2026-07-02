@@ -1,4 +1,5 @@
-import { BillingCycle } from "../config/billing.config";
+
+import { BillingCycle } from "@prisma/client";
 import { Currency } from "../config/currency.config";
 
 export interface PricingDefinition {

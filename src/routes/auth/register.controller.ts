@@ -163,7 +163,6 @@ export const registerController = asyncHandler(async (req, res) => {
       where: { userId },
 
       update: {
-        planId: plan.id,
         planVersionId: latestVersion.id,
         status: SubscriptionStatus.TRIAL,
         startsAt: new Date(),
@@ -172,7 +171,6 @@ export const registerController = asyncHandler(async (req, res) => {
 
       create: {
         userId,
-        planId: plan.id,
         planVersionId: latestVersion.id,
         status: SubscriptionStatus.TRIAL,
         startsAt: new Date(),

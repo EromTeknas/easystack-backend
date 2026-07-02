@@ -90,8 +90,10 @@ export async function seedBillingPlans(prisma: PrismaClient) {
             currency: pricing.currency,
             billingCycle: pricing.billingCycle,
             amount: pricing.amount,
-            compareAtAmount: pricing.compareAtAmount,
             isDefault: pricing.isDefault ?? false,
+            ...(pricing.compareAtAmount !== undefined && {
+              compareAtAmount: pricing.compareAtAmount,
+            }),
           })),
         });
       }

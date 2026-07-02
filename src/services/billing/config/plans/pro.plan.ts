@@ -1,7 +1,7 @@
-import { BillingCycles } from "../billing.config";
 import { Features } from "../features.config";
 import { Quotas } from "../quotas.config";
 import { PlanDefinition } from "../../types/plan.type";
+import { BillingCycle } from "@prisma/client";
 
 export const ProPlan: PlanDefinition = {
   key: "pro",
@@ -21,13 +21,13 @@ export const ProPlan: PlanDefinition = {
   pricing: [
     {
       currency: "INR",
-      billingCycle: BillingCycles.MONTHLY,
+      billingCycle: BillingCycle.MONTHLY,
       amount: 499,
       isDefault: true,
     },
     {
       currency: "INR",
-      billingCycle: BillingCycles.YEARLY,
+      billingCycle: BillingCycle.YEARLY,
       amount: 4999,
       compareAtAmount: 5988,
     },

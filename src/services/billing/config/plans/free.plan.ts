@@ -1,8 +1,6 @@
-import { BillingCycles } from "../billing.config";
 import { Features, FeatureKey } from "../features.config";
 import { Quotas } from "../quotas.config";
 import { PlanDefinition } from "../../types/plan.type";
-import { FEATURE_KEYS } from "../../../../constants";
 
 export const FreePlan: PlanDefinition = {
   key: "free",

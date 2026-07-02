@@ -9,40 +9,110 @@ import { fakeUsers } from "../data/users.data";
 export async function seedUsers(prisma: PrismaClient) {
   console.log("🌱 Seeding Users...");
 
+  /**
+   * --------------------------------------------------------------------------
+   * Load required data once
+   * --------------------------------------------------------------------------
+   */
+
+  const ownerRole = await prisma.role.findUnique({
+    where: {
+      key: "WORKSPACE_OWNER",
+    },
+  });
+
+  if (!ownerRole) {
+    throw new Error(
+      "WORKSPACE_OWNER role not found. Please run authorization seeder first.",
+    );
+  }
+
+  const latestPlans = new Map(
+    (
+      await prisma.planVersion.findMany({
+        where: {
+          isLatest: true,
+        },
+        include: {
+          plan: true,
+          trial: true,
+        },
+      })
+    ).map((version) => [version.plan.key, version]),
+  );
+
+  /**
+   * --------------------------------------------------------------------------
+   * Seed Users
+   * --------------------------------------------------------------------------
+   */
+
   for (const fakeUser of fakeUsers) {
+    const passwordHash = await bcrypt.hash(fakeUser.password, 10);
+
+    const planKey = fakeUser.subscription?.plan ?? "free";
+
+    const latestPlan = latestPlans.get(planKey);
+
+    if (!latestPlan) {
+      throw new Error(`Plan '${planKey}' not found.`);
+    }
+
     await prisma.$transaction(async (tx) => {
-      const hashedPassword = await bcrypt.hash(fakeUser.password, 10);
+      /**
+       * ----------------------------------------------------------------------
+       * User
+       * ----------------------------------------------------------------------
+       */
 
       const user = await tx.user.upsert({
         where: {
           email: fakeUser.email,
         },
 
-        update: {},
+        update: {
+          firstName: fakeUser.firstName,
+          lastName: fakeUser.lastName,
+          status: fakeUser.status,
+          emailVerified: fakeUser.emailVerified,
+        },
 
         create: {
           email: fakeUser.email,
           firstName: fakeUser.firstName,
           lastName: fakeUser.lastName,
-          password: hashedPassword,
+          passwordHash,
           status: fakeUser.status,
           emailVerified: fakeUser.emailVerified,
         },
       });
 
-      const workspace = await tx.workspace.upsert({
+      /**
+       * ----------------------------------------------------------------------
+       * Workspace
+       * ----------------------------------------------------------------------
+       */
+
+      let workspace = await tx.workspace.findFirst({
         where: {
-          slug: fakeUser.workspace.slug,
-        },
-
-        update: {},
-
-        create: {
-          name: fakeUser.workspace.name,
-          slug: fakeUser.workspace.slug,
-          ownerId: user.id,
+          createdById: user.id,
         },
       });
+
+      if (!workspace) {
+        workspace = await tx.workspace.create({
+          data: {
+            name: fakeUser.workspace.name,
+            createdById: user.id,
+          },
+        });
+      }
+
+      /**
+       * ----------------------------------------------------------------------
+       * Workspace Member
+       * ----------------------------------------------------------------------
+       */
 
       await tx.workspaceMember.upsert({
         where: {
@@ -52,49 +122,39 @@ export async function seedUsers(prisma: PrismaClient) {
           },
         },
 
-        update: {},
+        update: {
+          roleId: ownerRole.id,
+        },
 
         create: {
           workspaceId: workspace.id,
           userId: user.id,
-          role: "OWNER",
+          roleId: ownerRole.id,
         },
       });
 
-      const latestVersion = await tx.planVersion.findFirst({
-        where: {
-          isLatest: true,
-          plan: {
-            key: fakeUser.subscription.plan,
-          },
-        },
-
-        include: {
-          trial: true,
-        },
-      });
-
-      if (!latestVersion) {
-        throw new Error(
-          `Latest version not found for ${fakeUser.subscription.plan}`,
-        );
-      }
+      /**
+       * ----------------------------------------------------------------------
+       * Subscription
+       * ----------------------------------------------------------------------
+       */
 
       const startsAt = new Date();
 
-      let expiresAt: Date | null = null;
+      let status: SubscriptionStatus =
+        SubscriptionStatus.ACTIVE;
 
-      let status = SubscriptionStatus.ACTIVE;
+      let trialEndsAt: Date | null = null;
 
       if (
-        fakeUser.subscription.trial &&
-        latestVersion.trial?.enabled
+        fakeUser.subscription?.trial &&
+        latestPlan.trial?.enabled
       ) {
         status = SubscriptionStatus.TRIAL;
 
-        expiresAt = new Date(
+        trialEndsAt = new Date(
           startsAt.getTime() +
-            latestVersion.trial.durationDays *
+            latestPlan.trial.durationDays *
               24 *
               60 *
               60 *
@@ -108,21 +168,25 @@ export async function seedUsers(prisma: PrismaClient) {
         },
 
         update: {
-          planVersionId: latestVersion.id,
+          planVersionId: latestPlan.id,
           status,
           startsAt,
-          expiresAt,
+          trialEndsAt,
+          expiresAt: null,
         },
 
         create: {
           userId: user.id,
-          planVersionId: latestVersion.id,
+          planVersionId: latestPlan.id,
           status,
           startsAt,
-          expiresAt,
+          trialEndsAt,
+          expiresAt: null,
         },
       });
     });
+
+    console.log(`✓ ${fakeUser.email}`);
   }
 
   console.log("✅ Users Seeded");
