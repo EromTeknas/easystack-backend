@@ -18,6 +18,8 @@ import { SubscriptionStatus, UserStatus } from "@prisma/client";
 import { ok } from '../../utils/response';
 import { enqueueSendOtpEmailJob } from "../../queues/email-otp.queue";
 import { createEmailVerificationToken } from "../../services/email-verification-redis.service";
+import { UsageService } from "../../services/billing/services/usage.service.ts";
+import { BillingService } from "../../services/billing.service";
 
 /**
  * Register a new user account (transactional)
@@ -97,7 +99,6 @@ export const registerController = asyncHandler(async (req, res) => {
   // Transactional: Create/update user + assign plan
   const result = await prisma.$transaction(async (tx) => {
     let userId: number;
-    let isNewUser = false;
 
     if (!existingUser) {
       const created = await tx.user.create({
@@ -112,7 +113,6 @@ export const registerController = asyncHandler(async (req, res) => {
       });
 
       userId = created.id;
-      isNewUser = true;
 
       logger.info("New user created in transaction", { userId });
     } else {
@@ -159,7 +159,7 @@ export const registerController = asyncHandler(async (req, res) => {
       );
     }
 
-    await tx.subscription.upsert({
+    const subscription = await tx.subscription.upsert({
       where: { userId },
 
       update: {
@@ -175,6 +175,16 @@ export const registerController = asyncHandler(async (req, res) => {
         status: SubscriptionStatus.TRIAL,
         startsAt: new Date(),
         expiresAt: null,
+      },
+    });
+
+    await tx.subscriptionHistory.create({
+      data: {
+        subscriptionId: subscription.id,
+        planVersionId: latestVersion.id,
+        status: SubscriptionStatus.TRIAL,
+        startsAt: new Date(),
+        reason: "REGISTER",
       },
     });
 
@@ -201,11 +211,19 @@ export const registerController = asyncHandler(async (req, res) => {
       otpCode,
     });
 
-    return ok(res, {
-      
-        email: email.toLowerCase(),
-        verificationToken: verificationToken,
-      
-    });
+    return {
+      userId,
+      planVersionId: latestVersion.id,
+      email: email.toLowerCase(),
+      verificationToken,
+    };
+  });
+
+  await BillingService.invalidate(result.userId);
+  await UsageService.initialize(result.userId, result.planVersionId);
+
+  return ok(res, {
+    email: result.email,
+    verificationToken: result.verificationToken,
   });
 });

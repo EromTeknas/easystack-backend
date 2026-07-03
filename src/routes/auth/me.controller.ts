@@ -15,6 +15,7 @@ import { auth } from '../../config/auth';
 import { rotateRefreshToken } from '../../services/auth-tokens.service';
 import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
 import WorkspaceRepository from '../../repositories/workspace.repository';
+import { BillingService } from '../../services/billing.service';
 
 /**
  * Get current authenticated user with workspaces
@@ -71,6 +72,9 @@ export const getMeController = asyncHandler(async (req: any, res) => {
 
       // Get user's workspaces
       const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
+
+      const subscription = await BillingService.subscription(Number(userId));
+      const usage = await BillingService.getUserUsage(Number(userId));
       
       return ok(res, {
         user: {
@@ -90,6 +94,8 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           role: w.role,
           createdAt: w.created_at
         })),
+        subscription,
+        usage,
       });
     } catch (error: any) {
       if (error instanceof UnauthorizedError) {

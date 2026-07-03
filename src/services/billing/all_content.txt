@@ -1,4 +1,39 @@
 ###  ###
+import redis from "../../../config/redis";
+
+export class UsageCache {
+  private key(userId: number, quotaKey: string) {
+    return `usage:${userId}:${quotaKey}`;
+  }
+
+  async get(userId: number, quotaKey: string) {
+    const value = await redis.get(this.key(userId, quotaKey));
+
+    return value ? Number(value) : null;
+  }
+
+  async set(userId: number, quotaKey: string, value: number, ttl?: number) {
+    await redis.set(this.key(userId, quotaKey), value);
+    if (ttl) {
+      await redis.expire(this.key(userId, quotaKey), ttl);
+    }
+  }
+
+  async increment(userId: number, quotaKey: string, value = 1) {
+    return redis.incrby(this.key(userId, quotaKey), value);
+  }
+
+  async decrement(userId: number, quotaKey: string, value = 1) {
+    return redis.decrby(this.key(userId, quotaKey), value);
+  }
+
+  async delete(userId: number, quotaKey: string) {
+    await redis.del(this.key(userId, quotaKey));
+  }
+}
+
+
+###  ###
 import { FeatureKey } from "../config/features.config";
 import { QuotaKey } from "../config/quotas.config";
 import { PricingDefinition } from "./pricing.type";
@@ -24,7 +59,8 @@ export interface PlanDefinition {
 }
 
 ###  ###
-import { BillingCycle } from "../config/billing.config";
+
+import { BillingCycle } from "@prisma/client";
 import { Currency } from "../config/currency.config";
 
 export interface PricingDefinition {
@@ -36,7 +72,1240 @@ export interface PricingDefinition {
 }
 
 ###  ###
+import { PaymentGateway, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 
+import { SubscriptionRepository } from "../repositories/subscription.repository";
+import { HistoryRepository } from "../repositories/history.repository";
+import { PlanRepository } from "../repositories/plan.repository";
+
+export class SubscriptionService {
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+    private readonly subscriptions = new SubscriptionRepository(prisma),
+    private readonly historyRepo = new HistoryRepository(prisma),
+    private readonly plans = new PlanRepository(prisma),
+  ) {}
+
+  async get(userId: number) {
+    return this.subscriptions.findByUserId(userId);
+  }
+
+  async exists(userId: number) {
+    return this.subscriptions.exists(userId);
+  }
+
+  async assignPlan(
+    userId: number,
+    planKey: string,
+    options?: {
+      trial?: boolean;
+      reason?: string;
+      gateway?: PaymentGateway;
+      gatewayCustomerId?: string;
+      gatewaySubscriptionId?: string;
+    },
+  ) {
+    const plan = await this.plans.findLatestVersion(planKey);
+
+    if (!plan) {
+      throw new Error(`Plan '${planKey}' not found.`);
+    }
+
+    const startsAt = new Date();
+
+    let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
+
+    let trialEndsAt: Date | null = null;
+
+    if (options?.trial && plan.trial?.enabled) {
+      status = SubscriptionStatus.TRIAL as SubscriptionStatus;
+
+      trialEndsAt = new Date(
+        startsAt.getTime() + plan.trial.durationDays * 24 * 60 * 60 * 1000,
+      );
+    }
+
+    const subscription = await this.subscriptions.upsert(
+      userId,
+      {
+        user: {
+          connect: {
+            id: userId,
+          },
+        },
+
+        planVersion: {
+          connect: {
+            id: plan.id,
+          },
+        },
+
+        status,
+        startsAt,
+        trialEndsAt,
+        expiresAt: null,
+
+        gateway: options?.gateway ? options.gateway : null,
+        gatewayCustomerId: options?.gatewayCustomerId ?? null,
+        gatewaySubscriptionId: options?.gatewaySubscriptionId ?? null,
+      },
+      {
+        planVersion: {
+          connect: {
+            id: plan.id,
+          },
+        },
+        status,
+        startsAt,
+        trialEndsAt,
+        expiresAt: null,
+
+        gateway: options?.gateway ? options.gateway : null,
+        gatewayCustomerId: options?.gatewayCustomerId ?? null,
+        gatewaySubscriptionId: options?.gatewaySubscriptionId ?? null,
+      },
+    );
+
+    await this.historyRepo.create({
+      subscription: {
+        connect: {
+          id: subscription.id,
+        },
+      },
+
+      planVersion: {
+        connect: {
+          id: plan.id,
+        },
+      },
+
+      status,
+
+      startsAt,
+
+      endsAt: null,
+
+      reason: options?.reason ?? "Subscription assigned",
+    });
+
+    return subscription;
+  }
+
+  async cancel(userId: number, reason?: string) {
+    const subscription = await this.subscriptions.findRaw(userId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    const now = new Date();
+
+    const updated = await this.subscriptions.update(userId, {
+      status: SubscriptionStatus.CANCELLED,
+      cancelledAt: now,
+    });
+
+    await this.historyRepo.create({
+      subscription: {
+        connect: {
+          id: subscription.id,
+        },
+      },
+
+      planVersion: {
+        connect: {
+          id: subscription.planVersionId,
+        },
+      },
+
+      status: SubscriptionStatus.CANCELLED,
+
+      startsAt: subscription.startsAt,
+
+      endsAt: now,
+
+      reason: reason ?? "Cancelled",
+    });
+
+    return updated;
+  }
+
+  async history(userId: number) {
+    const subscription = await this.subscriptions.findRaw(userId);
+
+    if (!subscription) {
+      return [];
+    }
+
+    return this.historyRepo.findBySubscription(subscription.id);
+  }
+}
+
+
+###  ###
+import {
+  Prisma,
+  PrismaClient,
+} from "@prisma/client";
+
+import { PlanRepository } from "../repositories/plan.repository";
+
+export class PlanService {
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+    private readonly plans = new PlanRepository(prisma),
+  ) {}
+
+  getPublicPlans() {
+    return this.plans.listPublicPlans();
+  }
+
+  getAllPlans() {
+    return this.plans.listPlans();
+  }
+
+  getLatest(planKey: string) {
+    return this.plans.findLatestVersion(planKey);
+  }
+
+  getVersion(
+    planKey: string,
+    version: number,
+  ) {
+    return this.plans.findVersion(
+      planKey,
+      version,
+    );
+  }
+
+  async validatePlan(planKey: string) {
+    const plan = await this.getLatest(planKey);
+
+    if (!plan) {
+      throw new Error(`Plan '${planKey}' not found.`);
+    }
+
+    return plan;
+  }
+}
+
+###  ###
+import { Prisma, PrismaClient } from "@prisma/client";
+
+import { QuotaRepository } from "../repositories/quota.repository";
+import { SubscriptionRepository } from "../repositories/subscription.repository";
+
+export class QuotaService {
+  private readonly quotas: QuotaRepository;
+  private readonly subscriptions: SubscriptionRepository;
+
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {
+    this.quotas = new QuotaRepository(prisma);
+    this.subscriptions = new SubscriptionRepository(prisma);
+  }
+
+  /**
+   * Returns a quota definition by its key.
+   *
+   * Lifecycle
+   * ---------
+   * Used whenever the application needs metadata about a quota,
+   * such as:
+   *
+   * - display name
+   * - reset policy
+   * - unit
+   * - description
+   *
+   * Does NOT return the user's quota limit.
+   */
+  async getQuota(quotaKey: string) {
+    const quota = await this.quotas.findByKey(quotaKey);
+
+    if (!quota) {
+      throw new Error(`Quota '${quotaKey}' not found.`);
+    }
+
+    return quota;
+  }
+
+  /**
+   * Returns every quota configured in the system.
+   *
+   * Lifecycle
+   * ---------
+   * Mostly used by:
+   *
+   * - Admin dashboard
+   * - Seeder verification
+   * - Documentation
+   */
+  async listQuotas() {
+    return this.quotas.findMany();
+  }
+
+  /**
+   * Returns the quota limit for the user's current subscription.
+   *
+   * Example
+   * -------
+   *
+   * Free
+   * ----
+   * projects -> 1
+   *
+   * Pro
+   * ---
+   * projects -> 50
+   *
+   * Enterprise
+   * ----------
+   * projects -> null (Unlimited)
+   *
+   * Lifecycle
+   * ---------
+   * This is called before UsageService performs any usage checks.
+   */
+  async getLimit(
+    userId: number,
+    quotaKey: string,
+  ): Promise<number | null> {
+    const subscription =
+      await this.subscriptions.findByUserId(userId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    const quota =
+      subscription.planVersion.quotas.find(
+        (q) => q.quota.key === quotaKey,
+      );
+
+    if (!quota) {
+      throw new Error(
+        `Quota '${quotaKey}' is not assigned to this plan.`,
+      );
+    }
+
+    return quota.value;
+  }
+
+  /**
+   * Returns all quota limits available for the user's plan.
+   *
+   * Lifecycle
+   * ---------
+   * Useful for:
+   *
+   * - Billing page
+   * - Dashboard
+   * - "Your Plan" page
+   * - Mobile applications
+   */
+  async listPlanQuotas(userId: number) {
+    const subscription =
+      await this.subscriptions.findByUserId(userId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    return subscription.planVersion.quotas.map((quota) => ({
+      key: quota.quota.key,
+      displayName: quota.quota.displayName,
+      description: quota.quota.description,
+      unit: quota.quota.unit,
+      resetPolicy: quota.quota.resetPolicy,
+      limit: quota.value,
+    }));
+  }
+
+  /**
+   * Determines whether the quota is unlimited.
+   *
+   * Enterprise plans typically return true because
+   * the stored limit is NULL.
+   *
+   * Lifecycle
+   * ---------
+   * Called by AuthorizationService before denying access.
+   */
+  async isUnlimited(
+    userId: number,
+    quotaKey: string,
+  ): Promise<boolean> {
+    const limit = await this.getLimit(
+      userId,
+      quotaKey,
+    );
+
+    return limit === null;
+  }
+}
+
+###  ###
+import {
+  Prisma,
+  PrismaClient,
+  SubscriptionStatus,
+} from "@prisma/client";
+
+import { SubscriptionRepository } from "../repositories/subscription.repository";
+import { HistoryRepository } from "../repositories/history.repository";
+
+export class TrialService {
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+    private readonly subscriptions = new SubscriptionRepository(prisma),
+    private readonly history = new HistoryRepository(prisma),
+  ) {}
+
+  async expire(userId: number) {
+    const subscription =
+      await this.subscriptions.findRaw(userId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    if (subscription.status !== SubscriptionStatus.TRIAL) {
+      return subscription;
+    }
+
+    const now = new Date();
+
+    if (
+      !subscription.trialEndsAt ||
+      subscription.trialEndsAt > now
+    ) {
+      return subscription;
+    }
+
+    const updated = await this.subscriptions.update(userId, {
+      status: SubscriptionStatus.EXPIRED,
+      expiresAt: now,
+    });
+
+    await this.history.create({
+      subscription: {
+        connect: {
+          id: subscription.id,
+        },
+      },
+
+      planVersion: {
+        connect: {
+          id: subscription.planVersionId,
+        },
+      },
+
+      status: SubscriptionStatus.EXPIRED,
+
+      startsAt: subscription.startsAt,
+
+      endsAt: now,
+
+      reason: "Trial expired",
+    });
+
+    return updated;
+  }
+
+  async extend(userId: number, days: number) {
+    const subscription =
+      await this.subscriptions.findRaw(userId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    const base =
+      subscription.trialEndsAt ?? new Date();
+
+    const trialEndsAt = new Date(
+      base.getTime() + days * 24 * 60 * 60 * 1000,
+    );
+
+    return this.subscriptions.update(userId, {
+      status: SubscriptionStatus.TRIAL,
+      trialEndsAt,
+    });
+  }
+
+  async isTrial(userId: number) {
+    const subscription =
+      await this.subscriptions.findRaw(userId);
+
+    return subscription?.status === SubscriptionStatus.TRIAL;
+  }
+}
+
+###  ###
+
+
+###  ###
+import { Prisma } from "@prisma/client";
+import { BaseRepository } from "./base.repository";
+
+export class HistoryRepository extends BaseRepository {
+
+    create(data: Prisma.SubscriptionHistoryCreateInput) {
+        return this.prisma.subscriptionHistory.create({
+            data,
+        });
+    }
+
+    findBySubscription(subscriptionId: number) {
+        return this.prisma.subscriptionHistory.findMany({
+            where: {
+                subscriptionId,
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+    }
+
+    findLatest(subscriptionId: number) {
+        return this.prisma.subscriptionHistory.findFirst({
+            where: {
+                subscriptionId,
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+    }
+}
+
+###  ###
+import { BaseRepository } from "./base.repository";
+
+export class UsageRepository extends BaseRepository {
+  findByQuotaKey(userId: number, quotaKey: string) {
+    return this.prisma.usage.findFirst({
+      where: {
+        userId,
+        quota: {
+          key: quotaKey,
+        },
+      },
+    });
+  }
+
+  initialize(userId: number, quotaKey: string) {
+    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+      if (!quota) {
+        throw new Error(
+          `Quota not found for userId ${userId} and quotaKey ${quotaKey}`,
+        );
+      }
+      return this.prisma.usage.upsert({
+        where: {
+          userId_quotaId: {
+            userId,
+            quotaId: quota.id,
+          },
+        },
+        update: {},
+        create: {
+          userId,
+          quotaId: quota.id,
+          value: 0,
+        },
+      });
+    });
+  }
+
+  increment(userId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+      if (!quota) {
+        throw new Error(
+          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+        );
+      }
+
+      return this.prisma.usage.update({
+        where: {
+          userId_quotaId: {
+            userId,
+            quotaId: quota.id,
+          },
+        },
+        data: {
+          value: {
+            increment: value,
+          },
+        },
+      });
+    });
+  }
+
+  decrement(userId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+      if (!quota) {
+        throw new Error(
+          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+        );
+      }
+
+      return this.prisma.usage.update({
+        where: {
+          userId_quotaId: {
+            userId,
+            quotaId: quota.id,
+          },
+        },
+        data: {
+          value: {
+            decrement: value,
+          },
+        },
+      });
+    });
+  }
+
+  reset(userId: number, quotaKey: string) {
+    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+      if (!quota) {
+        throw new Error(
+          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+        );
+      }
+
+      return this.prisma.usage.update({
+        where: {
+          userId_quotaId: {
+            userId,
+            quotaId: quota.id,
+          },
+        },
+        data: {
+          value: 0,
+        },
+      });
+    });
+  }
+
+  delete(userId: number, quotaKey: string) {
+    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+      if (!quota) {
+        throw new Error(
+          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+        );
+      }
+
+      return this.prisma.usage.delete({
+        where: {
+          userId_quotaId: {
+            userId,
+            quotaId: quota.id,
+          },
+        },
+      });
+    });
+  }
+
+  listUserUsage(userId: number) {
+    return this.prisma.usage.findMany({
+      where: {
+        userId,
+      },
+      include: {
+        quota: true,
+      },
+    });
+  }
+}
+
+
+###  ###
+// repositories/base.repository.ts
+
+import { PrismaClient, Prisma } from "@prisma/client";
+
+export abstract class BaseRepository {
+  protected readonly prisma: PrismaClient | Prisma.TransactionClient;
+
+  constructor(
+    prisma: PrismaClient | Prisma.TransactionClient,
+  ) {
+    this.prisma = prisma;
+  }
+}
+
+###  ###
+// repositories/subscription.repository.ts
+
+import { Prisma, SubscriptionStatus } from "@prisma/client";
+
+import { BaseRepository } from "./base.repository";
+
+export class SubscriptionRepository extends BaseRepository {
+  async findByUserId(userId: number) {
+    return this.prisma.subscription.findUnique({
+      where: { userId },
+      include: {
+        planVersion: {
+          include: {
+            plan: true,
+            trial: true,
+            pricing: true,
+            features: {
+              include: {
+                feature: true,
+              },
+            },
+            quotas: {
+              include: {
+                quota: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async create(data: Prisma.SubscriptionCreateInput) {
+    return this.prisma.subscription.create({
+      data,
+    });
+  }
+
+  async update(userId: number, data: Prisma.SubscriptionUpdateInput) {
+    return this.prisma.subscription.update({
+      where: {
+        userId,
+      },
+      data,
+    });
+  }
+
+  async delete(userId: number) {
+    return this.prisma.subscription.delete({
+      where: {
+        userId,
+      },
+    });
+  }
+
+  async updateStatus(userId: number, status: SubscriptionStatus) {
+    return this.prisma.subscription.update({
+      where: {
+        userId,
+      },
+      data: {
+        status,
+      },
+    });
+  }
+
+  async upsert(
+    userId: number,
+    create: Prisma.SubscriptionCreateInput,
+    update: Prisma.SubscriptionUpdateInput,
+  ) {
+    return this.prisma.subscription.upsert({
+      where: {
+        userId,
+      },
+      create,
+      update,
+    });
+  }
+
+  async exists(userId: number) {
+    return !!(await this.prisma.subscription.findUnique({
+      where: { userId },
+      select: { id: true },
+    }));
+  }
+
+  async findRaw(userId: number) {
+    return this.prisma.subscription.findUnique({
+      where: { userId },
+    });
+  }
+}
+
+
+###  ###
+###  ###
+import { Prisma } from "@prisma/client";
+import { BaseRepository } from "./base.repository";
+
+export class HistoryRepository extends BaseRepository {
+
+    create(data: Prisma.SubscriptionHistoryCreateInput) {
+        return this.prisma.subscriptionHistory.create({
+            data,
+        });
+    }
+
+    findBySubscription(subscriptionId: number) {
+        return this.prisma.subscriptionHistory.findMany({
+            where: {
+                subscriptionId,
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+    }
+
+    findLatest(subscriptionId: number) {
+        return this.prisma.subscriptionHistory.findFirst({
+            where: {
+                subscriptionId,
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+    }
+}
+
+###  ###
+import { BaseRepository } from "./base.repository";
+
+export class UsageRepository extends BaseRepository {
+
+    initialize(
+        userId: number,
+        quotaId: number,
+    ) {
+        return this.prisma.usage.upsert({
+            where: {
+                userId_quotaId: {
+                    userId,
+                    quotaId,
+                },
+            },
+
+            update: {},
+
+            create: {
+                userId,
+                quotaId,
+                value: 0,
+            },
+        });
+    }
+
+    find(userId: number, quotaId: number) {
+        return this.prisma.usage.findUnique({
+            where: {
+                userId_quotaId: {
+                    userId,
+                    quotaId,
+                },
+            },
+        });
+    }
+
+    increment(userId: number, quotaId: number, value: number) {
+        return this.prisma.usage.update({
+            where: {
+                userId_quotaId: {
+                    userId,
+                    quotaId,
+                },
+            },
+            data: {
+                value: {
+                    increment: value,
+                },
+            },
+        });
+    }
+
+    decrement(userId: number, quotaId: number, value: number) {
+        return this.prisma.usage.update({
+            where: {
+                userId_quotaId: {
+                    userId,
+                    quotaId,
+                },
+            },
+            data: {
+                value: {
+                    decrement: value,
+                },
+            },
+        });
+    }
+
+    reset(userId: number, quotaId: number) {
+        return this.prisma.usage.update({
+            where: {
+                userId_quotaId: {
+                    userId,
+                    quotaId,
+                },
+            },
+            data: {
+                value: 0,
+            },
+        });
+    }
+
+}
+
+###  ###
+// repositories/base.repository.ts
+
+import { PrismaClient, Prisma } from "@prisma/client";
+
+export abstract class BaseRepository {
+  protected readonly prisma: PrismaClient | Prisma.TransactionClient;
+
+  constructor(
+    prisma: PrismaClient | Prisma.TransactionClient,
+  ) {
+    this.prisma = prisma;
+  }
+}
+
+###  ###
+// repositories/subscription.repository.ts
+
+import { Prisma, SubscriptionStatus } from "@prisma/client";
+
+import { BaseRepository } from "./base.repository";
+
+export class SubscriptionRepository extends BaseRepository {
+  async findByUserId(userId: number) {
+    return this.prisma.subscription.findUnique({
+      where: { userId },
+      include: {
+        planVersion: {
+          include: {
+            plan: true,
+            trial: true,
+            pricing: true,
+            features: {
+              include: {
+                feature: true,
+              },
+            },
+            quotas: {
+              include: {
+                quota: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async create(data: Prisma.SubscriptionCreateInput) {
+    return this.prisma.subscription.create({
+      data,
+    });
+  }
+
+  async update(userId: number, data: Prisma.SubscriptionUpdateInput) {
+    return this.prisma.subscription.update({
+      where: {
+        userId,
+      },
+      data,
+    });
+  }
+
+  async delete(userId: number) {
+    return this.prisma.subscription.delete({
+      where: {
+        userId,
+      },
+    });
+  }
+
+  async updateStatus(userId: number, status: SubscriptionStatus) {
+    return this.prisma.subscription.update({
+      where: {
+        userId,
+      },
+      data: {
+        status,
+      },
+    });
+  }
+
+  async createHistory(
+    data: Prisma.SubscriptionHistoryCreateInput,
+  ) {
+    return this.prisma.subscriptionHistory.create({
+      data,
+    });
+  }
+
+  async upsert(
+    userId: number,
+    create: Prisma.SubscriptionCreateInput,
+    update: Prisma.SubscriptionUpdateInput,
+  ) {
+    return this.prisma.subscription.upsert({
+      where: {
+        userId,
+      },
+      create,
+      update,
+    });
+  }
+
+  async getHistory(subscriptionId: number) {
+    return this.prisma.subscriptionHistory.findMany({
+      where: {
+        subscriptionId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  }
+
+  async exists(userId: number) {
+    return !!(await this.prisma.subscription.findUnique({
+      where: { userId },
+      select: { id: true },
+    }));
+  }
+
+  async findRaw(userId: number) {
+    return this.prisma.subscription.findUnique({
+      where: { userId },
+    });
+  }
+}
+
+
+###  ###
+
+
+###  ###
+// repositories/plan.repository.ts
+
+import { BaseRepository } from "./base.repository";
+
+export class PlanRepository extends BaseRepository {
+
+  async findByKey(key: string) {
+    return this.prisma.plan.findUnique({
+      where: { key },
+    });
+  }
+
+  async findLatestVersion(planKey: string) {
+    return this.prisma.planVersion.findFirst({
+      where: {
+        isLatest: true,
+        plan: {
+          key: planKey,
+        },
+      },
+      include: {
+        plan: true,
+        trial: true,
+        pricing: true,
+        features: {
+          include: {
+            feature: true,
+          },
+        },
+        quotas: {
+          include: {
+            quota: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findVersion(planKey: string, version: number) {
+    return this.prisma.planVersion.findFirst({
+      where: {
+        version,
+        plan: {
+          key: planKey,
+        },
+      },
+      include: {
+        plan: true,
+        trial: true,
+        pricing: true,
+        features: {
+          include: {
+            feature: true,
+          },
+        },
+        quotas: {
+          include: {
+            quota: true,
+          },
+        },
+      },
+    });
+  }
+
+  async listPublicPlans() {
+    return this.prisma.plan.findMany({
+      where: {
+        isPublic: true,
+        isActive: true,
+      },
+      orderBy: {
+        displayOrder: "asc",
+      },
+    });
+  }
+
+  async listPlans() {
+    return this.prisma.plan.findMany({
+      orderBy: {
+        displayOrder: "asc",
+      },
+    });
+  }
+}
+
+
+
+###  ###
+// repositories/plan.repository.ts
+
+import { BaseRepository } from "./base.repository";
+
+export class PlanRepository extends BaseRepository {
+
+  async findByKey(key: string) {
+    return this.prisma.plan.findUnique({
+      where: { key },
+    });
+  }
+
+  async findLatestVersion(planKey: string) {
+    return this.prisma.planVersion.findFirst({
+      where: {
+        isLatest: true,
+        plan: {
+          key: planKey,
+        },
+      },
+      include: {
+        plan: true,
+        trial: true,
+        pricing: true,
+        features: {
+          include: {
+            feature: true,
+          },
+        },
+        quotas: {
+          include: {
+            quota: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findVersion(planKey: string, version: number) {
+    return this.prisma.planVersion.findFirst({
+      where: {
+        version,
+        plan: {
+          key: planKey,
+        },
+      },
+      include: {
+        plan: true,
+        trial: true,
+        pricing: true,
+        features: {
+          include: {
+            feature: true,
+          },
+        },
+        quotas: {
+          include: {
+            quota: true,
+          },
+        },
+      },
+    });
+  }
+
+  async listPublicPlans() {
+    return this.prisma.plan.findMany({
+      where: {
+        isPublic: true,
+        isActive: true,
+      },
+      orderBy: {
+        displayOrder: "asc",
+      },
+    });
+  }
+
+  async listPlans() {
+    return this.prisma.plan.findMany({
+      orderBy: {
+        displayOrder: "asc",
+      },
+    });
+  }
+}
+
+###  ###
+import { BaseRepository } from "./base.repository";
+import { QuotaResetPolicy } from "@prisma/client";
+export class QuotaRepository extends BaseRepository {
+  findByKey(key: string) {
+    return this.prisma.quota.findUnique({
+      where: { key },
+    });
+  }
+
+  findMany() {
+    return this.prisma.quota.findMany();
+  }
+
+  findManyByKeys(keys: string[]) {
+    return this.prisma.quota.findMany({
+      where: {
+        key: {
+          in: keys,
+        },
+      },
+    });
+  }
+
+  listResettable() {
+    return this.prisma.quota.findMany({
+      where: {
+        resetPolicy: {
+          not: QuotaResetPolicy.NEVER,
+        },
+      },
+    });
+  }
+
+  listByResetPolicy(resetPolicy: QuotaResetPolicy) {
+    return this.prisma.quota.findMany({
+      where: {
+        resetPolicy,
+      },
+    });
+  }
+
+
+}
 
 ###  ###
 import { FeatureKey, Features } from "../features.config";
@@ -76,11 +1345,20 @@ export const EnterprisePlan: PlanDefinition = {
 };
 
 ###  ###
-import { BillingCycles } from "../billing.config";
+import { FreePlan } from "./free.plan";
+import { ProPlan } from "./pro.plan";
+import { EnterprisePlan } from "./enterprise.plan";
+
+export const PlanRegistry = [
+  FreePlan,
+  ProPlan,
+  EnterprisePlan,
+] as const;
+
+###  ###
 import { Features, FeatureKey } from "../features.config";
 import { Quotas } from "../quotas.config";
 import { PlanDefinition } from "../../types/plan.type";
-import { FEATURE_KEYS } from "../../../../constants";
 
 export const FreePlan: PlanDefinition = {
   key: "free",
@@ -107,10 +1385,10 @@ export const FreePlan: PlanDefinition = {
 };
 
 ###  ###
-import { BillingCycles } from "../billing.config";
 import { Features } from "../features.config";
 import { Quotas } from "../quotas.config";
 import { PlanDefinition } from "../../types/plan.type";
+import { BillingCycle } from "@prisma/client";
 
 export const ProPlan: PlanDefinition = {
   key: "pro",
@@ -130,13 +1408,13 @@ export const ProPlan: PlanDefinition = {
   pricing: [
     {
       currency: "INR",
-      billingCycle: BillingCycles.MONTHLY,
+      billingCycle: BillingCycle.MONTHLY,
       amount: 499,
       isDefault: true,
     },
     {
       currency: "INR",
-      billingCycle: BillingCycles.YEARLY,
+      billingCycle: BillingCycle.YEARLY,
       amount: 4999,
       compareAtAmount: 5988,
     },
@@ -147,16 +1425,6 @@ export const ProPlan: PlanDefinition = {
   quotas: {
     [Quotas.PROJECTS.key]: 50,
   },
-};
-
-###  ###
-
-export const QuotaResetPolicies = {
-  NEVER: "never",
-  DAILY: "daily",
-  WEEKLY: "weekly",
-  MONTHLY: "monthly",
-  BILLING_CYCLE: "billing_cycle"
 };
 
 ###  ###
@@ -182,14 +1450,14 @@ export type FeatureKey =
   (typeof Features)[keyof typeof Features]["key"];
 
 ###  ###
-import { QuotaResetPolicies } from "./quota-reset-policy.config";
+import { QuotaResetPolicy } from "@prisma/client";
 export const Quotas = {
   PROJECTS: {
     key: "projects",
     displayName: "Projects",
     description: "Maximum projects",
     unit: "count",
-    resetPolicy: QuotaResetPolicies.NEVER,
+    resetPolicy: QuotaResetPolicy.NEVER,
   },
 
   STORAGE: {
@@ -197,7 +1465,7 @@ export const Quotas = {
     displayName: "Storage",
     description: "Maximum storage",
     unit: "GB",
-    resetPolicy: QuotaResetPolicies.NEVER,
+    resetPolicy: QuotaResetPolicy.NEVER,
   },
 
   API_REQUESTS: {
@@ -205,7 +1473,7 @@ export const Quotas = {
     displayName: "API Requests",
     description: "Monthly API Requests",
     unit: "requests",
-    resetPolicy: QuotaResetPolicies.BILLING_CYCLE,
+    resetPolicy: QuotaResetPolicy.BILLING_CYCLE,
   },
 } as const;
 
@@ -232,13 +1500,4 @@ export const Currencies = {
 } as const;
 
 export type Currency = (typeof Currencies)[keyof typeof Currencies];
-
-###  ###
-export const BillingCycles = {
-  MONTHLY: "MONTHLY",
-  YEARLY: "YEARLY",
-} as const;
-
-export type BillingCycle =
-  (typeof BillingCycles)[keyof typeof BillingCycles];
 
