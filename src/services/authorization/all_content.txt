@@ -22,7 +22,7 @@ export function authorize({
     res: Response,
     next: NextFunction,
   ) => {
-    const userId = req?.user?.id;
+    const userId = req.body.userId
 
     const allowed = await AuthorizationService.can(
       userId!.toString(),
@@ -108,7 +108,7 @@ export class AuthorizationCacheService {
 import {
   AUTHORIZATION_CACHE_PREFIX,
   AUTHORIZATION_CACHE_VERSION,
-} from "./constants.cache";
+} from "./cache.constants";
 
 export class AuthorizationCacheKeys {
   /**
@@ -346,7 +346,7 @@ import { AuthorizationScope } from "../configs/roles-registry.config";
 export interface AuthorizationNode {
   roles: string[];
 
-  permissions: Set<string>;
+  permissions: string[];
 
   version: number;
 
@@ -372,11 +372,10 @@ import {
 import { AuthorizationRepository } from "../repositories/authorization.repository";
 
 import { PermissionResolver } from "./resolve-permissions";
+import logger from "../../../logger";
 
 export class AuthorizationBuilder {
-  constructor(
-    private readonly repository: AuthorizationRepository,
-  ) {}
+  constructor(private readonly repository: AuthorizationRepository) {}
 
   async build(userId: string): Promise<AuthorizationCache> {
     const assignments = await this.repository.getAssignments(Number(userId));
@@ -395,13 +394,14 @@ export class AuthorizationBuilder {
       const node: AuthorizationNode = {
         roles: assignment.roles,
 
-        permissions: new Set<string>(PermissionResolver.resolve({
-          permissions: assignment.permissions,
+        permissions:
+          PermissionResolver.resolve({
+            permissions: assignment.permissions,
 
-          customPermissions: assignment.customPermissions,
+            customPermissions: assignment.customPermissions,
 
-          deniedPermissions: assignment.deniedPermissions,
-        })),
+            deniedPermissions: assignment.deniedPermissions,
+          }),
 
         version: 1,
 
@@ -414,6 +414,7 @@ export class AuthorizationBuilder {
     return cache;
   }
 }
+
 
 ###  ###
 export interface ResolvePermissionsOptions {
@@ -455,6 +456,7 @@ import {
 } from "../types/authorization.type";
 import { AuthorizationBuilder } from "./buid-cache.service";
 import { AuthorizationScope } from "../configs/roles-registry.config";
+import { AppRoleKey } from "../constants/role.constants";
 // AuthorizationService.rebuild(userId)
 
 // AuthorizationService.invalidate(userId)
@@ -464,11 +466,11 @@ const repository = new AuthorizationRepository();
 const builder = new AuthorizationBuilder(repository);
 class AuthorizationService {
   static async get(userId: string): Promise<AuthorizationCache> {
-    let cache = await AuthorizationCacheService.get(userId);
+    // let cache = await AuthorizationCacheService.get(userId);
 
-    if (!cache) {
-      cache = await this.rebuild(userId);
-    }
+    // if (!cache) {
+      const cache = await this.rebuild(userId);
+    // }
 
     return cache;
   }
@@ -499,7 +501,7 @@ class AuthorizationService {
     node: AuthorizationNode | null,
     permission: string,
   ) {
-    return node?.permissions.has(permission) ?? false;
+    return new Set(node?.permissions ?? []).has(permission);
   }
 
   static async getNode(
@@ -516,7 +518,7 @@ class AuthorizationService {
     userId: string,
     scope: AuthorizationScope,
     scopeId: string,
-    role: string,
+    role: AppRoleKey,
   ): Promise<boolean> {
     const node = await this.getNode(userId, scope, scopeId);
 
@@ -712,7 +714,7 @@ export class AuthorizationRepository {
           deniedPermissions: [],
         });
       }
-    }
+    } 
 
     return assignments;
   }
@@ -952,4 +954,51 @@ type Action<R extends Resource> = (typeof PermissionConfig)[R][number];
 export type Permission = {
   [R in Resource]: `${R}:${Action<R>}`;
 }[Resource];
+
+###  ###
+import { RoleRegistry } from "../configs/roles-registry.config";
+
+// ============================================================================
+// 1. TYPES: Strongly typed Role Keys
+// ============================================================================
+
+export type WorkspaceRoleKey = keyof typeof RoleRegistry.workspace;
+export type ProjectRoleKey = keyof typeof RoleRegistry.project;
+
+// A union of every role key in the system (e.g., "WORKSPACE_OWNER" | "PROJECT_ADMIN" | ...)
+export type AppRoleKey = WorkspaceRoleKey | ProjectRoleKey;
+
+
+// ============================================================================
+// 2. RUNTIME ARRAYS (Useful for Zod schemas, validation, or Prisma queries)
+// ============================================================================
+
+export const WORKSPACE_ROLE_KEYS = Object.keys(
+  RoleRegistry.workspace
+) as readonly WorkspaceRoleKey[];
+
+export const PROJECT_ROLE_KEYS = Object.keys(
+  RoleRegistry.project
+) as readonly ProjectRoleKey[];
+
+export const ALL_ROLE_KEYS = [
+  ...WORKSPACE_ROLE_KEYS,
+  ...PROJECT_ROLE_KEYS,
+] as const;
+
+
+// ============================================================================
+// 3. ENUM-LIKE OBJECTS (Useful for exact string matching in logic)
+// ============================================================================
+
+// Creates an object like: { WORKSPACE_OWNER: "WORKSPACE_OWNER", ... }
+export const APP_ROLES = {
+  WORKSPACE: Object.fromEntries(
+    WORKSPACE_ROLE_KEYS.map((key) => [key, key])
+  ) as Record<WorkspaceRoleKey, WorkspaceRoleKey>,
+
+  PROJECT: Object.fromEntries(
+    PROJECT_ROLE_KEYS.map((key) => [key, key])
+  ) as Record<ProjectRoleKey, ProjectRoleKey>,
+} as const;
 
