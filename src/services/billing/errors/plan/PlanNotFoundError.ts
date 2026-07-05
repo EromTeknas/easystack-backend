@@ -1,5 +1,5 @@
-import { BillingError } from "../../BillingError";
-import { BillingErrorCode } from "../../BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
 export class PlanNotFoundError extends BillingError {
   readonly code = BillingErrorCode.PLAN_NOT_FOUND;

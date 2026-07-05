@@ -4,6 +4,7 @@ import { SubscriptionRepository } from "../repositories/subscription.repository"
 import { HistoryRepository } from "../repositories/history.repository";
 import { PlanRepository } from "../repositories/plan.repository";
 import { BillingService } from "./billing.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class SubscriptionService {
   constructor(
@@ -115,8 +116,7 @@ export class SubscriptionService {
       reason: options?.reason ?? "Subscription assigned",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return subscription;
   }
@@ -157,8 +157,7 @@ export class SubscriptionService {
       reason: reason ?? "Cancelled",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }

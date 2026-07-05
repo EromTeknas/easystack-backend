@@ -1,42 +1,44 @@
 import { BillingCache } from "../types/billing-cache.type.ts";
-import { BillingBuilder } from "./billing.builder.ts";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
 import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 import { QuotaCache } from "../cache/quota.cache.ts";
 import { SubscriptionCache } from "../cache/subscription.cache.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
+import { BillingLockService } from "../cache/billing.lock.service.ts";
 import { SubscriptionService } from "./subscription.service.ts";
 import { UsageService } from "./usage.service.ts";
 import { PlanRepository } from "../repositories/plan.repository.ts";
 import { prisma } from "../../../db";
-import { FeatureDisabledError, QuotaExceededError, SubscriptionExpiredError, SubscriptionRequiredError, TrialExpiredError } from "../errors/index.ts";
+import { FeatureDisabledError, QuotaExceededError, SubscriptionRequiredError } from "../errors/index.ts";
 import { BillingAuthorizationRequest } from "../types/billing-authorization.type.ts";
 import { BillingAuthorizationResult, BillingQuotaResult } from "../types/billing-authorization-result.type.ts";
+import { QuotaValidator } from "../validators/quota.validator.ts";
+import { SubscriptionValidator } from "../validators/subscription.validator.ts";
 import { SubscriptionStatus } from "@prisma/client";
 
 export class BillingService {
-  private static readonly builder = new BillingBuilder();
   private static readonly usageCache = new UsageCache();
 
   static async get(userId: number): Promise<BillingCache> {
-    const cached = await BillingCacheService.get(userId);
-
-    if (cached) {
-      return cached;
-    }
-
-    return await this.rebuild(userId);
+    return await BillingContextService.get(userId);
   }
 
   static async rebuild(userId: number): Promise<BillingCache> {
-    const cache = await this.builder.build(userId);
-    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    return cache;
+    return await BillingContextService.refresh(userId);
+  }
+
+  static async refresh(userId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(userId);
+  }
+
+  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
+    return await BillingContextService.refreshMany(userIds);
   }
 
   static async invalidate(userId: number): Promise<void> {
-    await BillingCacheService.evict(userId);
+    await BillingContextService.invalidate(userId);
   }
 
   static async subscription(userId: number) {
@@ -222,64 +224,49 @@ export class BillingService {
     });
 
     await UsageService.initialize(userId, freePlan.id);
-    await this.invalidate(userId);
 
-    return await this.rebuild(userId);
+    return await this.refresh(userId);
+  }
+
+  static async authorizeAndConsume(
+    userId: number,
+    request: BillingAuthorizationRequest,
+  ): Promise<BillingAuthorizationResult> {
+    return await BillingLockService.withUserLock(userId, async () => {
+      return await this.authorizeInternal(userId, request, true);
+    });
   }
 
   public static async authorize(
     userId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
-    const cache = await this.get(userId);
+    const shouldConsume = request.quotas?.some((quota) => quota.consume) ?? false;
 
-    const quotaResults: BillingQuotaResult[] = [];
-
-    /*
-     * Subscription
-     */
-
-    if (request.subscription) {
-      if (!cache.subscription) {
-        throw new SubscriptionRequiredError();
-      }
-
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
-        throw new SubscriptionExpiredError(
-            cache.subscription.expiresAt
-                ? new Date(cache.subscription.expiresAt)
-                : undefined
-        );
-      }
+    if (shouldConsume) {
+      return await BillingLockService.withUserLock(userId, async () => {
+        return await this.authorizeInternal(userId, request, true);
+      });
     }
 
-    /*
-     * Paid Subscription
-     */
+    return await this.authorizeInternal(userId, request, false);
+  }
 
-    /*
-     * Paid Subscription
-     */
+  private static async authorizeInternal(
+    userId: number,
+    request: BillingAuthorizationRequest,
+    consumeQuotas: boolean,
+  ): Promise<BillingAuthorizationResult> {
+    const cache = await this.get(userId);
 
     if (!cache.subscription) {
       throw new SubscriptionRequiredError();
     }
 
-    if (request.paidSubscription) {
-      // 1. Catch trials first and throw the specific error
-      if (cache.subscription.status === SubscriptionStatus.TRIAL) {
-        throw new TrialExpiredError();
-      }
+    SubscriptionValidator.validate(cache, request);
 
-      // 2. Catch anything else that isn't ACTIVE (EXPIRED, CANCELLED, etc.)
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
-        throw new SubscriptionRequiredError();
-      }
-    }
-
-    /*
-     * Features
-     */
+    const quotaResults: BillingQuotaResult[] = [];
+    const consumedUsage = new Map<string, number>();
 
     if (request.features?.length) {
       for (const featureKey of request.features) {
@@ -291,56 +278,35 @@ export class BillingService {
       }
     }
 
-    /*
-     * Quotas
-     */
-
     if (request.quotas?.length) {
+      QuotaValidator.validateRequest(cache, request.quotas);
+
       for (const quota of request.quotas) {
-        const result = await this.canPerformAction(
-          userId,
-          quota.key,
-        );
-
         const amount = quota.amount ?? 1;
-
-        if (
-          result.limit !== null &&
-          result.used + amount > result.limit
-        ) {
-          throw new QuotaExceededError(
-            quota.key,
-            result.limit,
-            result.used,
-            amount,
-          );
-        }
+        const limit = QuotaCache.getLimit(cache, quota.key);
+        const used = cache.usage[quota.key] ?? 0;
 
         quotaResults.push({
           key: quota.key,
-          limit: result.limit,
-          used: result.used,
-          remaining:
-            result.limit === null
-              ? null
-              : Math.max(0, result.limit - (result.used + amount)),
+          limit,
+          used,
+          remaining: limit === null ? null : Math.max(0, limit - (used + amount)),
         });
-      }
 
-      /*
-       * Consume after all validations pass.
-       */
-
-      for (const quota of request.quotas) {
-        if (!quota.consume) {
+        if (!consumeQuotas || !quota.consume) {
           continue;
         }
 
-        await this.consumeQuota(
-            userId,
-            quota.key,
-            quota.amount ?? 1,
-        );
+        consumedUsage.set(quota.key, used + amount);
+      }
+
+      if (consumeQuotas && consumedUsage.size > 0) {
+        for (const [quotaKey, nextValue] of consumedUsage.entries()) {
+          cache.usage[quotaKey] = nextValue;
+          await this.usageCache.set(userId, quotaKey, nextValue);
+        }
+
+        await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
       }
     }
 

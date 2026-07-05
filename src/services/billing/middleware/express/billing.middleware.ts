@@ -26,11 +26,19 @@ export function billingMiddleware(
 
     try {
 
+      const shouldConsume =
+        request.quotas?.some((quota) => quota.consume) ?? false;
+
       const result =
-        await BillingService.authorize(
-          getUserId(req),
-          request
-        );
+        shouldConsume
+          ? await BillingService.authorizeAndConsume(
+              getUserId(req),
+              request
+            )
+          : await BillingService.authorize(
+              getUserId(req),
+              request
+            );
 
       req.billing = result;
 

@@ -7,6 +7,7 @@ import {
 import { SubscriptionRepository } from "../repositories/subscription.repository";
 import { HistoryRepository } from "../repositories/history.repository";
 import { BillingService } from "./billing.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class TrialService {
   constructor(
@@ -62,8 +63,7 @@ export class TrialService {
       reason: "Trial expired",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }
@@ -88,8 +88,7 @@ export class TrialService {
       trialEndsAt,
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }

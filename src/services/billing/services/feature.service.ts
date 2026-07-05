@@ -1,13 +1,10 @@
 import { prisma } from "../../../db";
-import { BillingBuilder } from "./billing.builder.ts";
-import { BillingCacheService } from "../cache/billing.cache.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 
 export class FeatureService {
-  private static readonly builder = new BillingBuilder();
-
   static async enabled(userId: number, featureKey: string): Promise<boolean> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return FeatureCache.get(cache, featureKey);
   }
 
@@ -16,7 +13,7 @@ export class FeatureService {
   }
 
   static async all(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return FeatureCache.all(cache);
   }
 
@@ -71,15 +68,4 @@ export class FeatureService {
     });
   }
 
-  private static async resolveCache(userId: number) {
-    const cached = await BillingCacheService.get(userId);
-
-    if (cached) {
-      return cached;
-    }
-
-    const rebuilt = await this.builder.build(userId);
-    await BillingCacheService.set(rebuilt);
-    return rebuilt;
-  }
 }

@@ -20,7 +20,8 @@
     
     "worker": "ts-node src/workers/index.worker.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
-    "billing:assign-free": "ts-node src/cli/assign-free-plans.ts"
+    "billing:assign-free": "ts-node src/cli/assign-free-plans.ts",
+    "test:billing": "node -r ts-node/register --test tests/**/*.test.ts"
   },
   "keywords": [],
   "author": "Sanket More",

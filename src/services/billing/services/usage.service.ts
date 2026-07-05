@@ -1,16 +1,16 @@
 import { prisma } from "../../../db";
-import { BillingBuilder } from "./billing.builder.ts";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
+import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 import { BillingQuotaResult } from "../types/index.ts";
 
 export class UsageService {
-  private static readonly builder = new BillingBuilder();
   private static readonly usageCache = new UsageCache();
   private static readonly syncTimers = new Map<number, NodeJS.Timeout>();
 
   static async get(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return cache.usage;
   }
 
@@ -19,7 +19,7 @@ export class UsageService {
   }
 
   static async initialize(userId: number, _planVersionId?: number) {
-    const cache = await this.rebuild(userId);
+    const cache = await BillingContextService.refresh(userId);
     const quotaKeys = Object.keys(cache.quotas);
 
     if (quotaKeys.length > 0) {
@@ -47,12 +47,12 @@ export class UsageService {
   }
 
   static async consume(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = currentValue + amount;
 
     cache.usage[quotaKey] = nextValue;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, nextValue);
     this.scheduleSync(userId);
 
@@ -60,12 +60,12 @@ export class UsageService {
   }
 
   static async release(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = Math.max(0, currentValue - amount);
 
     cache.usage[quotaKey] = nextValue;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, nextValue);
     this.scheduleSync(userId);
 
@@ -81,16 +81,16 @@ export class UsageService {
   }
 
   static async set(userId: number, quotaKey: string, value: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     cache.usage[quotaKey] = value;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, value);
     this.scheduleSync(userId);
     return value;
   }
 
   static async reset(userId: number, quotaKey?: string) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
 
     if (quotaKey) {
       cache.usage[quotaKey] = 0;
@@ -102,14 +102,14 @@ export class UsageService {
       }
     }
 
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     this.scheduleSync(userId);
 
     return cache.usage;
   }
 
   static async remaining(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null) {
@@ -120,7 +120,7 @@ export class UsageService {
   }
 
   static async percent(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null || limit === 0) {
@@ -136,7 +136,7 @@ export class UsageService {
   }
 
   static async sync(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const rows = await prisma.usage.findMany({ where: { userId }, include: { quota: true } });
 
     for (const [quotaKey, value] of Object.entries(cache.usage)) {
@@ -153,22 +153,7 @@ export class UsageService {
 
   static async flush(userId: number) {
     await this.sync(userId);
-    await BillingCacheService.evict(userId);
-  }
-
-  private static async resolveCache(userId: number) {
-    const cached = await BillingCacheService.get(userId);
-    if (cached) {
-      return cached;
-    }
-
-    return await this.rebuild(userId);
-  }
-
-  private static async rebuild(userId: number) {
-    const cache = await this.builder.build(userId);
-    await BillingCacheService.set(cache);
-    return cache;
+    await BillingContextService.invalidate(userId);
   }
 
   private static async seedRedisUsage(userId: number, usage: Record<string, number>) {

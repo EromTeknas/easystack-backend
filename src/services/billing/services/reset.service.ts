@@ -2,6 +2,7 @@ import { QuotaResetPolicy, Prisma } from "@prisma/client";
 import { prisma } from "../../../db";
 import { BillingService } from "./billing.service.ts";
 import { UsageService } from "./usage.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class ResetService {
   static async resetByPolicy(policy: QuotaResetPolicy) {
@@ -24,10 +25,7 @@ export class ResetService {
       }
     }
 
-    for (const userId of affectedUserIds) {
-      await BillingService.invalidate(userId);
-      await BillingService.rebuild(userId);
-    }
+    await BillingContextService.refreshMany([...affectedUserIds]);
 
     return {
       policy,
@@ -55,7 +53,6 @@ export class ResetService {
 
   static async resetUserQuota(userId: number, quotaKey?: string) {
     await UsageService.reset(userId, quotaKey);
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
   }
 }
