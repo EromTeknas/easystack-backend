@@ -1,0 +1,215 @@
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class SubscriptionRequiredError extends BillingError {
+  constructor() {
+    super({
+      code: BillingErrorCode.SUBSCRIPTION_REQUIRED,
+      statusCode: 402,
+      message: "An active subscription is required.",
+    });
+  }
+}
+
+###  ###
+export enum BillingErrorCode {
+  UNKNOWN = "UNKNOWN",
+
+  PLAN_NOT_FOUND = "PLAN_NOT_FOUND",
+  INVALID_PLAN = "INVALID_PLAN",
+
+  SUBSCRIPTION_NOT_FOUND = "SUBSCRIPTION_NOT_FOUND",
+  SUBSCRIPTION_REQUIRED = "SUBSCRIPTION_REQUIRED",
+  SUBSCRIPTION_EXPIRED = "SUBSCRIPTION_EXPIRED",
+
+  TRIAL_EXPIRED = "TRIAL_EXPIRED",
+
+  FEATURE_DISABLED = "FEATURE_DISABLED",
+
+  QUOTA_NOT_FOUND = "QUOTA_NOT_FOUND",
+  INVALID_QUOTA = "INVALID_QUOTA",
+  QUOTA_EXCEEDED = "QUOTA_EXCEEDED",
+
+  USAGE_SYNC_FAILED = "USAGE_SYNC_FAILED",
+  PLAN_INACTIVE = "PLAN_INACTIVE",
+}
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class FeatureDisabledError extends BillingError {
+  constructor(featureKey: string) {
+    super({
+      code: BillingErrorCode.FEATURE_DISABLED,
+      statusCode: 403,
+      message: `Feature '${featureKey}' is not available on the current plan.`,
+      metadata: {
+        featureKey,
+      },
+    });
+  }
+}
+
+###  ###
+export * from "./BillingError";
+export * from "./BillingErrorCode";
+
+export * from "./FeatureDisabledError";
+
+export * from "./InvalidPlanError";
+export * from "./InvalidQuotaError";
+
+export * from "./PlanNotFoundError";
+
+export * from "./QuotaExceededError";
+export * from "./QuotaNotFoundError";
+
+export * from "./SubscriptionExpiredError";
+export * from "./SubscriptionNotFoundError";
+export * from "./SubscriptionRequiredError";
+
+export * from "./TrialExpiredError";
+
+export * from "./UsageSyncError";
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class QuotaNotFoundError extends BillingError {
+  constructor(quotaKey: string) {
+    super({
+      code: BillingErrorCode.QUOTA_NOT_FOUND,
+      statusCode: 404,
+      message: `Quota '${quotaKey}' does not exist.`,
+      metadata: {
+        quotaKey,
+      },
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class TrialExpiredError extends BillingError {
+  constructor() {
+    super({
+      code: BillingErrorCode.TRIAL_EXPIRED,
+      statusCode: 402,
+      message: "Trial period has expired.",
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class PlanNotFoundError extends BillingError {
+  constructor(planKey: string) {
+    super({
+      code: BillingErrorCode.PLAN_NOT_FOUND,
+      statusCode: 404,
+      message: `Plan '${planKey}' does not exist.`,
+      metadata: {
+        planKey,
+      },
+    });
+  }
+}
+
+###  ###
+
+
+###  ###
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export interface BillingErrorOptions {
+  code: BillingErrorCode;
+  message: string;
+  statusCode?: number;
+  metadata?: Record<string, unknown>;
+  cause?: Error;
+}
+
+export class BillingError extends Error {
+  readonly code: BillingErrorCode;
+  readonly statusCode: number;
+  readonly metadata?: Record<string, unknown>;
+
+  constructor(options: BillingErrorOptions) {
+    super(options.message, {
+      cause: options.cause,
+    });
+
+    this.name = new.target.name;
+
+    this.code = options.code;
+    this.statusCode = options.statusCode ?? 400;
+    this.metadata = options.metadata ?? {};
+
+    Error.captureStackTrace?.(this, this.constructor);
+  }
+
+  serialize() {
+    return {
+      error: this.name,
+      code: this.code,
+      message: this.message,
+      statusCode: this.statusCode,
+      metadata: this.metadata,
+    };
+  }
+
+   toJSON() {
+    return this.serialize();
+  }
+}
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class SubscriptionExpiredError extends BillingError {
+  constructor(expiresAt?: Date) {
+    super({
+      code: BillingErrorCode.SUBSCRIPTION_EXPIRED,
+      statusCode: 402,
+      message: "Subscription has expired.",
+      metadata: {
+        expiresAt,
+      },
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
+
+export class QuotaExceededError extends BillingError {
+  constructor(
+    quotaKey: string,
+    limit: number,
+    usage: number,
+    requested: number = 1
+  ) {
+    super({
+      code: BillingErrorCode.QUOTA_EXCEEDED,
+      statusCode: 403,
+      message: `Quota '${quotaKey}' has been exceeded.`,
+      metadata: {
+        quotaKey,
+        limit,
+        usage,
+        requested,
+        remaining: Math.max(limit - usage, 0),
+      },
+    });
+  }
+}
+

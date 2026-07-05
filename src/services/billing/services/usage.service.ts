@@ -2,6 +2,7 @@ import { prisma } from "../../../db";
 import { BillingBuilder } from "./billing.builder.ts";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
+import { BillingQuotaResult } from "../types/index.ts";
 
 export class UsageService {
   private static readonly builder = new BillingBuilder();

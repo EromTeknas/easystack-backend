@@ -1,5 +1,7 @@
+import { SubscriptionStatus } from "@prisma/client";
+
 export interface BillingSubscriptionCache {
-  status: string;
+  status: SubscriptionStatus;
   expiresAt: string | null;
   trialEndsAt: string | null;
   startsAt: string | null;
