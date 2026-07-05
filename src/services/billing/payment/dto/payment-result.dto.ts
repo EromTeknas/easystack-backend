@@ -10,4 +10,12 @@ export interface PaymentResultDto {
   amount: number;
   currency: string;
   metadata?: Record<string, unknown>;
+
+  // Optional convenience URLs and gateway identifiers
+  checkoutUrl?: string;
+  invoiceUrl?: string;
+  receiptUrl?: string;
+  gatewayInvoiceId?: string;
+  gatewayPriceId?: string;
+  expiresAt?: Date | string;
 }

@@ -61,4 +61,23 @@ export abstract class MockPaymentProvider implements PaymentProvider {
       ...(request.metadata ? { metadata: request.metadata } : {}),
     };
   }
+
+  async createCheckoutSession(request: PurchasePlanDto) {
+    const id = randomUUID();
+    const sessionUrl = `https://mock-payments.example/checkout/${id}`;
+    return { id, url: sessionUrl, expiresAt: new Date(Date.now() + 1000 * 60 * 30) };
+  }
+
+  async verifyPayment(_payload: unknown): Promise<PaymentResultDto> {
+    // For mock verify, just return a succeeded payment placeholder
+    return this.createSuccessResult({ userId: 0, planKey: "mock", amount: 0 }, "verify");
+  }
+
+  async handleWebhook(payload: unknown): Promise<void> {
+    console.log("Mock provider webhook received:", payload);
+  }
+
+  async createCustomerPortal(_userId: number) {
+    return { url: `https://mock-payments.example/portal` };
+  }
 }

@@ -13,3 +13,4 @@ export * from "./invoice/invoice.service.ts";
 export * from "./providers/stripe.provider.ts";
 export * from "./providers/razorpay.provider.ts";
 export * from "./providers/paddle.provider.ts";
+export * from "./payment.repository.ts";
