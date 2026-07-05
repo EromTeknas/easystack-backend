@@ -9,3 +9,4 @@ export { ResetService } from "./services/reset.service.ts";
 export { BillingContextService } from "./cache/billing.context.service.ts";
 export { BillingLockService } from "./cache/billing.lock.service.ts";
 export * from "./validators/index.ts";
+export * from "./payment/index.ts";

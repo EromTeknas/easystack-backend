@@ -112,6 +112,18 @@ await BillingService.incrementUsage(userId, 'projects', 1);
 await BillingService.createFreeSubscription(userId);
 ```
 
+### Purchase Plan
+```typescript
+import { PurchaseService } from '../services/billing';
+
+const result = await PurchaseService.purchase({
+  userId,
+  planKey: 'pro',
+  gateway: 'STRIPE',
+});
+// Returns: { success, payment, subscription, invoice }
+```
+
 ---
 
 ## 📋 Feature Keys

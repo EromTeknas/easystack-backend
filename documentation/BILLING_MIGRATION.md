@@ -116,6 +116,8 @@ const newUser = await prisma.user.create({ ... });
 await BillingService.createFreeSubscription(newUser.id);
 ```
 
+For paid plans, use `PurchaseService` instead of calling `SubscriptionService` directly. The payment provider is intentionally abstracted so Stripe can be added later without changing billing orchestration.
+
 ---
 
 ## Step 6: Restart Development Server

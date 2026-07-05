@@ -1,0 +1,7 @@
+export enum InvoiceType {
+  PURCHASE = "PURCHASE",
+  UPGRADE = "UPGRADE",
+  DOWNGRADE = "DOWNGRADE",
+  RENEWAL = "RENEWAL",
+  REFUND = "REFUND",
+}

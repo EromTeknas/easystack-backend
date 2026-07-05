@@ -67,6 +67,40 @@ export const BILLING_USAGE_SYNC_INTERVAL_SECONDS = 30;
 
 
 ###  ###
+import { BILLING_CACHE_TTL_SECONDS } from "./cache.constants.ts";
+import { BillingCacheService } from "./billing.cache.service.ts";
+import { BillingBuilder } from "../services/billing.builder.ts";
+import { BillingCache } from "../types/billing-cache.type.ts";
+
+export class BillingContextService {
+  private static readonly builder = new BillingBuilder();
+
+  static async get(userId: number): Promise<BillingCache> {
+    const cached = await BillingCacheService.get(userId);
+
+    if (cached) {
+      return cached;
+    }
+
+    return await this.refresh(userId);
+  }
+
+  static async refresh(userId: number): Promise<BillingCache> {
+    const cache = await this.builder.build(userId);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
+    return cache;
+  }
+
+  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
+    return await Promise.all(userIds.map((userId) => this.refresh(userId)));
+  }
+
+  static async invalidate(userId: number): Promise<void> {
+    await BillingCacheService.evict(userId);
+  }
+}
+
+###  ###
 import redis from "../../../config/redis";
 
 export class UsageCache {
@@ -118,6 +152,58 @@ export class FeatureCache {
 
 
 ###  ###
+import { randomUUID } from "node:crypto";
+
+import redis from "../../../config/redis";
+
+const BILLING_LOCK_PREFIX = "billing:v1:lock:user";
+const BILLING_LOCK_TTL_SECONDS = 15;
+const BILLING_LOCK_WAIT_TIMEOUT_MS = 5_000;
+const BILLING_LOCK_RETRY_DELAY_MS = 50;
+
+export class BillingLockService {
+  static async withUserLock<T>(
+    userId: number,
+    handler: () => Promise<T>,
+    options?: {
+      waitTimeoutMs?: number;
+      ttlSeconds?: number;
+    },
+  ): Promise<T> {
+    const lockKey = `${BILLING_LOCK_PREFIX}:${userId}`;
+    const token = randomUUID();
+    const waitTimeoutMs = options?.waitTimeoutMs ?? BILLING_LOCK_WAIT_TIMEOUT_MS;
+    const ttlSeconds = options?.ttlSeconds ?? BILLING_LOCK_TTL_SECONDS;
+    const expiresAt = Date.now() + waitTimeoutMs;
+
+    while (true) {
+      const acquired = await redis.set(lockKey, token, "EX", ttlSeconds, "NX");
+
+      if (acquired === "OK") {
+        break;
+      }
+
+      if (Date.now() >= expiresAt) {
+        throw new Error(`Timed out waiting for billing lock on user ${userId}.`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, BILLING_LOCK_RETRY_DELAY_MS));
+    }
+
+    try {
+      return await handler();
+    } finally {
+      await redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        1,
+        lockKey,
+        token,
+      );
+    }
+  }
+}
+
+###  ###
 import { BillingCache, BillingSubscriptionCache } from "../types/billing-cache.type";
 
 export class SubscriptionCache {
@@ -136,6 +222,10 @@ export { TrialService } from "./services/trail.service.ts";
 export { UsageService } from "./services/usage.service.ts";
 export { FeatureService } from "./services/feature.service.ts";
 export { ResetService } from "./services/reset.service.ts";
+export { BillingContextService } from "./cache/billing.context.service.ts";
+export { BillingLockService } from "./cache/billing.lock.service.ts";
+export * from "./validators/index.ts";
+export * from "./payment/index.ts";
 
 
 ###  ###
@@ -287,18 +377,18 @@ export interface PricingDefinition {
 
 ###  ###
 import { prisma } from "../../../db";
-import { BillingBuilder } from "./billing.builder.ts";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
+import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 import { BillingQuotaResult } from "../types/index.ts";
 
 export class UsageService {
-  private static readonly builder = new BillingBuilder();
   private static readonly usageCache = new UsageCache();
   private static readonly syncTimers = new Map<number, NodeJS.Timeout>();
 
   static async get(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return cache.usage;
   }
 
@@ -307,7 +397,7 @@ export class UsageService {
   }
 
   static async initialize(userId: number, _planVersionId?: number) {
-    const cache = await this.rebuild(userId);
+    const cache = await BillingContextService.refresh(userId);
     const quotaKeys = Object.keys(cache.quotas);
 
     if (quotaKeys.length > 0) {
@@ -335,12 +425,12 @@ export class UsageService {
   }
 
   static async consume(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = currentValue + amount;
 
     cache.usage[quotaKey] = nextValue;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, nextValue);
     this.scheduleSync(userId);
 
@@ -348,12 +438,12 @@ export class UsageService {
   }
 
   static async release(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = Math.max(0, currentValue - amount);
 
     cache.usage[quotaKey] = nextValue;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, nextValue);
     this.scheduleSync(userId);
 
@@ -369,16 +459,16 @@ export class UsageService {
   }
 
   static async set(userId: number, quotaKey: string, value: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     cache.usage[quotaKey] = value;
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     await this.usageCache.set(userId, quotaKey, value);
     this.scheduleSync(userId);
     return value;
   }
 
   static async reset(userId: number, quotaKey?: string) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
 
     if (quotaKey) {
       cache.usage[quotaKey] = 0;
@@ -390,14 +480,14 @@ export class UsageService {
       }
     }
 
-    await BillingCacheService.set(cache);
+    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     this.scheduleSync(userId);
 
     return cache.usage;
   }
 
   static async remaining(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null) {
@@ -408,7 +498,7 @@ export class UsageService {
   }
 
   static async percent(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null || limit === 0) {
@@ -424,7 +514,7 @@ export class UsageService {
   }
 
   static async sync(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     const rows = await prisma.usage.findMany({ where: { userId }, include: { quota: true } });
 
     for (const [quotaKey, value] of Object.entries(cache.usage)) {
@@ -441,22 +531,7 @@ export class UsageService {
 
   static async flush(userId: number) {
     await this.sync(userId);
-    await BillingCacheService.evict(userId);
-  }
-
-  private static async resolveCache(userId: number) {
-    const cached = await BillingCacheService.get(userId);
-    if (cached) {
-      return cached;
-    }
-
-    return await this.rebuild(userId);
-  }
-
-  private static async rebuild(userId: number) {
-    const cache = await this.builder.build(userId);
-    await BillingCacheService.set(cache);
-    return cache;
+    await BillingContextService.invalidate(userId);
   }
 
   private static async seedRedisUsage(userId: number, usage: Record<string, number>) {
@@ -490,6 +565,7 @@ import { SubscriptionRepository } from "../repositories/subscription.repository"
 import { HistoryRepository } from "../repositories/history.repository";
 import { PlanRepository } from "../repositories/plan.repository";
 import { BillingService } from "./billing.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class SubscriptionService {
   constructor(
@@ -601,8 +677,7 @@ export class SubscriptionService {
       reason: options?.reason ?? "Subscription assigned",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return subscription;
   }
@@ -643,8 +718,7 @@ export class SubscriptionService {
       reason: reason ?? "Cancelled",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }
@@ -738,15 +812,12 @@ export class BillingBuilder {
 
 ###  ###
 import { prisma } from "../../../db";
-import { BillingBuilder } from "./billing.builder.ts";
-import { BillingCacheService } from "../cache/billing.cache.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 
 export class FeatureService {
-  private static readonly builder = new BillingBuilder();
-
   static async enabled(userId: number, featureKey: string): Promise<boolean> {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return FeatureCache.get(cache, featureKey);
   }
 
@@ -755,7 +826,7 @@ export class FeatureService {
   }
 
   static async all(userId: number) {
-    const cache = await this.resolveCache(userId);
+    const cache = await BillingContextService.get(userId);
     return FeatureCache.all(cache);
   }
 
@@ -810,17 +881,6 @@ export class FeatureService {
     });
   }
 
-  private static async resolveCache(userId: number) {
-    const cached = await BillingCacheService.get(userId);
-
-    if (cached) {
-      return cached;
-    }
-
-    const rebuilt = await this.builder.build(userId);
-    await BillingCacheService.set(rebuilt);
-    return rebuilt;
-  }
 }
 
 
@@ -1024,6 +1084,7 @@ import {
 import { SubscriptionRepository } from "../repositories/subscription.repository";
 import { HistoryRepository } from "../repositories/history.repository";
 import { BillingService } from "./billing.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class TrialService {
   constructor(
@@ -1079,8 +1140,7 @@ export class TrialService {
       reason: "Trial expired",
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }
@@ -1105,8 +1165,7 @@ export class TrialService {
       trialEndsAt,
     });
 
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
 
     return updated;
   }
@@ -1124,6 +1183,7 @@ import { QuotaResetPolicy, Prisma } from "@prisma/client";
 import { prisma } from "../../../db";
 import { BillingService } from "./billing.service.ts";
 import { UsageService } from "./usage.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class ResetService {
   static async resetByPolicy(policy: QuotaResetPolicy) {
@@ -1146,10 +1206,7 @@ export class ResetService {
       }
     }
 
-    for (const userId of affectedUserIds) {
-      await BillingService.invalidate(userId);
-      await BillingService.rebuild(userId);
-    }
+    await BillingContextService.refreshMany([...affectedUserIds]);
 
     return {
       policy,
@@ -1177,52 +1234,53 @@ export class ResetService {
 
   static async resetUserQuota(userId: number, quotaKey?: string) {
     await UsageService.reset(userId, quotaKey);
-    await BillingService.invalidate(userId);
-    await BillingService.rebuild(userId);
+    await BillingContextService.refresh(userId);
   }
 }
 
 
 ###  ###
 import { BillingCache } from "../types/billing-cache.type.ts";
-import { BillingBuilder } from "./billing.builder.ts";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
 import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 import { QuotaCache } from "../cache/quota.cache.ts";
 import { SubscriptionCache } from "../cache/subscription.cache.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
+import { BillingLockService } from "../cache/billing.lock.service.ts";
 import { SubscriptionService } from "./subscription.service.ts";
 import { UsageService } from "./usage.service.ts";
 import { PlanRepository } from "../repositories/plan.repository.ts";
 import { prisma } from "../../../db";
-import { FeatureDisabledError, QuotaExceededError, SubscriptionExpiredError, SubscriptionRequiredError, TrialExpiredError } from "../errors/index.ts";
+import { FeatureDisabledError, QuotaExceededError, SubscriptionRequiredError } from "../errors/index.ts";
 import { BillingAuthorizationRequest } from "../types/billing-authorization.type.ts";
 import { BillingAuthorizationResult, BillingQuotaResult } from "../types/billing-authorization-result.type.ts";
+import { QuotaValidator } from "../validators/quota.validator.ts";
+import { SubscriptionValidator } from "../validators/subscription.validator.ts";
 import { SubscriptionStatus } from "@prisma/client";
 
 export class BillingService {
-  private static readonly builder = new BillingBuilder();
   private static readonly usageCache = new UsageCache();
 
   static async get(userId: number): Promise<BillingCache> {
-    const cached = await BillingCacheService.get(userId);
-
-    if (cached) {
-      return cached;
-    }
-
-    return await this.rebuild(userId);
+    return await BillingContextService.get(userId);
   }
 
   static async rebuild(userId: number): Promise<BillingCache> {
-    const cache = await this.builder.build(userId);
-    await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    return cache;
+    return await BillingContextService.refresh(userId);
+  }
+
+  static async refresh(userId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(userId);
+  }
+
+  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
+    return await BillingContextService.refreshMany(userIds);
   }
 
   static async invalidate(userId: number): Promise<void> {
-    await BillingCacheService.evict(userId);
+    await BillingContextService.invalidate(userId);
   }
 
   static async subscription(userId: number) {
@@ -1408,64 +1466,49 @@ export class BillingService {
     });
 
     await UsageService.initialize(userId, freePlan.id);
-    await this.invalidate(userId);
 
-    return await this.rebuild(userId);
+    return await this.refresh(userId);
+  }
+
+  static async authorizeAndConsume(
+    userId: number,
+    request: BillingAuthorizationRequest,
+  ): Promise<BillingAuthorizationResult> {
+    return await BillingLockService.withUserLock(userId, async () => {
+      return await this.authorizeInternal(userId, request, true);
+    });
   }
 
   public static async authorize(
     userId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
-    const cache = await this.get(userId);
+    const shouldConsume = request.quotas?.some((quota) => quota.consume) ?? false;
 
-    const quotaResults: BillingQuotaResult[] = [];
-
-    /*
-     * Subscription
-     */
-
-    if (request.subscription) {
-      if (!cache.subscription) {
-        throw new SubscriptionRequiredError();
-      }
-
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
-        throw new SubscriptionExpiredError(
-            cache.subscription.expiresAt
-                ? new Date(cache.subscription.expiresAt)
-                : undefined
-        );
-      }
+    if (shouldConsume) {
+      return await BillingLockService.withUserLock(userId, async () => {
+        return await this.authorizeInternal(userId, request, true);
+      });
     }
 
-    /*
-     * Paid Subscription
-     */
+    return await this.authorizeInternal(userId, request, false);
+  }
 
-    /*
-     * Paid Subscription
-     */
+  private static async authorizeInternal(
+    userId: number,
+    request: BillingAuthorizationRequest,
+    consumeQuotas: boolean,
+  ): Promise<BillingAuthorizationResult> {
+    const cache = await this.get(userId);
 
     if (!cache.subscription) {
       throw new SubscriptionRequiredError();
     }
 
-    if (request.paidSubscription) {
-      // 1. Catch trials first and throw the specific error
-      if (cache.subscription.status === SubscriptionStatus.TRIAL) {
-        throw new TrialExpiredError();
-      }
+    SubscriptionValidator.validate(cache, request);
 
-      // 2. Catch anything else that isn't ACTIVE (EXPIRED, CANCELLED, etc.)
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
-        throw new SubscriptionRequiredError();
-      }
-    }
-
-    /*
-     * Features
-     */
+    const quotaResults: BillingQuotaResult[] = [];
+    const consumedUsage = new Map<string, number>();
 
     if (request.features?.length) {
       for (const featureKey of request.features) {
@@ -1477,56 +1520,35 @@ export class BillingService {
       }
     }
 
-    /*
-     * Quotas
-     */
-
     if (request.quotas?.length) {
+      QuotaValidator.validateRequest(cache, request.quotas);
+
       for (const quota of request.quotas) {
-        const result = await this.canPerformAction(
-          userId,
-          quota.key,
-        );
-
         const amount = quota.amount ?? 1;
-
-        if (
-          result.limit !== null &&
-          result.used + amount > result.limit
-        ) {
-          throw new QuotaExceededError(
-            quota.key,
-            result.limit,
-            result.used,
-            amount,
-          );
-        }
+        const limit = QuotaCache.getLimit(cache, quota.key);
+        const used = cache.usage[quota.key] ?? 0;
 
         quotaResults.push({
           key: quota.key,
-          limit: result.limit,
-          used: result.used,
-          remaining:
-            result.limit === null
-              ? null
-              : Math.max(0, result.limit - (result.used + amount)),
+          limit,
+          used,
+          remaining: limit === null ? null : Math.max(0, limit - (used + amount)),
         });
-      }
 
-      /*
-       * Consume after all validations pass.
-       */
-
-      for (const quota of request.quotas) {
-        if (!quota.consume) {
+        if (!consumeQuotas || !quota.consume) {
           continue;
         }
 
-        await this.consumeQuota(
-            userId,
-            quota.key,
-            quota.amount ?? 1,
-        );
+        consumedUsage.set(quota.key, used + amount);
+      }
+
+      if (consumeQuotas && consumedUsage.size > 0) {
+        for (const [quotaKey, nextValue] of consumedUsage.entries()) {
+          cache.usage[quotaKey] = nextValue;
+          await this.usageCache.set(userId, quotaKey, nextValue);
+        }
+
+        await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
       }
     }
 
@@ -1538,6 +1560,141 @@ export class BillingService {
   }
 }
 
+
+###  ###
+export * from "./plan.validator.ts";
+export * from "./quota.validator.ts";
+export * from "./subscription.validator.ts";
+
+###  ###
+import { BillingCache } from "../types/billing-cache.type.ts";
+import { PlanDefinition } from "../types/plan.type.ts";
+import { InvalidPlanError } from "../errors/index.ts";
+
+export class PlanValidator {
+  static validateDefinition(definition: PlanDefinition): void {
+    if (!definition.key || definition.version < 1) {
+      throw new InvalidPlanError(definition.key || "unknown");
+    }
+
+    if (definition.trial.durationDays < 0) {
+      throw new InvalidPlanError(definition.key);
+    }
+
+    const pricingKeys = new Set<string>();
+
+    for (const pricing of definition.pricing) {
+      if (!pricing.currency || pricing.amount <= 0) {
+        throw new InvalidPlanError(definition.key);
+      }
+
+      const pricingKey = `${pricing.currency}:${pricing.billingCycle}`;
+
+      if (pricingKeys.has(pricingKey)) {
+        throw new InvalidPlanError(definition.key);
+      }
+
+      pricingKeys.add(pricingKey);
+    }
+
+    const featureKeys = Object.keys(definition.features);
+
+    if (new Set(featureKeys).size !== featureKeys.length) {
+      throw new InvalidPlanError(definition.key);
+    }
+
+    const quotaKeys = Object.keys(definition.quotas);
+
+    if (new Set(quotaKeys).size !== quotaKeys.length) {
+      throw new InvalidPlanError(definition.key);
+    }
+
+    for (const value of Object.values(definition.quotas)) {
+      if (value !== null && (!Number.isInteger(value) || value < 0)) {
+        throw new InvalidPlanError(definition.key);
+      }
+    }
+  }
+
+  static validateCache(cache: BillingCache): void {
+    if (!cache.plan) {
+      throw new InvalidPlanError("unknown");
+    }
+  }
+}
+
+###  ###
+import { BillingCache } from "../types/billing-cache.type.ts";
+import { BillingQuotaRequest } from "../types/billing-authorization.type.ts";
+import { InvalidQuotaError, QuotaExceededError, QuotaNotFoundError } from "../errors/index.ts";
+
+export class QuotaValidator {
+  static validateRequest(cache: BillingCache, quotas: BillingQuotaRequest[]): void {
+    const seen = new Set<string>();
+
+    for (const quota of quotas) {
+      if (!quota.key || seen.has(quota.key)) {
+        throw new InvalidQuotaError(quota.key || "unknown");
+      }
+
+      seen.add(quota.key);
+
+      if (!Object.prototype.hasOwnProperty.call(cache.quotas, quota.key)) {
+        throw new QuotaNotFoundError(quota.key);
+      }
+
+      const amount = quota.amount ?? 1;
+
+      if (!Number.isInteger(amount) || amount < 1) {
+        throw new InvalidQuotaError(quota.key);
+      }
+
+      const limit = cache.quotas[quota.key] ?? null;
+      const used = cache.usage[quota.key] ?? 0;
+
+      if (limit !== null && used + amount > limit) {
+        throw new QuotaExceededError(quota.key, limit, used, amount);
+      }
+    }
+  }
+}
+
+###  ###
+import { SubscriptionStatus } from "@prisma/client";
+
+import { BillingCache } from "../types/billing-cache.type.ts";
+import { BillingAuthorizationRequest } from "../types/billing-authorization.type.ts";
+import { SubscriptionExpiredError, SubscriptionRequiredError, TrialExpiredError } from "../errors/index.ts";
+
+export class SubscriptionValidator {
+  static validate(cache: BillingCache, request: BillingAuthorizationRequest): void {
+    if (request.subscription) {
+      if (!cache.subscription) {
+        throw new SubscriptionRequiredError();
+      }
+
+      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
+        throw new SubscriptionExpiredError(
+          cache.subscription.expiresAt ? new Date(cache.subscription.expiresAt) : undefined,
+        );
+      }
+    }
+
+    if (request.paidSubscription) {
+      if (!cache.subscription) {
+        throw new SubscriptionRequiredError();
+      }
+
+      if (cache.subscription.status === SubscriptionStatus.TRIAL) {
+        throw new TrialExpiredError();
+      }
+
+      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
+        throw new SubscriptionRequiredError();
+      }
+    }
+  }
+}
 
 ###  ###
 
@@ -1571,11 +1728,19 @@ export function billingMiddleware(
 
     try {
 
+      const shouldConsume =
+        request.quotas?.some((quota) => quota.consume) ?? false;
+
       const result =
-        await BillingService.authorize(
-          getUserId(req),
-          request
-        );
+        shouldConsume
+          ? await BillingService.authorizeAndConsume(
+              getUserId(req),
+              request
+            )
+          : await BillingService.authorize(
+              getUserId(req),
+              request
+            );
 
       req.billing = result;
 
@@ -1595,6 +1760,445 @@ export function billingMiddleware(
     }
   };
 }
+
+###  ###
+export class InvoiceNumberGenerator {
+  static generate(prefix = "INV"): string {
+    const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+    const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+    return `${prefix}-${timestamp}-${randomPart}`;
+  }
+}
+
+###  ###
+import { Prisma, PrismaClient } from "@prisma/client";
+
+export class InvoiceRepository {
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
+
+  create(data: Prisma.InvoiceCreateInput) {
+    return this.prisma.invoice.create({ data });
+  }
+
+  findBySubscription(subscriptionId: number) {
+    return this.prisma.invoice.findMany({
+      where: { subscriptionId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  findByNumber(invoiceNumber: string) {
+    return this.prisma.invoice.findUnique({ where: { invoiceNumber } });
+  }
+}
+
+###  ###
+import { PrismaClient } from "@prisma/client";
+
+import { InvoiceRepository } from "./invoice.repository.ts";
+import { InvoiceNumberGenerator } from "./invoice-number.generator.ts";
+import { InvoiceStatus } from "./invoice-status.enum.ts";
+import { InvoiceType } from "./invoice-type.enum.ts";
+
+export class InvoiceService {
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly invoices = new InvoiceRepository(prisma),
+  ) {}
+
+  async create(input: {
+    subscriptionId: number;
+    paymentId: number;
+    amount: number;
+    currency: string;
+    type?: InvoiceType;
+    status?: InvoiceStatus;
+    metadata?: Record<string, unknown>;
+  }) {
+    return await this.invoices.create({
+      subscription: { connect: { id: input.subscriptionId } },
+      payment: { connect: { id: input.paymentId } },
+      invoiceNumber: InvoiceNumberGenerator.generate(),
+      amount: input.amount,
+      taxAmount: 0,
+      total: input.amount,
+      currency: input.currency,
+      issuedAt: new Date(),
+      metadata: {
+        ...(input.metadata ?? {}),
+        type: input.type ?? InvoiceType.PURCHASE,
+        status: input.status ?? InvoiceStatus.PAID,
+      },
+    });
+  }
+
+  async listBySubscription(subscriptionId: number) {
+    return await this.invoices.findBySubscription(subscriptionId);
+  }
+}
+
+###  ###
+export enum InvoiceType {
+  PURCHASE = "PURCHASE",
+  UPGRADE = "UPGRADE",
+  DOWNGRADE = "DOWNGRADE",
+  RENEWAL = "RENEWAL",
+  REFUND = "REFUND",
+}
+
+###  ###
+export enum InvoiceStatus {
+  DRAFT = "DRAFT",
+  ISSUED = "ISSUED",
+  PAID = "PAID",
+  FAILED = "FAILED",
+  CANCELLED = "CANCELLED",
+  REFUNDED = "REFUNDED",
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { MockPaymentProvider } from "./mock-payment.provider.ts";
+
+export class RazorpayProvider extends MockPaymentProvider {
+  readonly gateway = PaymentGateway.RAZORPAY;
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { MockPaymentProvider } from "./mock-payment.provider.ts";
+
+export class PaddleProvider extends MockPaymentProvider {
+  readonly gateway = PaymentGateway.PADDLE;
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { MockPaymentProvider } from "./mock-payment.provider.ts";
+
+export class StripeProvider extends MockPaymentProvider {
+  readonly gateway = PaymentGateway.STRIPE;
+}
+
+###  ###
+import { randomUUID } from "node:crypto";
+
+import { PaymentGateway, PaymentStatus } from "@prisma/client";
+
+import { PurchasePlanDto } from "../dto/purchase-plan.dto.ts";
+import { PaymentResultDto } from "../dto/payment-result.dto.ts";
+import { PaymentProvider } from "../payment-provider.interface.ts";
+
+export abstract class MockPaymentProvider implements PaymentProvider {
+  abstract readonly gateway: PaymentGateway;
+
+  async purchase(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    return this.createSuccessResult(request, "purchase");
+  }
+
+  async upgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    return this.createSuccessResult(request, "upgrade");
+  }
+
+  async downgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    return this.createSuccessResult(request, "downgrade");
+  }
+
+  async cancel(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    return this.createSuccessResult(request, "cancel");
+  }
+
+  async refund(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    return this.createSuccessResult(request, "refund");
+  }
+
+  protected createSuccessResult(
+    request: PurchasePlanDto,
+    event: string,
+  ): PaymentResultDto {
+    const transactionId = randomUUID();
+    const customerId = randomUUID();
+    const subscriptionId = randomUUID();
+    const amount = request.amount ?? 0;
+    const currency = request.currency ?? "INR";
+
+    console.log(`Payment successful via ${this.gateway} (${event})`, {
+      userId: request.userId,
+      planKey: request.planKey,
+      transactionId,
+      customerId,
+      subscriptionId,
+      amount,
+      currency,
+    });
+
+    return {
+      success: true,
+      gateway: this.gateway,
+      status: PaymentStatus.PAID,
+      transactionId,
+      customerId,
+      subscriptionId,
+      amount,
+      currency,
+      ...(request.metadata ? { metadata: request.metadata } : {}),
+    };
+  }
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { PaymentProviderFactory } from "./payment-provider.factory.ts";
+import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
+import { PaymentResultDto } from "./dto/payment-result.dto.ts";
+
+export class PaymentService {
+  static async purchase(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+    return await provider.purchase(request);
+  }
+
+  static async upgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+    return await provider.upgrade(request);
+  }
+
+  static async downgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+    return await provider.downgrade(request);
+  }
+
+  static async cancel(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+    return await provider.cancel(request);
+  }
+
+  static async refund(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+    return await provider.refund(request);
+  }
+}
+
+###  ###
+export * from "./dto/purchase-plan.dto.ts";
+export * from "./dto/payment-result.dto.ts";
+export * from "./payment-provider.interface.ts";
+export * from "./payment-provider.factory.ts";
+export * from "./payment.service.ts";
+export * from "./purchase.service.ts";
+export * from "./events/index.ts";
+export * from "./invoice/invoice-status.enum.ts";
+export * from "./invoice/invoice-type.enum.ts";
+export * from "./invoice/invoice-number.generator.ts";
+export * from "./invoice/invoice.repository.ts";
+export * from "./invoice/invoice.service.ts";
+export * from "./providers/stripe.provider.ts";
+export * from "./providers/razorpay.provider.ts";
+export * from "./providers/paddle.provider.ts";
+
+###  ###
+import { PaymentGateway, Prisma, PrismaClient } from "@prisma/client";
+
+import { prisma } from "../../../db";
+import { BillingContextService } from "../cache/billing.context.service.ts";
+import { PlanRepository } from "../repositories/plan.repository.ts";
+import { UsageService } from "../services/usage.service.ts";
+import { SubscriptionService } from "../services/subscription.service.ts";
+import { PaymentService } from "./payment.service.ts";
+import { InvoiceService } from "./invoice/invoice.service.ts";
+import { BillingEvent } from "./events/billing-event.enum.ts";
+import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
+import { PaymentResultDto } from "./dto/payment-result.dto.ts";
+
+export class PurchaseService {
+  constructor(
+    private readonly prismaClient: PrismaClient = prisma,
+    private readonly plans = new PlanRepository(prisma),
+    private readonly subscriptions = new SubscriptionService(prisma),
+    private readonly invoices = new InvoiceService(prisma),
+  ) {}
+
+  async purchase(request: PurchasePlanDto) {
+    const plan = await this.plans.findLatestVersion(request.planKey);
+
+    if (!plan) {
+      throw new Error(`Plan '${request.planKey}' not found.`);
+    }
+
+    const payment = await PaymentService.purchase({
+      ...request,
+      gateway: request.gateway ?? PaymentGateway.STRIPE,
+      amount: request.amount ?? Number(plan.pricing.find((pricing) => pricing.isDefault)?.amount ?? 0),
+      currency: request.currency ?? plan.pricing.find((pricing) => pricing.isDefault)?.currency ?? "INR",
+      metadata: {
+        ...(request.metadata ?? {}),
+        planVersionId: plan.id,
+        billingEvent: BillingEvent.PAYMENT_SUCCESS,
+      },
+    });
+
+    const subscription = await this.subscriptions.assignPlan(request.userId, request.planKey, {
+      gateway: payment.gateway,
+      gatewayCustomerId: payment.customerId,
+      gatewaySubscriptionId: payment.subscriptionId,
+      reason: "Purchase completed",
+    });
+
+    await UsageService.initialize(request.userId, plan.id);
+    await BillingContextService.refresh(request.userId);
+
+    const invoice = await this.invoices.create({
+      subscriptionId: subscription.id,
+      paymentId: await this.ensurePaymentRecord(payment, subscription.id),
+      amount: payment.amount,
+      currency: payment.currency,
+      metadata: {
+        planKey: request.planKey,
+        gateway: payment.gateway,
+        gatewayTransactionId: payment.transactionId,
+        billingEvent: BillingEvent.INVOICE_CREATED,
+      },
+    });
+
+    return {
+      success: true,
+      payment,
+      subscription,
+      invoice,
+    };
+  }
+
+  async upgrade(request: PurchasePlanDto) {
+    return await this.purchase(request);
+  }
+
+  async downgrade(request: PurchasePlanDto) {
+    return await this.purchase(request);
+  }
+
+  async cancel(request: PurchasePlanDto) {
+    return await this.subscriptions.cancel(request.userId, "Purchase cancelled");
+  }
+
+  private async ensurePaymentRecord(payment: PaymentResultDto, subscriptionId: number) {
+    const record = await this.prismaClient.payment.create({
+      data: {
+        subscription: { connect: { id: subscriptionId } },
+        gateway: payment.gateway,
+        gatewayPaymentId: payment.transactionId,
+        gatewayCustomerId: payment.customerId,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        paidAt: new Date(),
+        metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+
+    return record.id;
+  }
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
+import { PaymentResultDto } from "./dto/payment-result.dto.ts";
+
+export interface PaymentProvider {
+  readonly gateway: PaymentGateway;
+
+  purchase(request: PurchasePlanDto): Promise<PaymentResultDto>;
+
+  upgrade(request: PurchasePlanDto): Promise<PaymentResultDto>;
+
+  downgrade(request: PurchasePlanDto): Promise<PaymentResultDto>;
+
+  cancel(request: PurchasePlanDto): Promise<PaymentResultDto>;
+
+  refund(request: PurchasePlanDto): Promise<PaymentResultDto>;
+}
+
+###  ###
+import { PaymentGateway, PaymentStatus } from "@prisma/client";
+
+export interface PaymentResultDto {
+  success: boolean;
+  gateway: PaymentGateway;
+  status: PaymentStatus;
+  transactionId: string;
+  customerId: string;
+  subscriptionId: string;
+  amount: number;
+  currency: string;
+  metadata?: Record<string, unknown>;
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+export interface PurchasePlanDto {
+  userId: number;
+  planKey: string;
+  gateway?: PaymentGateway;
+  currency?: string;
+  billingCycle?: string;
+  amount?: number;
+  metadata?: Record<string, unknown>;
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+import { PaymentProvider } from "./payment-provider.interface.ts";
+import { StripeProvider } from "./providers/stripe.provider.ts";
+import { RazorpayProvider } from "./providers/razorpay.provider.ts";
+import { PaddleProvider } from "./providers/paddle.provider.ts";
+
+export class PaymentProviderFactory {
+  static resolve(gateway: PaymentGateway = PaymentGateway.STRIPE): PaymentProvider {
+    switch (gateway) {
+      case PaymentGateway.RAZORPAY:
+        return new RazorpayProvider();
+      case PaymentGateway.PADDLE:
+        return new PaddleProvider();
+      case PaymentGateway.STRIPE:
+      default:
+        return new StripeProvider();
+    }
+  }
+}
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
+
+export interface PaymentCompletedEvent {
+  userId: number;
+  planKey: string;
+  amount: number;
+  currency: string;
+  provider: PaymentGateway;
+  transactionId: string;
+}
+
+###  ###
+export enum BillingEvent {
+  PAYMENT_SUCCESS = "PAYMENT_SUCCESS",
+  PAYMENT_FAILED = "PAYMENT_FAILED",
+  SUBSCRIPTION_CREATED = "SUBSCRIPTION_CREATED",
+  SUBSCRIPTION_CANCELLED = "SUBSCRIPTION_CANCELLED",
+  PLAN_UPGRADED = "PLAN_UPGRADED",
+  PLAN_DOWNGRADED = "PLAN_DOWNGRADED",
+  INVOICE_CREATED = "INVOICE_CREATED",
+}
+
+###  ###
+export * from "./billing-event.enum.ts";
+export * from "./payment-completed.event.ts";
 
 ###  ###
 export enum BillingErrorCode {
@@ -1742,8 +2346,8 @@ export class PlanInactiveError extends BillingError {
 }
 
 ###  ###
-import { BillingError } from "../../BillingError";
-import { BillingErrorCode } from "../../BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
 export class InvalidPlanError extends BillingError {
   readonly code = BillingErrorCode.INVALID_PLAN;
@@ -1760,8 +2364,8 @@ export class InvalidPlanError extends BillingError {
 }
 
 ###  ###
-import { BillingError } from "../../BillingError";
-import { BillingErrorCode } from "../../BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
 export class PlanNotFoundError extends BillingError {
   readonly code = BillingErrorCode.PLAN_NOT_FOUND;

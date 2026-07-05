@@ -140,6 +140,26 @@ BillingService.incrementUsage(userId: number, featureKey: string, amount: number
 BillingService.createFreeSubscription(userId: number)
 ```
 
+### Payment Layer
+
+Purchase flows now go through a dedicated payment abstraction instead of being handled directly by subscription logic.
+
+```typescript
+import { PurchaseService, PaymentService, PaymentProviderFactory } from '../services/billing';
+
+await PurchaseService.purchase({
+  userId,
+  planKey: 'pro',
+  gateway: 'STRIPE',
+});
+```
+
+**Key pieces:**
+- `PurchaseService` orchestrates payment, subscription assignment, usage initialization, cache refresh, and invoice creation.
+- `PaymentProviderFactory` resolves the provider implementation for a gateway.
+- `PaymentService` is the provider-facing facade; today the providers are mocked and only log success.
+- `InvoiceService` persists invoice records using the existing invoice table.
+
 ---
 
 ## Middleware & Guards
