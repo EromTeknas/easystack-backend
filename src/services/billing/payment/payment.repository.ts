@@ -21,7 +21,19 @@ export class PaymentRepository {
 
   async findByIdempotencyKey(idempotencyKey: string): Promise<Payment | null> {
     if (!idempotencyKey) return null;
-    // MySQL JSON_EXTRACT usage; use a raw query to find metadata->idempotencyKey
+
+    // Try direct column lookup via raw SQL to avoid Prisma type mismatches if client not regenerated yet
+    try {
+      const rows: any[] = await (this.prisma as PrismaClient).$queryRaw`
+        SELECT * FROM payment WHERE idempotencyKey = ${idempotencyKey} LIMIT 1
+      `;
+
+      if (rows.length) return rows[0] as Payment;
+    } catch (err) {
+      // ignore and fallback
+    }
+
+    // Fallback: older schema, try JSON_EXTRACT on metadata
     const rows: any[] = await (this.prisma as PrismaClient).$queryRaw`
       SELECT * FROM payment WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.idempotencyKey')) = ${idempotencyKey} LIMIT 1
     `;

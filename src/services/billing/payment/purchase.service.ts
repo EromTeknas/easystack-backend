@@ -6,6 +6,7 @@ import { PlanRepository } from "../repositories/plan.repository.ts";
 import { UsageService } from "../services/usage.service.ts";
 import { SubscriptionRepository } from "../repositories/subscription.repository.ts";
 import { HistoryRepository } from "../repositories/history.repository.ts";
+import { SubscriptionPurchaseWorkflow } from "./subscription-purchase.workflow.ts";
 import { PaymentService } from "./payment.service.ts";
 import { InvoiceService } from "./invoice/invoice.service.ts";
 import { BillingEvent } from "./events/billing-event.enum.ts";
@@ -73,100 +74,21 @@ export class PurchaseService {
       return { success: false, payment } as any;
     }
 
-    // Payment succeeded: persist everything inside a DB transaction.
-    const result = await this.prismaClient.$transaction(async (tx) => {
-      // 1) create / upsert subscription (without refreshing cache here)
-      const startsAt = new Date();
-      let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
-      let trialEndsAt: Date | null = null;
+    // Payment succeeded: hand over to the workflow which encapsulates the DB transaction.
+    const workflow = new SubscriptionPurchaseWorkflow(this.prismaClient);
 
-      if (plan.trial?.enabled) {
-        status = SubscriptionStatus.TRIAL as SubscriptionStatus;
-        trialEndsAt = new Date(startsAt.getTime() + plan.trial.durationDays * 24 * 60 * 60 * 1000);
-      }
-
-      const subRepo = new SubscriptionRepository(tx as any);
-      const historyRepo = new HistoryRepository(tx as any);
-      const paymentRepoTx = new PaymentRepository(tx as any);
-      const invoiceSvcTx = new InvoiceService(tx as any);
-
-      const subscription = await subRepo.upsert(
-        request.userId,
-        {
-          user: { connect: { id: request.userId } },
-          planVersion: { connect: { id: plan.id } },
-          status,
-          startsAt,
-          trialEndsAt,
-          expiresAt: null,
-          gateway: payment.gateway,
-          gatewayCustomerId: payment.customerId ?? null,
-          gatewaySubscriptionId: payment.subscriptionId ?? null,
-        } as any,
-        {
-          planVersion: { connect: { id: plan.id } },
-          status,
-          startsAt,
-          trialEndsAt,
-          expiresAt: null,
-          gateway: payment.gateway,
-          gatewayCustomerId: payment.customerId ?? null,
-          gatewaySubscriptionId: payment.subscriptionId ?? null,
-        } as any,
-      );
-
-      await historyRepo.create({
-        subscription: { connect: { id: subscription.id } },
-        planVersion: { connect: { id: plan.id } },
-        status,
-        startsAt,
-        endsAt: null,
-        reason: "Purchase completed",
-      } as any);
-
-      // 2) create payment record
-      const paymentRecord = await paymentRepoTx.create({
-        subscription: { connect: { id: subscription.id } },
+    const result = await workflow.execute({
+      userId: request.userId,
+      planId: plan.id,
+      paymentResult: {
         gateway: payment.gateway,
-        gatewayPaymentId: payment.transactionId,
-        gatewayCustomerId: payment.customerId ?? undefined,
+        transactionId: payment.transactionId,
+        customerId: payment.customerId,
+        subscriptionId: payment.subscriptionId,
         amount: payment.amount,
         currency: payment.currency,
-        status: payment.status as any,
-        paidAt: new Date(),
-        metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
-      } as Prisma.PaymentCreateInput);
-
-      // 3) create invoice
-      const invoice = await invoiceSvcTx.create({
-        subscriptionId: subscription.id,
-        paymentId: paymentRecord.id,
-        amount: payment.amount,
-        currency: payment.currency,
-        metadata: {
-          planKey: request.planKey,
-          gateway: payment.gateway,
-          gatewayTransactionId: payment.transactionId,
-          billingEvent: BillingEvent.INVOICE_CREATED,
-        },
-      });
-
-      // 4) initialize usage rows inside transaction
-      const quotaKeys = Object.keys(plan.quotas ?? {});
-
-      if (quotaKeys.length > 0) {
-        const quotas = await tx.quota.findMany({ where: { key: { in: quotaKeys } } });
-
-        for (const quota of quotas) {
-          await tx.usage.upsert({
-            where: { userId_quotaId: { userId: request.userId, quotaId: quota.id } },
-            create: { userId: request.userId, quotaId: quota.id, value: 0 },
-            update: { value: 0 },
-          });
-        }
-      }
-
-      return { subscription, payment: paymentRecord, invoice };
+        metadata: payment.metadata as Record<string, unknown> | undefined,
+      },
     });
 
     // Refresh cache AFTER commit
