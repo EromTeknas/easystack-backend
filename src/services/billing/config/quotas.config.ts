@@ -17,11 +17,11 @@ export const Quotas = {
   },
 
   API_REQUESTS: {
-    key: "api.requests.month",
+    key: "api.requests.daily",
     displayName: "API Requests",
-    description: "Monthly API Requests",
+    description: "Daily API Requests",
     unit: "requests",
-    resetPolicy: QuotaResetPolicy.BILLING_CYCLE,
+    resetPolicy: QuotaResetPolicy.DAILY,
   },
 } as const;
 

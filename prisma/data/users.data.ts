@@ -41,7 +41,7 @@ export const fakeUsers: FakeUserConfig[] = [
     email: "bob@example.com",
     firstName: "Bob",
     lastName: "Smith",
-    password: "Test@98765432",
+    password: "Test@12345678",
     status: UserStatus.ACTIVE,
     emailVerified: true,
     workspace: {
@@ -53,10 +53,25 @@ export const fakeUsers: FakeUserConfig[] = [
     }
   },
   {
+    email: "john@example.com",
+    firstName: "John",
+    lastName: "Doe",
+    password: "Test@12345678",
+    status: UserStatus.ACTIVE,
+    emailVerified: true,
+    workspace: {
+      name: "John's Workspace",
+      slug: "john-workspace",
+    },
+    subscription: {
+      plan: "pro",
+    }
+  },
+  {
     email: "charlie@example.com",
     firstName: "Charlie",
     lastName: "Brown",
-    password: "Test@11223344",
+    password: "Test@12345678",
     status: UserStatus.ACTIVE,
     emailVerified: true,
     workspace: {

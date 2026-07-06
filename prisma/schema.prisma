@@ -782,6 +782,8 @@ enum DiscountType {
 
 enum QuotaResetPolicy {
   NEVER
+  MINUTELY
+  HOURLY
   DAILY
   WEEKLY
   MONTHLY

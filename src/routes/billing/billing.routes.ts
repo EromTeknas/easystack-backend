@@ -27,7 +27,7 @@ router.post(
       subscription: true, // Requires an active plan
       quotas: [
         {
-          key: "projects", // Validates against the Quotas.PROJECTS definition
+          key: "api.requests.month", // Validates against the Quotas.API_REQUESTS definition
           amount: 1,
           consume: true, // Tells UsageService to increment this by 1
         },
