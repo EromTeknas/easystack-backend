@@ -10,10 +10,6 @@ import {
   BillingAuthorizationRequest,
 } from "../../types";
 
-import {
-  BillingError,
-} from "../../errors";
-
 export function billingMiddleware(
   getUserId: (req: Request) => number,
   request: BillingAuthorizationRequest
@@ -45,15 +41,6 @@ export function billingMiddleware(
       next();
 
     } catch (error) {
-
-      if (
-        error instanceof BillingError
-      ) {
-        return res
-          .status(error.statusCode)
-          .json(error.serialize());
-      }
-
       next(error);
     }
   };

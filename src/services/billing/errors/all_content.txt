@@ -1,18 +1,4 @@
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
-
-export class SubscriptionRequiredError extends BillingError {
-  constructor() {
-    super({
-      code: BillingErrorCode.SUBSCRIPTION_REQUIRED,
-      statusCode: 402,
-      message: "An active subscription is required.",
-    });
-  }
-}
-
-###  ###
 export enum BillingErrorCode {
   UNKNOWN = "UNKNOWN",
 
@@ -36,17 +22,66 @@ export enum BillingErrorCode {
 }
 
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
-export class FeatureDisabledError extends BillingError {
-  constructor(featureKey: string) {
+export class SubscriptionRequiredError extends BillingError {
+  readonly code = BillingErrorCode.SUBSCRIPTION_REQUIRED;
+  readonly statusCode = 402;
+
+  constructor() {
     super({
-      code: BillingErrorCode.FEATURE_DISABLED,
-      statusCode: 403,
-      message: `Feature '${featureKey}' is not available on the current plan.`,
+      message: "An active subscription is required.",
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class TrialExpiredError extends BillingError {
+  readonly code = BillingErrorCode.TRIAL_EXPIRED;
+  readonly statusCode = 402;
+
+  constructor() {
+    super({
+      message: "Trial period has expired.",
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class SubscriptionNotFoundError extends BillingError {
+  readonly code = BillingErrorCode.SUBSCRIPTION_NOT_FOUND;
+  readonly statusCode = 404;
+
+  constructor(userId: number) {
+    super({
+      message: `Subscription not found for user '${userId}'.`,
       metadata: {
-        featureKey,
+        userId,
+      },
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class SubscriptionExpiredError extends BillingError {
+  readonly code = BillingErrorCode.SUBSCRIPTION_EXPIRED;
+  readonly statusCode = 402;
+
+  constructor(expiresAt?: Date) {
+    super({
+      message: "Subscription has expired.",
+      metadata: {
+        expiresAt,
       },
     });
   }
@@ -56,64 +91,86 @@ export class FeatureDisabledError extends BillingError {
 export * from "./BillingError";
 export * from "./BillingErrorCode";
 
-export * from "./FeatureDisabledError";
+export * from "./feature/FeatureDisabledError";
 
-export * from "./InvalidPlanError";
-export * from "./InvalidQuotaError";
+export * from "./plan/InvalidPlanError";
+export * from "./quota/InvalidQuotaError";
 
-export * from "./PlanNotFoundError";
+export * from "./plan/PlanNotFoundError";
 
-export * from "./QuotaExceededError";
-export * from "./QuotaNotFoundError";
+export * from "./quota/QuotaExceededError";
+export * from "./quota/QuotaNotFoundError";
 
-export * from "./SubscriptionExpiredError";
-export * from "./SubscriptionNotFoundError";
-export * from "./SubscriptionRequiredError";
+export * from "./subscription/SubscriptionExpiredError";
+export * from "./subscription/SubscriptionNotFoundError";
+export * from "./subscription/SubscriptionRequiredError";
 
-export * from "./TrialExpiredError";
+export * from "./subscription/TrialExpiredError";
 
-export * from "./UsageSyncError";
+export * from "./usage/UsageSyncError";
 
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
-export class QuotaNotFoundError extends BillingError {
-  constructor(quotaKey: string) {
+export class UsageSyncError extends BillingError {
+  readonly code = BillingErrorCode.USAGE_SYNC_FAILED;
+  readonly statusCode = 500;
+
+  constructor(cause?: unknown) {
     super({
-      code: BillingErrorCode.QUOTA_NOT_FOUND,
-      statusCode: 404,
-      message: `Quota '${quotaKey}' does not exist.`,
+      message: "Failed to synchronize usage with the database.",
+      cause,
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class PlanInactiveError extends BillingError {
+  readonly code = BillingErrorCode.PLAN_INACTIVE;
+  readonly statusCode = 400;
+
+  constructor(planKey: string) {
+    super({
+      message: `Plan '${planKey}' is inactive.`,
       metadata: {
-        quotaKey,
+        planKey,
       },
     });
   }
 }
 
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
-export class TrialExpiredError extends BillingError {
-  constructor() {
+export class InvalidPlanError extends BillingError {
+  readonly code = BillingErrorCode.INVALID_PLAN;
+  readonly statusCode = 400;
+
+  constructor(planKey: string) {
     super({
-      code: BillingErrorCode.TRIAL_EXPIRED,
-      statusCode: 402,
-      message: "Trial period has expired.",
+      message: `Plan '${planKey}' is invalid.`,
+      metadata: {
+        planKey,
+      },
     });
   }
 }
 
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
 export class PlanNotFoundError extends BillingError {
+  readonly code = BillingErrorCode.PLAN_NOT_FOUND;
+  readonly statusCode = 404;
+
   constructor(planKey: string) {
     super({
-      code: BillingErrorCode.PLAN_NOT_FOUND,
-      statusCode: 404,
       message: `Plan '${planKey}' does not exist.`,
       metadata: {
         planKey,
@@ -128,18 +185,22 @@ export class PlanNotFoundError extends BillingError {
 ###  ###
 import { BillingErrorCode } from "./BillingErrorCode";
 
-export interface BillingErrorOptions {
-  code: BillingErrorCode;
-  message: string;
-  statusCode?: number;
-  metadata?: Record<string, unknown>;
-  cause?: Error;
+export interface BillingErrorMetadata {
+  [key: string]: unknown;
 }
 
-export class BillingError extends Error {
-  readonly code: BillingErrorCode;
-  readonly statusCode: number;
-  readonly metadata?: Record<string, unknown>;
+export interface BillingErrorOptions {
+  message: string;
+  metadata?: BillingErrorMetadata;
+  cause?: unknown;
+}
+
+export abstract class BillingError extends Error {
+  abstract readonly code: BillingErrorCode;
+  abstract readonly statusCode: number;
+
+  readonly metadata?: BillingErrorMetadata;
+  readonly isBillingError = true;
 
   constructor(options: BillingErrorOptions) {
     super(options.message, {
@@ -147,9 +208,6 @@ export class BillingError extends Error {
     });
 
     this.name = new.target.name;
-
-    this.code = options.code;
-    this.statusCode = options.statusCode ?? 400;
     this.metadata = options.metadata ?? {};
 
     Error.captureStackTrace?.(this, this.constructor);
@@ -165,23 +223,24 @@ export class BillingError extends Error {
     };
   }
 
-   toJSON() {
+  toJSON() {
     return this.serialize();
   }
 }
 
 ###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
-export class SubscriptionExpiredError extends BillingError {
-  constructor(expiresAt?: Date) {
+export class FeatureDisabledError extends BillingError {
+  readonly code = BillingErrorCode.FEATURE_DISABLED;
+  readonly statusCode = 403;
+
+  constructor(featureKey: string) {
     super({
-      code: BillingErrorCode.SUBSCRIPTION_EXPIRED,
-      statusCode: 402,
-      message: "Subscription has expired.",
+      message: `Feature '${featureKey}' is not available on the current plan.`,
       metadata: {
-        expiresAt,
+        featureKey,
       },
     });
   }
@@ -189,18 +248,62 @@ export class SubscriptionExpiredError extends BillingError {
 
 ###  ###
 import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
+
+export function isBillingError(error: unknown): error is BillingError {
+  return error instanceof BillingError;
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class QuotaNotFoundError extends BillingError {
+  readonly code = BillingErrorCode.QUOTA_NOT_FOUND;
+  readonly statusCode = 404;
+
+  constructor(quotaKey: string) {
+    super({
+      message: `Quota '${quotaKey}' does not exist.`,
+      metadata: {
+        quotaKey,
+      },
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
+
+export class InvalidQuotaError extends BillingError {
+  readonly code = BillingErrorCode.INVALID_QUOTA;
+  readonly statusCode = 400;
+
+  constructor(quotaKey: string) {
+    super({
+      message: `Quota '${quotaKey}' is invalid.`,
+      metadata: {
+        quotaKey,
+      },
+    });
+  }
+}
+
+###  ###
+import { BillingError } from "../BillingError";
+import { BillingErrorCode } from "../BillingErrorCode";
 
 export class QuotaExceededError extends BillingError {
+  readonly code = BillingErrorCode.QUOTA_EXCEEDED;
+  readonly statusCode = 429;
+
   constructor(
     quotaKey: string,
     limit: number,
     usage: number,
-    requested: number = 1
+    requested = 1
   ) {
     super({
-      code: BillingErrorCode.QUOTA_EXCEEDED,
-      statusCode: 403,
       message: `Quota '${quotaKey}' has been exceeded.`,
       metadata: {
         quotaKey,
