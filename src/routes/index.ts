@@ -7,7 +7,7 @@ import storageRoutes from './storage/storage.routes';
 import onboardingRoutes from './onboarding/onboarding.routes';
 import workspaceRoutes from './workspace/workspace.routes';
 import projectsRoutes from './projects/projects.routes';
-
+import publicBillingRoutes from './public/billing/billing.routes';
 const router = Router();
 
 // Authentication routes
@@ -33,5 +33,8 @@ router.use('/health', healthRoutes);
 
 // Hello routes
 router.use('/hello', helloRoutes);
+
+// Public Billing routes
+router.use('/public/billing', publicBillingRoutes);
 
 export default router;

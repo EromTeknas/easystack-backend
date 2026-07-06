@@ -1858,6 +1858,20 @@ export enum InvoiceStatus {
 
 ###  ###
 import { PaymentGateway } from "@prisma/client";
+import { PaymentService } from "./payment.service.ts";
+
+export class WebhookService {
+  constructor(private readonly payments = new PaymentService()) {}
+
+  async handle(gateway: PaymentGateway, payload: unknown) {
+    // Delegate to provider-specific webhook handler (mock logs by default)
+    await this.payments.handleWebhook(gateway, payload);
+  }
+}
+
+
+###  ###
+import { PaymentGateway } from "@prisma/client";
 
 import { MockPaymentProvider } from "./mock-payment.provider.ts";
 
@@ -1947,6 +1961,25 @@ export abstract class MockPaymentProvider implements PaymentProvider {
       ...(request.metadata ? { metadata: request.metadata } : {}),
     };
   }
+
+  async createCheckoutSession(request: PurchasePlanDto) {
+    const id = randomUUID();
+    const sessionUrl = `https://mock-payments.example/checkout/${id}`;
+    return { id, url: sessionUrl, expiresAt: new Date(Date.now() + 1000 * 60 * 30) };
+  }
+
+  async verifyPayment(_payload: unknown): Promise<PaymentResultDto> {
+    // For mock verify, just return a succeeded payment placeholder
+    return this.createSuccessResult({ userId: 0, planKey: "mock", amount: 0 }, "verify");
+  }
+
+  async handleWebhook(payload: unknown): Promise<void> {
+    console.log("Mock provider webhook received:", payload);
+  }
+
+  async createCustomerPortal(_userId: number) {
+    return { url: `https://mock-payments.example/portal` };
+  }
 }
 
 ###  ###
@@ -1957,29 +1990,51 @@ import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
 import { PaymentResultDto } from "./dto/payment-result.dto.ts";
 
 export class PaymentService {
-  static async purchase(request: PurchasePlanDto): Promise<PaymentResultDto> {
-    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+  constructor(private readonly factory = PaymentProviderFactory) {}
+
+  resolveProvider(gateway?: PaymentGateway) {
+    return this.factory.resolve(gateway ?? PaymentGateway.STRIPE);
+  }
+
+  async purchase(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = this.resolveProvider(request.gateway);
     return await provider.purchase(request);
   }
 
-  static async upgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
-    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+  async upgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = this.resolveProvider(request.gateway);
     return await provider.upgrade(request);
   }
 
-  static async downgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
-    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+  async downgrade(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = this.resolveProvider(request.gateway);
     return await provider.downgrade(request);
   }
 
-  static async cancel(request: PurchasePlanDto): Promise<PaymentResultDto> {
-    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+  async cancel(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = this.resolveProvider(request.gateway);
     return await provider.cancel(request);
   }
 
-  static async refund(request: PurchasePlanDto): Promise<PaymentResultDto> {
-    const provider = PaymentProviderFactory.resolve(request.gateway ?? PaymentGateway.STRIPE);
+  async refund(request: PurchasePlanDto): Promise<PaymentResultDto> {
+    const provider = this.resolveProvider(request.gateway);
     return await provider.refund(request);
+  }
+
+  /* Checkout helpers */
+  async createCheckoutSession(request: PurchasePlanDto) {
+    const provider = this.resolveProvider(request.gateway);
+    return provider.createCheckoutSession?.(request);
+  }
+
+  async verifyPayment(gateway: PaymentGateway, payload: unknown) {
+    const provider = this.resolveProvider(gateway);
+    return provider.verifyPayment?.(payload);
+  }
+
+  async handleWebhook(gateway: PaymentGateway, payload: unknown) {
+    const provider = this.resolveProvider(gateway);
+    return provider.handleWebhook?.(payload);
   }
 }
 
@@ -1999,27 +2054,33 @@ export * from "./invoice/invoice.service.ts";
 export * from "./providers/stripe.provider.ts";
 export * from "./providers/razorpay.provider.ts";
 export * from "./providers/paddle.provider.ts";
+export * from "./payment.repository.ts";
 
 ###  ###
-import { PaymentGateway, Prisma, PrismaClient } from "@prisma/client";
+import { PaymentGateway, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../../../db";
 import { BillingContextService } from "../cache/billing.context.service.ts";
 import { PlanRepository } from "../repositories/plan.repository.ts";
 import { UsageService } from "../services/usage.service.ts";
-import { SubscriptionService } from "../services/subscription.service.ts";
+import { SubscriptionRepository } from "../repositories/subscription.repository.ts";
+import { HistoryRepository } from "../repositories/history.repository.ts";
+import { SubscriptionPurchaseWorkflow } from "./subscription-purchase.workflow.ts";
 import { PaymentService } from "./payment.service.ts";
 import { InvoiceService } from "./invoice/invoice.service.ts";
 import { BillingEvent } from "./events/billing-event.enum.ts";
 import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
 import { PaymentResultDto } from "./dto/payment-result.dto.ts";
+import { PaymentRepository } from "./payment.repository.ts";
 
 export class PurchaseService {
   constructor(
     private readonly prismaClient: PrismaClient = prisma,
     private readonly plans = new PlanRepository(prisma),
-    private readonly subscriptions = new SubscriptionService(prisma),
+    private readonly subscriptions = new SubscriptionRepository(prisma),
+    private readonly history = new HistoryRepository(prisma),
     private readonly invoices = new InvoiceService(prisma),
+    private readonly paymentRepo = new PaymentRepository(prisma),
   ) {}
 
   async purchase(request: PurchasePlanDto) {
@@ -2029,7 +2090,20 @@ export class PurchaseService {
       throw new Error(`Plan '${request.planKey}' not found.`);
     }
 
-    const payment = await PaymentService.purchase({
+    // Idempotency: check if we already processed this idempotency key
+    if (request.idempotencyKey) {
+      const existing = await this.paymentRepo.findByIdempotencyKey(request.idempotencyKey);
+
+      if (existing) {
+        return { success: true, payment: existing } as any;
+      }
+    }
+
+    const paymentService = new PaymentService();
+
+    // Perform external payment operation (mock or gateway). This happens BEFORE the DB transaction,
+    // but the DB persistence of subscription/payment/invoice is transactional.
+    const payment = await paymentService.purchase({
       ...request,
       gateway: request.gateway ?? PaymentGateway.STRIPE,
       amount: request.amount ?? Number(plan.pricing.find((pricing) => pricing.isDefault)?.amount ?? 0),
@@ -2038,68 +2112,91 @@ export class PurchaseService {
         ...(request.metadata ?? {}),
         planVersionId: plan.id,
         billingEvent: BillingEvent.PAYMENT_SUCCESS,
+        idempotencyKey: request.idempotencyKey ?? null,
       },
     });
 
-    const subscription = await this.subscriptions.assignPlan(request.userId, request.planKey, {
-      gateway: payment.gateway,
-      gatewayCustomerId: payment.customerId,
-      gatewaySubscriptionId: payment.subscriptionId,
-      reason: "Purchase completed",
+    // If payment did not succeed, persist a payment record and return status.
+    if (payment.status !== ("PAID" as any)) {
+      await this.paymentRepo.create({
+        subscription: undefined as any,
+        gateway: payment.gateway,
+        gatewayPaymentId: payment.transactionId,
+        gatewayCustomerId: payment.customerId ?? undefined,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status as any,
+        paidAt: payment.status === ("PAID" as any) ? new Date() : null,
+        metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
+      } as Prisma.PaymentCreateInput);
+
+      return { success: false, payment } as any;
+    }
+
+    // Payment succeeded: hand over to the workflow which encapsulates the DB transaction.
+    const workflow = new SubscriptionPurchaseWorkflow(this.prismaClient);
+
+    const result = await workflow.execute({
+      userId: request.userId,
+      planId: plan.id,
+      paymentResult: {
+        gateway: payment.gateway,
+        transactionId: payment.transactionId,
+        customerId: payment.customerId,
+        subscriptionId: payment.subscriptionId,
+        amount: payment.amount,
+        currency: payment.currency,
+        metadata: payment.metadata as Record<string, unknown> | undefined,
+      },
     });
 
-    await UsageService.initialize(request.userId, plan.id);
+    // Refresh cache AFTER commit
     await BillingContextService.refresh(request.userId);
 
-    const invoice = await this.invoices.create({
-      subscriptionId: subscription.id,
-      paymentId: await this.ensurePaymentRecord(payment, subscription.id),
-      amount: payment.amount,
-      currency: payment.currency,
-      metadata: {
-        planKey: request.planKey,
-        gateway: payment.gateway,
-        gatewayTransactionId: payment.transactionId,
-        billingEvent: BillingEvent.INVOICE_CREATED,
-      },
-    });
+    // Ensure Redis usage seeds
+    await UsageService.initialize(request.userId, plan.id);
 
-    return {
-      success: true,
-      payment,
-      subscription,
-      invoice,
-    };
+    return { success: true, ...result };
   }
 
   async upgrade(request: PurchasePlanDto) {
+    // TODO: Upgrade should preserve gateway customer & subscription and update gateway subscription.
+    // For now we route through purchase() to keep behavior simple.
     return await this.purchase(request);
   }
 
   async downgrade(request: PurchasePlanDto) {
+    // TODO: Downgrade should schedule at period end instead of creating a new subscription.
+    // For now we route through purchase() to keep behavior simple.
     return await this.purchase(request);
   }
 
   async cancel(request: PurchasePlanDto) {
-    return await this.subscriptions.cancel(request.userId, "Purchase cancelled");
-  }
+    const subscription = await this.subscriptions.findRaw(request.userId);
 
-  private async ensurePaymentRecord(payment: PaymentResultDto, subscriptionId: number) {
-    const record = await this.prismaClient.payment.create({
-      data: {
-        subscription: { connect: { id: subscriptionId } },
-        gateway: payment.gateway,
-        gatewayPaymentId: payment.transactionId,
-        gatewayCustomerId: payment.customerId,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        paidAt: new Date(),
-        metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
-      },
-    });
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
 
-    return record.id;
+    const now = new Date();
+
+    await this.subscriptions.update(request.userId, {
+      status: SubscriptionStatus.CANCELLED,
+      cancelledAt: now,
+    } as any);
+
+    await this.history.create({
+      subscription: { connect: { id: subscription.id } },
+      planVersion: { connect: { id: subscription.planVersionId } },
+      status: SubscriptionStatus.CANCELLED,
+      startsAt: subscription.startsAt,
+      endsAt: now,
+      reason: "Cancelled",
+    } as any);
+
+    await BillingContextService.refresh(request.userId);
+
+    return { success: true };
   }
 }
 
@@ -2108,6 +2205,12 @@ import { PaymentGateway } from "@prisma/client";
 
 import { PurchasePlanDto } from "./dto/purchase-plan.dto.ts";
 import { PaymentResultDto } from "./dto/payment-result.dto.ts";
+
+export interface CheckoutSession {
+  id: string;
+  url?: string;
+  expiresAt?: Date | string;
+}
 
 export interface PaymentProvider {
   readonly gateway: PaymentGateway;
@@ -2121,6 +2224,15 @@ export interface PaymentProvider {
   cancel(request: PurchasePlanDto): Promise<PaymentResultDto>;
 
   refund(request: PurchasePlanDto): Promise<PaymentResultDto>;
+
+  /* Checkout / Webhook related helpers */
+  createCheckoutSession?(request: PurchasePlanDto): Promise<CheckoutSession>;
+
+  verifyPayment?(payload: unknown): Promise<PaymentResultDto>;
+
+  handleWebhook?(payload: unknown): Promise<void>;
+
+  createCustomerPortal?(userId: number): Promise<{ url?: string }>;
 }
 
 ###  ###
@@ -2136,19 +2248,29 @@ export interface PaymentResultDto {
   amount: number;
   currency: string;
   metadata?: Record<string, unknown>;
+
+  // Optional convenience URLs and gateway identifiers
+  checkoutUrl?: string;
+  invoiceUrl?: string;
+  receiptUrl?: string;
+  gatewayInvoiceId?: string;
+  gatewayPriceId?: string;
+  expiresAt?: Date | string;
 }
 
 ###  ###
-import { PaymentGateway } from "@prisma/client";
+import { PaymentGateway, BillingCycle } from "@prisma/client";
 
 export interface PurchasePlanDto {
   userId: number;
   planKey: string;
   gateway?: PaymentGateway;
   currency?: string;
-  billingCycle?: string;
+  billingCycle?: BillingCycle;
   amount?: number;
   metadata?: Record<string, unknown>;
+  // Optional idempotency key to dedupe duplicate requests
+  idempotencyKey?: string;
 }
 
 ###  ###
@@ -2172,6 +2294,115 @@ export class PaymentProviderFactory {
     }
   }
 }
+
+###  ###
+import { Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { InvoiceService } from "./invoice/invoice.service.ts";
+import { PaymentRepository } from "./payment.repository.ts";
+import { SubscriptionRepository } from "../repositories/subscription.repository.ts";
+import { HistoryRepository } from "../repositories/history.repository.ts";
+
+export class SubscriptionPurchaseWorkflow {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async execute(args: {
+    userId: number;
+    planId: number;
+    paymentResult: { gateway: any; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
+  }) {
+    const { userId, planId, paymentResult } = args;
+
+    return await this.prisma.$transaction(async (tx) => {
+      const subRepo = new SubscriptionRepository(tx as any);
+      const historyRepo = new HistoryRepository(tx as any);
+      const paymentRepo = new PaymentRepository(tx as any);
+      const invoiceSvc = new InvoiceService(tx as any);
+
+      const startsAt = new Date();
+      let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
+      let trialEndsAt: Date | null = null;
+
+      // Plan trial handling is done by caller if required; keep basic active
+
+      const subscription = await subRepo.upsert(
+        userId,
+        {
+          user: { connect: { id: userId } },
+          planVersion: { connect: { id: planId } },
+          status,
+          startsAt,
+          trialEndsAt,
+          expiresAt: null,
+          gateway: paymentResult.gateway,
+          gatewayCustomerId: paymentResult.customerId ?? null,
+          gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
+        } as any,
+        {
+          planVersion: { connect: { id: planId } },
+          status,
+          startsAt,
+          trialEndsAt,
+          expiresAt: null,
+          gateway: paymentResult.gateway,
+          gatewayCustomerId: paymentResult.customerId ?? null,
+          gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
+        } as any,
+      );
+
+      await historyRepo.create({
+        subscription: { connect: { id: subscription.id } },
+        planVersion: { connect: { id: planId } },
+        status,
+        startsAt,
+        endsAt: null,
+        reason: "Purchase completed",
+      } as any);
+
+      const paymentRecord = await paymentRepo.create({
+        subscription: { connect: { id: subscription.id } },
+        gateway: paymentResult.gateway,
+        gatewayPaymentId: paymentResult.transactionId,
+        gatewayCustomerId: paymentResult.customerId ?? undefined,
+        gatewayPriceId: paymentResult.metadata?.gatewayPriceId as any,
+        amount: paymentResult.amount,
+        currency: paymentResult.currency,
+        status: ("PAID" as any),
+        paidAt: new Date(),
+        metadata: (paymentResult.metadata ?? {}) as Prisma.InputJsonValue,
+        idempotencyKey: (paymentResult.metadata?.idempotencyKey as string) ?? undefined,
+      } as Prisma.PaymentCreateInput);
+
+      const invoice = await invoiceSvc.create({
+        subscriptionId: subscription.id,
+        paymentId: paymentRecord.id,
+        amount: paymentResult.amount,
+        currency: paymentResult.currency,
+        metadata: {
+          gateway: paymentResult.gateway,
+          gatewayTransactionId: paymentResult.transactionId,
+        },
+      });
+
+      // Initialize usage rows
+      const quotaKeys = Object.keys((await tx.planVersion.findUnique({ where: { id: planId }, include: { quotas: true } }))?.quotas ?? {});
+
+      if (quotaKeys.length > 0) {
+        const quotas = await tx.quota.findMany({ where: { key: { in: quotaKeys } } });
+
+        for (const quota of quotas) {
+          await tx.usage.upsert({
+            where: { userId_quotaId: { userId, quotaId: quota.id } },
+            create: { userId, quotaId: quota.id, value: 0 },
+            update: { value: 0 },
+          });
+        }
+      }
+
+      return { subscription, payment: paymentRecord, invoice };
+    });
+  }
+}
+
 
 ###  ###
 import { PaymentGateway } from "@prisma/client";
@@ -2199,6 +2430,52 @@ export enum BillingEvent {
 ###  ###
 export * from "./billing-event.enum.ts";
 export * from "./payment-completed.event.ts";
+
+###  ###
+import { Prisma, PrismaClient, Payment } from "@prisma/client";
+
+export class PaymentRepository {
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
+
+  create(data: Prisma.PaymentCreateInput) {
+    return this.prisma.payment.create({ data });
+  }
+
+  update(id: number, data: Prisma.PaymentUpdateInput) {
+    return this.prisma.payment.update({ where: { id }, data });
+  }
+
+  findByTransaction(gatewayPaymentId: string) {
+    return this.prisma.payment.findFirst({ where: { gatewayPaymentId } });
+  }
+
+  findBySubscription(subscriptionId: number) {
+    return this.prisma.payment.findMany({ where: { subscriptionId }, orderBy: { createdAt: "desc" } });
+  }
+
+  async findByIdempotencyKey(idempotencyKey: string): Promise<Payment | null> {
+    if (!idempotencyKey) return null;
+
+    // Try direct column lookup via raw SQL to avoid Prisma type mismatches if client not regenerated yet
+    try {
+      const rows: any[] = await (this.prisma as PrismaClient).$queryRaw`
+        SELECT * FROM payment WHERE idempotencyKey = ${idempotencyKey} LIMIT 1
+      `;
+
+      if (rows.length) return rows[0] as Payment;
+    } catch (err) {
+      // ignore and fallback
+    }
+
+    // Fallback: older schema, try JSON_EXTRACT on metadata
+    const rows: any[] = await (this.prisma as PrismaClient).$queryRaw`
+      SELECT * FROM payment WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.idempotencyKey')) = ${idempotencyKey} LIMIT 1
+    `;
+
+    return rows.length ? (rows[0] as Payment) : null;
+  }
+}
+
 
 ###  ###
 export enum BillingErrorCode {
