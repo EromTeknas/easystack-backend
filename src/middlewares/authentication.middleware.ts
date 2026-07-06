@@ -36,28 +36,6 @@ export const authenticateToken = (req: any, res: Response, next: NextFunction) =
   }
 };
 
-/**
- * Middleware to authorize requests based on user role
- * Usage: authorize('ADMIN', 'MODERATOR')
- */
-export const authorize = (...allowedRoles: string[]) => {
-  return (req: any, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) {
-        throw new UnauthorizedError('Not authenticated');
-      }
-
-      if (!allowedRoles.includes(req.user.role)) {
-        throw new ForbiddenError('Insufficient permissions for this action');
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
-
 // Export alias for consistency
 export const authenticate = authenticateToken;
 

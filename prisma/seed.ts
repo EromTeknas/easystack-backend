@@ -32,6 +32,9 @@ async function main() {
   console.log("======================================");
   console.log("✅ Database Seeded");
   console.log("======================================");
+
+  // ADD THIS LINE
+  process.exit(0);
 }
 
 main()

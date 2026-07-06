@@ -11,7 +11,7 @@ export class SubscriptionValidator {
         throw new SubscriptionRequiredError();
       }
 
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
+      if (cache.subscription.status !== SubscriptionStatus.ACTIVE && cache.subscription.status !== SubscriptionStatus.TRIAL) {
         throw new SubscriptionExpiredError(
           cache.subscription.expiresAt ? new Date(cache.subscription.expiresAt) : undefined,
         );

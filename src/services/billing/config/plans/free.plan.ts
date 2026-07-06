@@ -22,6 +22,6 @@ export const FreePlan: PlanDefinition = {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
-    [Quotas.PROJECTS.key]: 1,
+    [Quotas.PROJECTS.key]: 2,
   },
 };

@@ -36,6 +36,6 @@ export const ProPlan: PlanDefinition = {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
-    [Quotas.PROJECTS.key]: 50,
+    [Quotas.PROJECTS.key]: 10,
   },
 };

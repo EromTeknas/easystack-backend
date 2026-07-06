@@ -1,11 +1,10 @@
 import bcrypt from "bcrypt";
-import {
-  PrismaClient,
-  SubscriptionStatus,
-} from "@prisma/client";
+import { PrismaClient, SubscriptionStatus } from "@prisma/client";
 
 import { fakeUsers } from "../data/users.data";
-
+import { UsageService } from "../../src/services/billing/services/usage.service";
+import { BillingContextService } from "../../src/services/billing/cache/billing.context.service";
+import { ca } from "zod/locales";
 export async function seedUsers(prisma: PrismaClient) {
   console.log("🌱 Seeding Users...");
 
@@ -58,7 +57,7 @@ export async function seedUsers(prisma: PrismaClient) {
       throw new Error(`Plan '${planKey}' not found.`);
     }
 
-    await prisma.$transaction(async (tx) => {
+    const userId = await prisma.$transaction(async (tx) => {
       /**
        * ----------------------------------------------------------------------
        * User
@@ -141,24 +140,16 @@ export async function seedUsers(prisma: PrismaClient) {
 
       const startsAt = new Date();
 
-      let status: SubscriptionStatus =
-        SubscriptionStatus.ACTIVE;
+      let status: SubscriptionStatus = SubscriptionStatus.ACTIVE;
 
       let trialEndsAt: Date | null = null;
 
-      if (
-        fakeUser.subscription?.trial &&
-        latestPlan.trial?.enabled
-      ) {
+      if (fakeUser.subscription?.trial && latestPlan.trial?.enabled) {
         status = SubscriptionStatus.TRIAL;
 
         trialEndsAt = new Date(
           startsAt.getTime() +
-            latestPlan.trial.durationDays *
-              24 *
-              60 *
-              60 *
-              1000,
+            latestPlan.trial.durationDays * 24 * 60 * 60 * 1000,
         );
       }
 
@@ -198,14 +189,24 @@ export async function seedUsers(prisma: PrismaClient) {
             planVersionId: subscription.planVersionId,
             status: subscription.status,
             startsAt: subscription.startsAt,
-            endsAt:
-              subscription.expiresAt ?? subscription.trialEndsAt,
+            endsAt: subscription.expiresAt ?? subscription.trialEndsAt,
             reason: "Initial subscription",
           },
         });
       }
-    });
 
+      return user.id;
+    });
+    try{
+      // Initialize the usage rows in MySQL and push the state to Redis
+      await UsageService.initialize(Number(userId), latestPlan.id);
+  
+      // Ensure the main billing cache is warm
+      await BillingContextService.refresh(Number(userId));
+
+    } catch (error) {
+      console.error(`Error initializing usage or refreshing billing context for user ${fakeUser.email}:`, error);
+    }
     console.log(`✓ ${fakeUser.email}`);
   }
 

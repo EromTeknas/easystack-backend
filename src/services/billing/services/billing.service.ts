@@ -302,11 +302,12 @@ export class BillingService {
 
       if (consumeQuotas && consumedUsage.size > 0) {
         for (const [quotaKey, nextValue] of consumedUsage.entries()) {
+          // Delegate to UsageService: Updates Redis, BillingCache, AND triggers scheduleSync()
+          await UsageService.set(userId, quotaKey, nextValue);
+          
+          // Keep our local result object in sync to return to the middleware
           cache.usage[quotaKey] = nextValue;
-          await this.usageCache.set(userId, quotaKey, nextValue);
         }
-
-        await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
       }
     }
 
