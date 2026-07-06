@@ -1,6 +1,42 @@
 ###  ###
 import { PrismaClient } from "@prisma/client";
 
+import { Features } from "../../src/services/billing/config/features.config";
+
+export async function seedBillingFeatures(prisma: PrismaClient) {
+  console.log("🌱 Seeding Billing Features...");
+
+  await prisma.$transaction(async (tx) => {
+    for (const feature of Object.values(Features)) {
+      await tx.feature.upsert({
+        where: {
+          key: feature.key,
+        },
+
+        update: {
+          displayName: feature.displayName,
+          description: feature.description,
+          category: feature.category,
+          isActive: true,
+        },
+
+        create: {
+          key: feature.key,
+          displayName: feature.displayName,
+          description: feature.description,
+          category: feature.category,
+          isActive: true,
+        },
+      });
+    }
+  });
+
+  console.log("✅ Billing Features Seeded");
+}
+
+###  ###
+import { PrismaClient } from "@prisma/client";
+
 import { PlanRegistry } from "../../src/services/billing/config/plans";
 
 export async function seedBillingPlans(prisma: PrismaClient) {
@@ -91,8 +127,10 @@ export async function seedBillingPlans(prisma: PrismaClient) {
             currency: pricing.currency,
             billingCycle: pricing.billingCycle,
             amount: pricing.amount,
-            compareAtAmount: pricing.compareAtAmount,
             isDefault: pricing.isDefault ?? false,
+            ...(pricing.compareAtAmount !== undefined && {
+              compareAtAmount: pricing.compareAtAmount,
+            }),
           })),
         });
       }
@@ -154,208 +192,6 @@ export async function seedBillingPlans(prisma: PrismaClient) {
   console.log("✅ Billing Plans Seeded");
 }
 
-###  ###
-import { PrismaClient } from "@prisma/client";
-
-import { Quotas } from "../../src/services/billing/config/quotas.config";
-
-export async function seedBillingQuotas(prisma: PrismaClient) {
-  console.log("🌱 Seeding Billing Quotas...");
-
-  await prisma.$transaction(async (tx) => {
-    for (const quota of Object.values(Quotas)) {
-      await tx.quota.upsert({
-        where: {
-          key: quota.key,
-        },
-
-        update: {
-          displayName: quota.displayName,
-          description: quota.description,
-          unit: quota.unit,
-          resetPolicy: quota.resetPolicy,
-        },
-
-        create: {
-          key: quota.key,
-          displayName: quota.displayName,
-          description: quota.description,
-          unit: quota.unit,
-          resetPolicy: quota.resetPolicy,
-        },
-      });
-    }
-  });
-
-  console.log("✅ Billing Quotas Seeded");
-}
-
-###  ###
-import { PrismaClient } from "@prisma/client";
-
-import { Features } from "../../src/services/billing/config/features.config";
-
-export async function seedBillingFeatures(prisma: PrismaClient) {
-  console.log("🌱 Seeding Billing Features...");
-
-  await prisma.$transaction(async (tx) => {
-    for (const feature of Object.values(Features)) {
-      await tx.feature.upsert({
-        where: {
-          key: feature.key,
-        },
-
-        update: {
-          displayName: feature.displayName,
-          description: feature.description,
-          category: feature.category,
-          isActive: true,
-        },
-
-        create: {
-          key: feature.key,
-          displayName: feature.displayName,
-          description: feature.description,
-          category: feature.category,
-          isActive: true,
-        },
-      });
-    }
-  });
-
-  console.log("✅ Billing Features Seeded");
-}
-
-###  ###
-import bcrypt from "bcrypt";
-import {
-  PrismaClient,
-  SubscriptionStatus,
-} from "@prisma/client";
-
-import { fakeUsers } from "./data/users.data";
-
-export async function seedUsers(prisma: PrismaClient) {
-  console.log("🌱 Seeding Users...");
-
-  for (const fakeUser of fakeUsers) {
-    await prisma.$transaction(async (tx) => {
-      const hashedPassword = await bcrypt.hash(fakeUser.password, 10);
-
-      const user = await tx.user.upsert({
-        where: {
-          email: fakeUser.email,
-        },
-
-        update: {},
-
-        create: {
-          email: fakeUser.email,
-          firstName: fakeUser.firstName,
-          lastName: fakeUser.lastName,
-          password: hashedPassword,
-          status: fakeUser.status,
-          emailVerified: fakeUser.emailVerified,
-        },
-      });
-
-      const workspace = await tx.workspace.upsert({
-        where: {
-          slug: fakeUser.workspace.slug,
-        },
-
-        update: {},
-
-        create: {
-          name: fakeUser.workspace.name,
-          slug: fakeUser.workspace.slug,
-          ownerId: user.id,
-        },
-      });
-
-      await tx.workspaceMember.upsert({
-        where: {
-          workspaceId_userId: {
-            workspaceId: workspace.id,
-            userId: user.id,
-          },
-        },
-
-        update: {},
-
-        create: {
-          workspaceId: workspace.id,
-          userId: user.id,
-          role: "OWNER",
-        },
-      });
-
-      const latestVersion = await tx.planVersion.findFirst({
-        where: {
-          isLatest: true,
-          plan: {
-            key: fakeUser.subscription.plan,
-          },
-        },
-
-        include: {
-          trial: true,
-        },
-      });
-
-      if (!latestVersion) {
-        throw new Error(
-          `Latest version not found for ${fakeUser.subscription.plan}`,
-        );
-      }
-
-      const startsAt = new Date();
-
-      let expiresAt: Date | null = null;
-
-      let status = SubscriptionStatus.ACTIVE;
-
-      if (
-        fakeUser.subscription.trial &&
-        latestVersion.trial?.enabled
-      ) {
-        status = SubscriptionStatus.TRIAL;
-
-        expiresAt = new Date(
-          startsAt.getTime() +
-            latestVersion.trial.durationDays *
-              24 *
-              60 *
-              60 *
-              1000,
-        );
-      }
-
-      await tx.subscription.upsert({
-        where: {
-          userId: user.id,
-        },
-
-        update: {
-          planVersionId: latestVersion.id,
-          status,
-          startsAt,
-          expiresAt,
-        },
-
-        create: {
-          userId: user.id,
-          planVersionId: latestVersion.id,
-          status,
-          startsAt,
-          expiresAt,
-        },
-      });
-    });
-  }
-
-  console.log("✅ Users Seeded");
-}
 
 ###  ###
 import { PrismaClient, RoleScope } from "@prisma/client";
@@ -448,197 +284,257 @@ export async function seedAuthorization(prisma: PrismaClient) {
 }
 
 ###  ###
+import { PrismaClient, Quota, QuotaResetPolicy } from "@prisma/client";
+
+import { Quotas } from "../../src/services/billing/config/quotas.config";
 
 
-###  ###
-import { UserStatus } from "@prisma/client";
-/**
- * Generate fake users for testing purposes
- */
-interface FakeUserConfig {
-  email: string;
-  firstName: string;
-  lastName: string;
-  password: string;
-  status?: UserStatus;
-  emailVerified?: boolean;
-  workspace: Record<string, string>;
-  subscription?: {
-    plan: string;
-    trial?: boolean;
-  };
+export async function seedBillingQuotas(prisma: PrismaClient) {
+  console.log("🌱 Seeding Billing Quotas...");
 
+  await prisma.$transaction(async (tx) => {
+    for (const quota of Object.values(Quotas)) {
+      await tx.quota.upsert({
+        where: {
+          key: quota.key,
+        },
+
+        update: {
+          displayName: quota.displayName,
+          description: quota.description,
+          unit: quota.unit,
+          resetPolicy: quota.resetPolicy as QuotaResetPolicy,
+        },
+
+        create: {
+          key: quota.key,
+          displayName: quota.displayName,
+          description: quota.description,
+          unit: quota.unit,
+          resetPolicy: quota.resetPolicy as QuotaResetPolicy,
+        },
+      });
+    }
+  });
+
+  console.log("✅ Billing Quotas Seeded");
 }
 
-export const fakeUsers: FakeUserConfig[] = [
-  {
-    email: "alice@example.com",
-    firstName: "Alice",
-    lastName: "Johnson",
-    password: "Test@12345678",
-    status: "ACTIVE",
-    emailVerified: true,
-    workspace: {
-      name: "Alice's Workspace",
-      slug: "alice-workspace",
+###  ###
+import bcrypt from "bcrypt";
+import {
+  PrismaClient,
+  SubscriptionStatus,
+} from "@prisma/client";
+
+import { fakeUsers } from "../data/users.data";
+
+export async function seedUsers(prisma: PrismaClient) {
+  console.log("🌱 Seeding Users...");
+
+  /**
+   * --------------------------------------------------------------------------
+   * Load required data once
+   * --------------------------------------------------------------------------
+   */
+
+  const ownerRole = await prisma.role.findUnique({
+    where: {
+      key: "WORKSPACE_OWNER",
     },
-    subscription: {
-      plan: "pro",
-      trial: true,
+  });
+
+  if (!ownerRole) {
+    throw new Error(
+      "WORKSPACE_OWNER role not found. Please run authorization seeder first.",
+    );
+  }
+
+  const latestPlans = new Map(
+    (
+      await prisma.planVersion.findMany({
+        where: {
+          isLatest: true,
+        },
+        include: {
+          plan: true,
+          trial: true,
+        },
+      })
+    ).map((version) => [version.plan.key, version]),
+  );
+
+  /**
+   * --------------------------------------------------------------------------
+   * Seed Users
+   * --------------------------------------------------------------------------
+   */
+
+  for (const fakeUser of fakeUsers) {
+    const passwordHash = await bcrypt.hash(fakeUser.password, 10);
+
+    const planKey = fakeUser.subscription?.plan ?? "free";
+
+    const latestPlan = latestPlans.get(planKey);
+
+    if (!latestPlan) {
+      throw new Error(`Plan '${planKey}' not found.`);
     }
-  },
-  {
-    email: "bob@example.com",
-    firstName: "Bob",
-    lastName: "Smith",
-    password: "Test@98765432",
-    status: "ACTIVE",
-    emailVerified: true,
-    workspace: {
-      name: "Bob's Workspace",
-      slug: "bob-workspace",
-    },
-    subscription: {
-      plan: "free",
-    }
-  },
-  {
-    email: "charlie@example.com",
-    firstName: "Charlie",
-    lastName: "Brown",
-    password: "Test@11223344",
-    status: "ACTIVE",
-    emailVerified: true,
-    workspace: {
-      name: "Charlie's Workspace",
-      slug: "charlie-workspace",
-    },
-    subscription: {
-      plan: "enterprise",
-    }
-  },
-];
+
+    await prisma.$transaction(async (tx) => {
+      /**
+       * ----------------------------------------------------------------------
+       * User
+       * ----------------------------------------------------------------------
+       */
+
+      const user = await tx.user.upsert({
+        where: {
+          email: fakeUser.email,
+        },
+
+        update: {
+          firstName: fakeUser.firstName,
+          lastName: fakeUser.lastName,
+          status: fakeUser.status,
+          emailVerified: fakeUser.emailVerified,
+        },
+
+        create: {
+          email: fakeUser.email,
+          firstName: fakeUser.firstName,
+          lastName: fakeUser.lastName,
+          passwordHash,
+          status: fakeUser.status,
+          emailVerified: fakeUser.emailVerified,
+        },
+      });
+
+      /**
+       * ----------------------------------------------------------------------
+       * Workspace
+       * ----------------------------------------------------------------------
+       */
+
+      let workspace = await tx.workspace.findFirst({
+        where: {
+          createdById: user.id,
+        },
+      });
+
+      if (!workspace) {
+        workspace = await tx.workspace.create({
+          data: {
+            name: fakeUser.workspace.name,
+            createdById: user.id,
+          },
+        });
+      }
+
+      /**
+       * ----------------------------------------------------------------------
+       * Workspace Member
+       * ----------------------------------------------------------------------
+       */
+
+      await tx.workspaceMember.upsert({
+        where: {
+          workspaceId_userId: {
+            workspaceId: workspace.id,
+            userId: user.id,
+          },
+        },
+
+        update: {
+          roleId: ownerRole.id,
+        },
+
+        create: {
+          workspaceId: workspace.id,
+          userId: user.id,
+          roleId: ownerRole.id,
+        },
+      });
+
+      /**
+       * ----------------------------------------------------------------------
+       * Subscription
+       * ----------------------------------------------------------------------
+       */
+
+      const startsAt = new Date();
+
+      let status: SubscriptionStatus =
+        SubscriptionStatus.ACTIVE;
+
+      let trialEndsAt: Date | null = null;
+
+      if (
+        fakeUser.subscription?.trial &&
+        latestPlan.trial?.enabled
+      ) {
+        status = SubscriptionStatus.TRIAL;
+
+        trialEndsAt = new Date(
+          startsAt.getTime() +
+            latestPlan.trial.durationDays *
+              24 *
+              60 *
+              60 *
+              1000,
+        );
+      }
+
+      const subscription = await tx.subscription.upsert({
+        where: {
+          userId: user.id,
+        },
+
+        update: {
+          planVersionId: latestPlan.id,
+          status,
+          startsAt,
+          trialEndsAt,
+          expiresAt: null,
+        },
+
+        create: {
+          userId: user.id,
+          planVersionId: latestPlan.id,
+          status,
+          startsAt,
+          trialEndsAt,
+          expiresAt: null,
+        },
+      });
+
+      const existingHistory = await tx.subscriptionHistory.findFirst({
+        where: {
+          subscriptionId: subscription.id,
+        },
+      });
+
+      if (!existingHistory) {
+        await tx.subscriptionHistory.create({
+          data: {
+            subscriptionId: subscription.id,
+            planVersionId: subscription.planVersionId,
+            status: subscription.status,
+            startsAt: subscription.startsAt,
+            endsAt:
+              subscription.expiresAt ?? subscription.trialEndsAt,
+            reason: "Initial subscription",
+          },
+        });
+      }
+    });
+
+    console.log(`✓ ${fakeUser.email}`);
+  }
+
+  console.log("✅ Users Seeded");
+}
 
 ###  ###
-export const Plans = [
-  {
-    key: "free",
-    displayName: "Free",
-    description: "Perfect for individuals getting started.",
-    version: 1,
-    config: {
-      limits: {
-        workspaces: 1,
-        projects: 3,
-        environments: 3,
-        members: 1,
-        apiRequestsPerMinute: 60,
-        storageMb: 500,
-        aiTokensMonthly: 100_000,
-      },
 
-      features: {
-        customDomain: false,
-        teamCollaboration: false,
-        auditLogs: false,
-      },
-
-      pricing: {
-        monthly: 0,
-        yearly: 0,
-        currency: "USD",
-      },
-    },
-  },
-
-  {
-    key: "pro",
-    displayName: "Pro",
-    description: "For freelancers and professionals.",
-    version: 1,
-    config: {
-      limits: {
-        workspaces: 5,
-        projects: 20,
-        environments: 10,
-        members: 3,
-        apiRequestsPerMinute: 300,
-        storageMb: 5_000,
-        aiTokensMonthly: 1_000_000,
-      },
-
-      features: {
-        customDomain: true,
-        teamCollaboration: false,
-        auditLogs: false,
-      },
-
-      pricing: {
-        monthly: 29,
-        yearly: 290,
-        currency: "USD",
-      },
-    },
-  },
-
-  {
-    key: "team",
-    displayName: "Team",
-    description: "Small teams and agencies.",
-    version: 1,
-    config: {
-      limits: {
-        workspaces: 25,
-        projects: 100,
-        environments: 20,
-        members: 10,
-        apiRequestsPerMinute: 1000,
-        storageMb: 20_000,
-        aiTokensMonthly: 5_000_000,
-      },
-
-      features: {
-        customDomain: true,
-        teamCollaboration: true,
-        auditLogs: true,
-      },
-
-      pricing: {
-        monthly: 99,
-        yearly: 990,
-        currency: "USD",
-      },
-    },
-  },
-
-  {
-    key: "enterprise",
-    displayName: "Enterprise",
-    description: "Unlimited usage with enterprise support.",
-    version: 1,
-    config: {
-      limits: {
-        workspaces: null,
-        projects: null,
-        environments: null,
-        members: null,
-        apiRequestsPerMinute: null,
-        storageMb: null,
-        aiTokensMonthly: null,
-      },
-
-      features: {
-        customDomain: true,
-        teamCollaboration: true,
-        auditLogs: true,
-      },
-
-      pricing: {
-        monthly: 499,
-        yearly: 4990,
-        currency: "USD",
-      },
-    },
-  },
-] as const;
 

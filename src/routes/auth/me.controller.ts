@@ -73,9 +73,10 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       // Get user's workspaces
       const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
 
-      const subscription = await BillingService.subscription(Number(userId));
-      const usage = await BillingService.getUserUsage(Number(userId));
-      
+      // Fetch the full billing context from Redis/MySQL
+      const billing = await BillingService.get(Number(userId));
+      const effectivePlan = await BillingService.getEffectivePlan(Number(userId));
+
       return ok(res, {
         user: {
           id: user.id.toString(),
@@ -94,8 +95,13 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           role: w.role,
           createdAt: w.created_at
         })),
-        subscription,
-        usage,
+        // Expose a unified billing object to the frontend
+        billing: {
+          plan: effectivePlan,
+          subscription: billing.subscription,
+          usage: billing.usage,
+          features: billing.features, // Crucial for frontend UI toggles
+        },
       });
     } catch (error: any) {
       if (error instanceof UnauthorizedError) {

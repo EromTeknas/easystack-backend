@@ -163,6 +163,7 @@ export class UsageService {
   }
 
   private static scheduleSync(userId: number) {
+    console.log(this.syncTimers);
     const existing = this.syncTimers.get(userId);
 
     if (existing) {
@@ -170,6 +171,7 @@ export class UsageService {
     }
 
     const timer = setTimeout(() => {
+      console.log(`Syncing usage for user ${userId}...`);
       void this.sync(userId).finally(() => {
         this.syncTimers.delete(userId);
       });

@@ -139,10 +139,9 @@ export const registerController = asyncHandler(async (req, res) => {
       },
       include: {
         versions: {
-          orderBy: {
-            version: "desc",
-          },
+          orderBy: { version: "desc" },
           take: 1,
+          include: { trial: true }
         },
       },
     });
@@ -159,21 +158,30 @@ export const registerController = asyncHandler(async (req, res) => {
       );
     }
 
+    // Calculate Dynamic Status
+    let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
+    let trialEndsAt: Date | null = null;
+
+    if (plan.key !== "free" && latestVersion.trial?.enabled) {
+      status = SubscriptionStatus.TRIAL as SubscriptionStatus;
+      trialEndsAt = new Date(Date.now() + latestVersion.trial.durationDays * 24 * 60 * 60 * 1000);
+    }
+
     const subscription = await tx.subscription.upsert({
       where: { userId },
-
       update: {
         planVersionId: latestVersion.id,
-        status: SubscriptionStatus.TRIAL,
+        status, 
         startsAt: new Date(),
+        trialEndsAt, 
         expiresAt: null,
       },
-
       create: {
         userId,
         planVersionId: latestVersion.id,
-        status: SubscriptionStatus.TRIAL,
+        status,
         startsAt: new Date(),
+        trialEndsAt,
         expiresAt: null,
       },
     });
@@ -182,7 +190,7 @@ export const registerController = asyncHandler(async (req, res) => {
       data: {
         subscriptionId: subscription.id,
         planVersionId: latestVersion.id,
-        status: SubscriptionStatus.TRIAL,
+        status,
         startsAt: new Date(),
         reason: "REGISTER",
       },

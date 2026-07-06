@@ -33,6 +33,7 @@ import { randomUUID } from "crypto";
 import { APP_ROLES } from "../../services/authorization/constants/role.constants";
 import { UserStatus } from "@prisma/client";
 import { RoleRepository } from "../../repositories/role.repository";
+import { BillingService } from "../../services/billing.service";
 
 export const verifyEmailController = asyncHandler(async (req, res) => {
   logger.info("POST /api/auth/verify-email start");
@@ -220,6 +221,12 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       setAccessTokenCookie(res, result.accessToken);
       setRefreshTokenCookie(res, result.refreshToken);
 
+      // Fire-and-forget cache warm-up. 
+      // No need to 'await' it; let it run in the background so it doesn't slow down the login response.
+      BillingService.get(Number(userId)).catch((err) => 
+        logger.error('Failed to warm billing cache post-login', { userId, error: err.message })
+      );
+      
       // Return response with tokens
       return ok(res, {
         user: result.user,

@@ -10,6 +10,7 @@ import { auth } from '../../config/auth';
 import { ok } from '../../utils/response';
 import { setAccessTokenCookie, setRefreshTokenCookie } from '../../utils/auth-cookies';
 import { randomUUID } from 'node:crypto';
+import { BillingService } from '../../services/billing.service';
 
 /**
  * Login with email and password (transactional)
@@ -148,6 +149,12 @@ export const loginController = asyncHandler(async (req, res) => {
   setAccessTokenCookie(res, accessToken);
   setRefreshTokenCookie(res, refreshToken);
 
+  // Fire-and-forget cache warm-up. 
+  // No need to 'await' it; let it run in the background so it doesn't slow down the login response.
+  BillingService.get(Number(userId)).catch((err) => 
+    logger.error('Failed to warm billing cache post-login', { userId, error: err.message })
+  );
+  
   // Return response
   return ok(res, {
     user: {

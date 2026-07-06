@@ -541,6 +541,7 @@ export class UsageService {
   }
 
   private static scheduleSync(userId: number) {
+    console.log(this.syncTimers);
     const existing = this.syncTimers.get(userId);
 
     if (existing) {
@@ -548,6 +549,7 @@ export class UsageService {
     }
 
     const timer = setTimeout(() => {
+      console.log(`Syncing usage for user ${userId}...`);
       void this.sync(userId).finally(() => {
         this.syncTimers.delete(userId);
       });
@@ -1673,7 +1675,7 @@ export class SubscriptionValidator {
         throw new SubscriptionRequiredError();
       }
 
-      if (cache.subscription.status !== SubscriptionStatus.ACTIVE) {
+      if (cache.subscription.status !== SubscriptionStatus.ACTIVE && cache.subscription.status !== SubscriptionStatus.TRIAL) {
         throw new SubscriptionExpiredError(
           cache.subscription.expiresAt ? new Date(cache.subscription.expiresAt) : undefined,
         );
