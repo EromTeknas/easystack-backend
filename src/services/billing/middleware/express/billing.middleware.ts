@@ -6,6 +6,7 @@ import {
 
 import { BillingService } from "../../services/billing.service";
 import { BillingAuthorizationService } from "../../services/billing-authorization.service";
+import { BadRequestError } from "../../../../errors";
 
 import {
   BillingAuthorizationRequest,
@@ -23,6 +24,10 @@ export function billingMiddleware(
 
     try {
       const workspaceId = getWorkspaceId(req);
+
+      if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
+        throw new BadRequestError("workspaceId is required and must be a positive number");
+      }
 
       if (req.user?.id) {
         await BillingAuthorizationService.ensureWorkspaceMember(

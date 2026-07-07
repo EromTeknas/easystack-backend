@@ -4,6 +4,7 @@ import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
 import { BillingQuotaResult } from "../types/index.ts";
+import { BillingLockService } from "../cache/billing.lock.service.ts";
 
 export class UsageService {
   private static readonly usageCache = new UsageCache();
@@ -47,6 +48,12 @@ export class UsageService {
   }
 
   static async consume(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.consumeWithinLock(workspaceId, quotaKey, amount),
+    );
+  }
+
+  static async consumeWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
     const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = currentValue + amount;
@@ -60,6 +67,12 @@ export class UsageService {
   }
 
   static async release(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.releaseWithinLock(workspaceId, quotaKey, amount),
+    );
+  }
+
+  static async releaseWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
     const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = Math.max(0, currentValue - amount);
@@ -81,6 +94,12 @@ export class UsageService {
   }
 
   static async set(workspaceId: number, quotaKey: string, value: number) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.setWithinLock(workspaceId, quotaKey, value),
+    );
+  }
+
+  static async setWithinLock(workspaceId: number, quotaKey: string, value: number) {
     const cache = await BillingContextService.get(workspaceId);
     cache.usage[quotaKey] = value;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
@@ -90,6 +109,12 @@ export class UsageService {
   }
 
   static async reset(workspaceId: number, quotaKey?: string) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.resetWithinLock(workspaceId, quotaKey),
+    );
+  }
+
+  static async resetWithinLock(workspaceId: number, quotaKey?: string) {
     const cache = await BillingContextService.get(workspaceId);
 
     if (quotaKey) {

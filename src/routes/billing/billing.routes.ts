@@ -22,12 +22,12 @@ router.post(
   "/test/add-content",
   authenticate,
   billingMiddleware(
-    (req) => Number(req.body.workspaceId ?? req.query.workspaceId),
+    (req) => Number(req.body?.workspaceId ?? req.query.workspaceId ?? req.workspace?.id),
     {
       subscription: true, // Requires an active plan
       quotas: [
         {
-          key: "api.requests.month", // Validates against the Quotas.API_REQUESTS definition
+          key: "api.requests.daily", // Validates against the Quotas.API_REQUESTS definition
           amount: 1,
           consume: true, // Tells UsageService to increment this by 1
         },

@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { PaymentGateway, PaymentStatus, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 import { InvoiceService } from "./invoice/invoice.service.ts";
 import { PaymentRepository } from "./payment.repository.ts";
 import { SubscriptionRepository } from "../repositories/subscription.repository.ts";
@@ -11,19 +11,19 @@ export class SubscriptionPurchaseWorkflow {
     workspaceId: number;
     billingOwnerId?: number;
     planId: number;
-    paymentResult: { gateway: any; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
+    paymentResult: { gateway: PaymentGateway; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
   }) {
     const { workspaceId, billingOwnerId, planId, paymentResult } = args;
 
     return await this.prisma.$transaction(async (tx) => {
-      const subRepo = new SubscriptionRepository(tx as any);
-      const historyRepo = new HistoryRepository(tx as any);
-      const paymentRepo = new PaymentRepository(tx as any);
-      const invoiceSvc = new InvoiceService(tx as any);
+      const subRepo = new SubscriptionRepository(tx);
+      const historyRepo = new HistoryRepository(tx);
+      const paymentRepo = new PaymentRepository(tx);
+      const invoiceSvc = new InvoiceService(tx);
 
       const startsAt = new Date();
-      let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
-      let trialEndsAt: Date | null = null;
+      const status = SubscriptionStatus.ACTIVE;
+      const trialEndsAt: Date | null = null;
 
       // Plan trial handling is done by caller if required; keep basic active
 
@@ -40,7 +40,7 @@ export class SubscriptionPurchaseWorkflow {
           gateway: paymentResult.gateway,
           gatewayCustomerId: paymentResult.customerId ?? null,
           gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
-        } as any,
+        },
         {
           planVersion: { connect: { id: planId } },
           billingOwner: billingOwnerId ? { connect: { id: billingOwnerId } } : { disconnect: true },
@@ -51,7 +51,7 @@ export class SubscriptionPurchaseWorkflow {
           gateway: paymentResult.gateway,
           gatewayCustomerId: paymentResult.customerId ?? null,
           gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
-        } as any,
+        },
       );
 
       await historyRepo.create({
@@ -62,7 +62,7 @@ export class SubscriptionPurchaseWorkflow {
         startsAt,
         endsAt: null,
         reason: "Purchase completed",
-      } as any);
+      });
 
       const paymentRecord = await paymentRepo.create({
         workspace: { connect: { id: workspaceId } },
@@ -70,10 +70,10 @@ export class SubscriptionPurchaseWorkflow {
         gateway: paymentResult.gateway,
         gatewayPaymentId: paymentResult.transactionId,
         gatewayCustomerId: paymentResult.customerId ?? undefined,
-        gatewayPriceId: paymentResult.metadata?.gatewayPriceId as any,
+        gatewayPriceId: typeof paymentResult.metadata?.gatewayPriceId === "string" ? paymentResult.metadata.gatewayPriceId : undefined,
         amount: paymentResult.amount,
         currency: paymentResult.currency,
-        status: ("PAID" as any),
+        status: PaymentStatus.PAID,
         paidAt: new Date(),
         metadata: (paymentResult.metadata ?? {}) as Prisma.InputJsonValue,
         idempotencyKey: (paymentResult.metadata?.idempotencyKey as string) ?? undefined,

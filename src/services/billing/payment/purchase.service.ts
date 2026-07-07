@@ -1,4 +1,4 @@
-import { PaymentGateway, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { PaymentGateway, PaymentStatus, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../../../db";
 import { BillingContextService } from "../cache/billing.context.service.ts";
@@ -36,7 +36,7 @@ export class PurchaseService {
       const existing = await this.paymentRepo.findByIdempotencyKey(request.idempotencyKey);
 
       if (existing) {
-        return { success: true, payment: existing } as any;
+        return { success: true, payment: existing };
       }
     }
 
@@ -58,7 +58,7 @@ export class PurchaseService {
     });
 
     // If payment did not succeed, persist a payment record and return status.
-    if (payment.status !== ("PAID" as any)) {
+    if (payment.status !== PaymentStatus.PAID) {
       await this.paymentRepo.create({
         workspace: { connect: { id: request.workspaceId } },
         gateway: payment.gateway,
@@ -66,12 +66,12 @@ export class PurchaseService {
         gatewayCustomerId: payment.customerId ?? undefined,
         amount: payment.amount,
         currency: payment.currency,
-        status: payment.status as any,
-        paidAt: payment.status === ("PAID" as any) ? new Date() : null,
+        status: payment.status,
+        paidAt: null,
         metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
-      } as Prisma.PaymentCreateInput);
+      });
 
-      return { success: false, payment } as any;
+      return { success: false, payment };
     }
 
     // Payment succeeded: hand over to the workflow which encapsulates the DB transaction.
@@ -125,7 +125,7 @@ export class PurchaseService {
     await this.subscriptions.update(request.workspaceId, {
       status: SubscriptionStatus.CANCELLED,
       cancelledAt: now,
-    } as any);
+    });
 
     await this.history.create({
       workspace: { connect: { id: request.workspaceId } },
@@ -135,7 +135,7 @@ export class PurchaseService {
       startsAt: subscription.startsAt,
       endsAt: now,
       reason: "Cancelled",
-    } as any);
+    });
 
     await BillingContextService.refresh(request.workspaceId);
 

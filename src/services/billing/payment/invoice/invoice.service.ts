@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 import { InvoiceRepository } from "./invoice.repository.ts";
 import { InvoiceNumberGenerator } from "./invoice-number.generator.ts";
@@ -7,7 +7,7 @@ import { InvoiceType } from "./invoice-type.enum.ts";
 
 export class InvoiceService {
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
     private readonly invoices = new InvoiceRepository(prisma),
   ) {}
 

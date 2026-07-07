@@ -1,11 +1,11 @@
 ###  ###
 export const BILLING_CACHE_KEYS = {
-  USER: (userId: number) => `billing:v1:user:${userId}`,
-  USER_USAGE: (userId: number) => `billing:v1:user:${userId}:usage`,
-  USER_FEATURES: (userId: number) => `billing:v1:user:${userId}:features`,
-  USER_QUOTAS: (userId: number) => `billing:v1:user:${userId}:quotas`,
-  USER_SUBSCRIPTION: (userId: number) => `billing:v1:user:${userId}:subscription`,
-  USER_PLAN: (userId: number) => `billing:v1:user:${userId}:plan`,
+  WORKSPACE: (workspaceId: number) => `billing:v1:workspace:${workspaceId}`,
+  WORKSPACE_USAGE: (workspaceId: number) => `billing:v1:workspace:${workspaceId}:usage`,
+  WORKSPACE_FEATURES: (workspaceId: number) => `billing:v1:workspace:${workspaceId}:features`,
+  WORKSPACE_QUOTAS: (workspaceId: number) => `billing:v1:workspace:${workspaceId}:quotas`,
+  WORKSPACE_SUBSCRIPTION: (workspaceId: number) => `billing:v1:workspace:${workspaceId}:subscription`,
+  WORKSPACE_PLAN: (workspaceId: number) => `billing:v1:workspace:${workspaceId}:plan`,
 };
 
 
@@ -33,14 +33,14 @@ import { BillingCache } from "../types/billing-cache.type";
 import { BILLING_CACHE_KEYS } from "./cache.keys";
 
 export class BillingCacheService {
-  static async get(userId: number): Promise<BillingCache | null> {
-    const cached = await redis.get(BILLING_CACHE_KEYS.USER(userId));
+  static async get(workspaceId: number): Promise<BillingCache | null> {
+    const cached = await redis.get(BILLING_CACHE_KEYS.WORKSPACE(workspaceId));
 
     return cached ? (JSON.parse(cached) as BillingCache) : null;
   }
 
   static async set(cache: BillingCache, ttlSeconds?: number): Promise<void> {
-    const key = BILLING_CACHE_KEYS.USER(cache.userId);
+    const key = BILLING_CACHE_KEYS.WORKSPACE(cache.workspaceId);
 
     if (ttlSeconds) {
       await redis.set(key, JSON.stringify(cache), "EX", ttlSeconds);
@@ -50,18 +50,18 @@ export class BillingCacheService {
     await redis.set(key, JSON.stringify(cache));
   }
 
-  static async exists(userId: number): Promise<boolean> {
-    return (await redis.exists(BILLING_CACHE_KEYS.USER(userId))) === 1;
+  static async exists(workspaceId: number): Promise<boolean> {
+    return (await redis.exists(BILLING_CACHE_KEYS.WORKSPACE(workspaceId))) === 1;
   }
 
-  static async evict(userId: number): Promise<void> {
-    await redis.del(BILLING_CACHE_KEYS.USER(userId));
+  static async evict(workspaceId: number): Promise<void> {
+    await redis.del(BILLING_CACHE_KEYS.WORKSPACE(workspaceId));
   }
 }
 
 
 ###  ###
-export const BILLING_CACHE_TTL_SECONDS = 60;
+export const BILLING_CACHE_TTL_SECONDS = 10 * 60;
 export const BILLING_CACHE_VERSION = 1;
 export const BILLING_USAGE_SYNC_INTERVAL_SECONDS = 30;
 
@@ -75,64 +75,65 @@ import { BillingCache } from "../types/billing-cache.type.ts";
 export class BillingContextService {
   private static readonly builder = new BillingBuilder();
 
-  static async get(userId: number): Promise<BillingCache> {
-    const cached = await BillingCacheService.get(userId);
+  static async get(workspaceId: number): Promise<BillingCache> {
+    const cached = await BillingCacheService.get(workspaceId);
 
     if (cached) {
       return cached;
     }
 
-    return await this.refresh(userId);
+    return await this.refresh(workspaceId);
   }
 
-  static async refresh(userId: number): Promise<BillingCache> {
-    const cache = await this.builder.build(userId);
+  static async refresh(workspaceId: number): Promise<BillingCache> {
+    const cache = await this.builder.build(workspaceId);
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     return cache;
   }
 
-  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
-    return await Promise.all(userIds.map((userId) => this.refresh(userId)));
+  static async refreshMany(workspaceIds: number[]): Promise<BillingCache[]> {
+    return await Promise.all(workspaceIds.map((workspaceId) => this.refresh(workspaceId)));
   }
 
-  static async invalidate(userId: number): Promise<void> {
-    await BillingCacheService.evict(userId);
+  static async invalidate(workspaceId: number): Promise<void> {
+    await BillingCacheService.evict(workspaceId);
   }
 }
+
 
 ###  ###
 import redis from "../../../config/redis";
 
 export class UsageCache {
-  private key(userId: number, quotaKey: string) {
-    return `billing:v1:usage:${userId}:${quotaKey}`;
+  private key(workspaceId: number, quotaKey: string) {
+    return `billing:v1:workspace:${workspaceId}:usage:${quotaKey}`;
   }
 
-  async get(userId: number, quotaKey: string) {
-    const value = await redis.get(this.key(userId, quotaKey));
+  async get(workspaceId: number, quotaKey: string) {
+    const value = await redis.get(this.key(workspaceId, quotaKey));
 
     return value ? Number(value) : null;
   }
 
-  async set(userId: number, quotaKey: string, value: number, ttl?: number) {
+  async set(workspaceId: number, quotaKey: string, value: number, ttl?: number) {
     if (ttl) {
-      await redis.set(this.key(userId, quotaKey), String(value), "EX", ttl);
+      await redis.set(this.key(workspaceId, quotaKey), String(value), "EX", ttl);
       return;
     }
 
-    await redis.set(this.key(userId, quotaKey), String(value));
+    await redis.set(this.key(workspaceId, quotaKey), String(value));
   }
 
-  async increment(userId: number, quotaKey: string, value = 1) {
-    return redis.incrby(this.key(userId, quotaKey), value);
+  async increment(workspaceId: number, quotaKey: string, value = 1) {
+    return redis.incrby(this.key(workspaceId, quotaKey), value);
   }
 
-  async decrement(userId: number, quotaKey: string, value = 1) {
-    return redis.decrby(this.key(userId, quotaKey), value);
+  async decrement(workspaceId: number, quotaKey: string, value = 1) {
+    return redis.decrby(this.key(workspaceId, quotaKey), value);
   }
 
-  async delete(userId: number, quotaKey: string) {
-    await redis.del(this.key(userId, quotaKey));
+  async delete(workspaceId: number, quotaKey: string) {
+    await redis.del(this.key(workspaceId, quotaKey));
   }
 }
 
@@ -156,21 +157,21 @@ import { randomUUID } from "node:crypto";
 
 import redis from "../../../config/redis";
 
-const BILLING_LOCK_PREFIX = "billing:v1:lock:user";
+const BILLING_LOCK_PREFIX = "billing:v1:lock:workspace";
 const BILLING_LOCK_TTL_SECONDS = 15;
 const BILLING_LOCK_WAIT_TIMEOUT_MS = 5_000;
 const BILLING_LOCK_RETRY_DELAY_MS = 50;
 
 export class BillingLockService {
-  static async withUserLock<T>(
-    userId: number,
+  static async withWorkspaceLock<T>(
+    workspaceId: number,
     handler: () => Promise<T>,
     options?: {
       waitTimeoutMs?: number;
       ttlSeconds?: number;
     },
   ): Promise<T> {
-    const lockKey = `${BILLING_LOCK_PREFIX}:${userId}`;
+    const lockKey = `${BILLING_LOCK_PREFIX}:${workspaceId}`;
     const token = randomUUID();
     const waitTimeoutMs = options?.waitTimeoutMs ?? BILLING_LOCK_WAIT_TIMEOUT_MS;
     const ttlSeconds = options?.ttlSeconds ?? BILLING_LOCK_TTL_SECONDS;
@@ -184,7 +185,7 @@ export class BillingLockService {
       }
 
       if (Date.now() >= expiresAt) {
-        throw new Error(`Timed out waiting for billing lock on user ${userId}.`);
+        throw new Error(`Timed out waiting for billing lock on workspace ${workspaceId}.`);
       }
 
       await new Promise((resolve) => setTimeout(resolve, BILLING_LOCK_RETRY_DELAY_MS));
@@ -203,6 +204,7 @@ export class BillingLockService {
   }
 }
 
+
 ###  ###
 import { BillingCache, BillingSubscriptionCache } from "../types/billing-cache.type";
 
@@ -218,10 +220,11 @@ export { BillingService } from "./services/billing.service.ts";
 export { PlanService } from "./services/plan.service.ts";
 export { QuotaService } from "./services/quota.service.ts";
 export { SubscriptionService } from "./services/subscription.service.ts";
-export { TrialService } from "./services/trail.service.ts";
+export { TrialService } from "./services/trial.service.ts";
 export { UsageService } from "./services/usage.service.ts";
 export { FeatureService } from "./services/feature.service.ts";
 export { ResetService } from "./services/reset.service.ts";
+export { BillingAuthorizationService } from "./services/billing-authorization.service.ts";
 export { BillingContextService } from "./cache/billing.context.service.ts";
 export { BillingLockService } from "./cache/billing.lock.service.ts";
 export * from "./validators/index.ts";
@@ -270,7 +273,7 @@ export interface BillingPlanCache {
 }
 
 export interface BillingCache {
-  userId: number;
+  workspaceId: number;
   version: number;
   updatedAt: string;
   subscription: BillingSubscriptionCache | null;
@@ -389,27 +392,71 @@ export interface PricingDefinition {
 
 ###  ###
 import { prisma } from "../../../db";
+import { ForbiddenError } from "../../../errors";
+
+const BILLING_MUTATION_ROLES = new Set(["WORKSPACE_OWNER", "WORKSPACE_ADMIN"]);
+
+export class BillingAuthorizationService {
+  static async ensureWorkspaceMember(userId: number, workspaceId: number) {
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId,
+        },
+      },
+      include: {
+        role: true,
+      },
+    });
+
+    if (!membership || membership.removedAt) {
+      throw new ForbiddenError("You do not have access to this workspace.", "WORKSPACE_ACCESS_DENIED", {
+        workspaceId,
+      });
+    }
+
+    return membership;
+  }
+
+  static async ensureBillingMutationAllowed(userId: number, workspaceId: number) {
+    const membership = await this.ensureWorkspaceMember(userId, workspaceId);
+
+    if (!BILLING_MUTATION_ROLES.has(membership.role.key)) {
+      throw new ForbiddenError("You do not have permission to change billing for this workspace.", "BILLING_PERMISSION_DENIED", {
+        workspaceId,
+      });
+    }
+
+    return membership;
+  }
+}
+
+
+###  ###
+import { prisma } from "../../../db";
 import { BillingCacheService } from "../cache/billing.cache.service.ts";
 import { BILLING_CACHE_TTL_SECONDS } from "../cache/cache.constants.ts";
 import { UsageCache } from "../cache/usage.cache.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
 import { BillingQuotaResult } from "../types/index.ts";
+import { BillingLockService } from "../cache/billing.lock.service.ts";
 
 export class UsageService {
   private static readonly usageCache = new UsageCache();
   private static readonly syncTimers = new Map<number, NodeJS.Timeout>();
 
-  static async get(userId: number) {
-    const cache = await BillingContextService.get(userId);
+  static async get(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
     return cache.usage;
   }
 
-  static async list(userId: number) {
-    return await this.get(userId);
+  static async list(workspaceId: number) {
+    return await this.get(workspaceId);
   }
 
-  static async initialize(userId: number, _planVersionId?: number) {
-    const cache = await BillingContextService.refresh(userId);
+  static async initialize(workspaceId: number, _planVersionId?: number) {
+    const cache = await BillingContextService.refresh(workspaceId);
     const quotaKeys = Object.keys(cache.quotas);
 
     if (quotaKeys.length > 0) {
@@ -419,9 +466,9 @@ export class UsageService {
 
       for (const quota of quotas) {
         await prisma.usage.upsert({
-          where: { userId_quotaId: { userId, quotaId: quota.id } },
+          where: { workspaceId_quotaId: { workspaceId, quotaId: quota.id } },
           create: {
-            userId,
+            workspaceId,
             quotaId: quota.id,
             value: cache.usage[quota.key] ?? 0,
           },
@@ -432,74 +479,98 @@ export class UsageService {
       }
     }
 
-    await this.seedRedisUsage(userId, cache.usage);
+    await this.seedRedisUsage(workspaceId, cache.usage);
     return cache.usage;
   }
 
-  static async consume(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await BillingContextService.get(userId);
+  static async consume(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.consumeWithinLock(workspaceId, quotaKey, amount),
+    );
+  }
+
+  static async consumeWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
+    const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = currentValue + amount;
 
     cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, nextValue);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, nextValue);
+    this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async release(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await BillingContextService.get(userId);
+  static async release(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.releaseWithinLock(workspaceId, quotaKey, amount),
+    );
+  }
+
+  static async releaseWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
+    const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = Math.max(0, currentValue - amount);
 
     cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, nextValue);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, nextValue);
+    this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async increment(userId: number, quotaKey: string, amount: number = 1) {
-    return await this.consume(userId, quotaKey, amount);
+  static async increment(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await this.consume(workspaceId, quotaKey, amount);
   }
 
-  static async decrement(userId: number, quotaKey: string, amount: number = 1) {
-    return await this.release(userId, quotaKey, amount);
+  static async decrement(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await this.release(workspaceId, quotaKey, amount);
   }
 
-  static async set(userId: number, quotaKey: string, value: number) {
-    const cache = await BillingContextService.get(userId);
+  static async set(workspaceId: number, quotaKey: string, value: number) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.setWithinLock(workspaceId, quotaKey, value),
+    );
+  }
+
+  static async setWithinLock(workspaceId: number, quotaKey: string, value: number) {
+    const cache = await BillingContextService.get(workspaceId);
     cache.usage[quotaKey] = value;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, value);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, value);
+    this.scheduleSync(workspaceId);
     return value;
   }
 
-  static async reset(userId: number, quotaKey?: string) {
-    const cache = await BillingContextService.get(userId);
+  static async reset(workspaceId: number, quotaKey?: string) {
+    return await BillingLockService.withWorkspaceLock(workspaceId, () =>
+      this.resetWithinLock(workspaceId, quotaKey),
+    );
+  }
+
+  static async resetWithinLock(workspaceId: number, quotaKey?: string) {
+    const cache = await BillingContextService.get(workspaceId);
 
     if (quotaKey) {
       cache.usage[quotaKey] = 0;
-      await this.usageCache.set(userId, quotaKey, 0);
+      await this.usageCache.set(workspaceId, quotaKey, 0);
     } else {
       for (const key of Object.keys(cache.usage)) {
         cache.usage[key] = 0;
-        await this.usageCache.set(userId, key, 0);
+        await this.usageCache.set(workspaceId, key, 0);
       }
     }
 
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    this.scheduleSync(userId);
+    this.scheduleSync(workspaceId);
 
     return cache.usage;
   }
 
-  static async remaining(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await BillingContextService.get(userId);
+  static async remaining(workspaceId: number, quotaKey: string): Promise<number | null> {
+    const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null) {
@@ -509,8 +580,8 @@ export class UsageService {
     return Math.max(0, limit - (cache.usage[quotaKey] ?? 0));
   }
 
-  static async percent(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await BillingContextService.get(userId);
+  static async percent(workspaceId: number, quotaKey: string): Promise<number | null> {
+    const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null || limit === 0) {
@@ -520,54 +591,53 @@ export class UsageService {
     return Math.min(100, Math.round(((cache.usage[quotaKey] ?? 0) / limit) * 100));
   }
 
-  static async hasRemaining(userId: number, quotaKey: string, amount: number = 1): Promise<boolean> {
-    const remaining = await this.remaining(userId, quotaKey);
+  static async hasRemaining(workspaceId: number, quotaKey: string, amount: number = 1): Promise<boolean> {
+    const remaining = await this.remaining(workspaceId, quotaKey);
     return remaining === null ? true : remaining >= amount;
   }
 
-  static async sync(userId: number) {
-    const cache = await BillingContextService.get(userId);
-    const rows = await prisma.usage.findMany({ where: { userId }, include: { quota: true } });
+  static async sync(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
+    const rows = await prisma.usage.findMany({ where: { workspaceId }, include: { quota: true } });
 
     for (const [quotaKey, value] of Object.entries(cache.usage)) {
       const row = rows.find((item) => item.quota.key === quotaKey);
 
       if (row) {
         await prisma.usage.update({
-          where: { userId_quotaId: { userId, quotaId: row.quotaId } },
+          where: { workspaceId_quotaId: { workspaceId, quotaId: row.quotaId } },
           data: { value },
         });
       }
     }
   }
 
-  static async flush(userId: number) {
-    await this.sync(userId);
-    await BillingContextService.invalidate(userId);
+  static async flush(workspaceId: number) {
+    await this.sync(workspaceId);
+    await BillingContextService.invalidate(workspaceId);
   }
 
-  private static async seedRedisUsage(userId: number, usage: Record<string, number>) {
+  private static async seedRedisUsage(workspaceId: number, usage: Record<string, number>) {
     for (const [quotaKey, value] of Object.entries(usage)) {
-      await this.usageCache.set(userId, quotaKey, value);
+      await this.usageCache.set(workspaceId, quotaKey, value);
     }
   }
 
-  private static scheduleSync(userId: number) {
-    console.log(this.syncTimers);
-    const existing = this.syncTimers.get(userId);
+  private static scheduleSync(workspaceId: number) {
+    const existing = this.syncTimers.get(workspaceId);
 
     if (existing) {
       clearTimeout(existing);
     }
 
     const timer = setTimeout(() => {
-      console.log(`Syncing usage for user ${userId}...`);
-      void this.sync(userId).finally(() => {
-        this.syncTimers.delete(userId);
+      console.log(`Syncing usage for workspace ${workspaceId}...`);
+      void this.sync(workspaceId).finally(() => {
+        this.syncTimers.delete(workspaceId);
       });
     }, 30_000);
 
-    this.syncTimers.set(userId, timer);
+    this.syncTimers.set(workspaceId, timer);
   }
 }
 
@@ -589,16 +659,16 @@ export class SubscriptionService {
     private readonly plans = new PlanRepository(prisma),
   ) {}
 
-  async get(userId: number) {
-    return BillingService.subscription(userId);
+  async get(workspaceId: number) {
+    return BillingService.subscription(workspaceId);
   }
 
-  async exists(userId: number) {
-    return !!(await BillingService.subscription(userId));
+  async exists(workspaceId: number) {
+    return !!(await BillingService.subscription(workspaceId));
   }
 
   async assignPlan(
-    userId: number,
+    workspaceId: number,
     planKey: string,
     options?: {
       trial?: boolean;
@@ -606,6 +676,7 @@ export class SubscriptionService {
       gateway?: PaymentGateway;
       gatewayCustomerId?: string;
       gatewaySubscriptionId?: string;
+      billingOwnerId?: number;
     },
   ) {
     const plan = await this.plans.findLatestVersion(planKey);
@@ -629,13 +700,16 @@ export class SubscriptionService {
     }
 
     const subscription = await this.subscriptions.upsert(
-      userId,
+      workspaceId,
       {
-        user: {
+        workspace: {
           connect: {
-            id: userId,
+            id: workspaceId,
           },
         },
+        ...(options?.billingOwnerId
+          ? { billingOwner: { connect: { id: options.billingOwnerId } } }
+          : {}),
 
         planVersion: {
           connect: {
@@ -666,10 +740,18 @@ export class SubscriptionService {
         gateway: options?.gateway ? options.gateway : null,
         gatewayCustomerId: options?.gatewayCustomerId ?? null,
         gatewaySubscriptionId: options?.gatewaySubscriptionId ?? null,
+        billingOwner: options?.billingOwnerId
+          ? { connect: { id: options.billingOwnerId } }
+          : { disconnect: true },
       },
     );
 
     await this.historyRepo.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
       subscription: {
         connect: {
           id: subscription.id,
@@ -691,13 +773,13 @@ export class SubscriptionService {
       reason: options?.reason ?? "Subscription assigned",
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return subscription;
   }
 
-  async cancel(userId: number, reason?: string) {
-    const subscription = await this.subscriptions.findRaw(userId);
+  async cancel(workspaceId: number, reason?: string) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -705,12 +787,17 @@ export class SubscriptionService {
 
     const now = new Date();
 
-    const updated = await this.subscriptions.update(userId, {
+    const updated = await this.subscriptions.update(workspaceId, {
       status: SubscriptionStatus.CANCELLED,
       cancelledAt: now,
     });
 
     await this.historyRepo.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
       subscription: {
         connect: {
           id: subscription.id,
@@ -732,13 +819,13 @@ export class SubscriptionService {
       reason: reason ?? "Cancelled",
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return updated;
   }
 
-  async history(userId: number) {
-    const subscription = await this.subscriptions.findRaw(userId);
+  async history(workspaceId: number) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       return [];
@@ -755,22 +842,27 @@ import { BillingCache } from "../types/billing-cache.type";
 import { BILLING_CACHE_VERSION } from "../cache/cache.constants";
 
 export class BillingBuilder {
-  async build(userId: number): Promise<BillingCache> {
-    const subscription = await prisma.subscription.findUnique({
-      where: { userId },
+  async build(workspaceId: number): Promise<BillingCache> {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
       include: {
-        planVersion: {
+        subscription: {
           include: {
-            plan: true,
-            features: { include: { feature: true } },
-            quotas: { include: { quota: true } },
+            planVersion: {
+              include: {
+                plan: true,
+                features: { include: { feature: true } },
+                quotas: { include: { quota: true } },
+              },
+            },
           },
         },
       },
     });
+    const subscription = workspace?.subscription ?? null;
 
     const usageRows = await prisma.usage.findMany({
-      where: { userId },
+      where: { workspaceId },
       include: { quota: true },
     });
 
@@ -793,7 +885,7 @@ export class BillingBuilder {
     }
 
     return {
-      userId,
+      workspaceId,
       version: BILLING_CACHE_VERSION,
       updatedAt: new Date().toISOString(),
       subscription: subscription
@@ -830,17 +922,17 @@ import { BillingContextService } from "../cache/billing.context.service.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 
 export class FeatureService {
-  static async enabled(userId: number, featureKey: string): Promise<boolean> {
-    const cache = await BillingContextService.get(userId);
+  static async enabled(workspaceId: number, featureKey: string): Promise<boolean> {
+    const cache = await BillingContextService.get(workspaceId);
     return FeatureCache.get(cache, featureKey);
   }
 
-  static async has(userId: number, featureKey: string): Promise<boolean> {
-    return await this.enabled(userId, featureKey);
+  static async has(workspaceId: number, featureKey: string): Promise<boolean> {
+    return await this.enabled(workspaceId, featureKey);
   }
 
-  static async all(userId: number) {
-    const cache = await BillingContextService.get(userId);
+  static async all(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
     return FeatureCache.all(cache);
   }
 
@@ -946,6 +1038,116 @@ export class PlanService {
 }
 
 ###  ###
+import {
+  Prisma,
+  PrismaClient,
+  SubscriptionStatus,
+} from "@prisma/client";
+
+import { SubscriptionRepository } from "../repositories/subscription.repository";
+import { HistoryRepository } from "../repositories/history.repository";
+import { BillingService } from "./billing.service.ts";
+import { BillingContextService } from "../cache/billing.context.service.ts";
+
+export class TrialService {
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+    private readonly subscriptions = new SubscriptionRepository(prisma),
+    private readonly history = new HistoryRepository(prisma),
+  ) {}
+
+  async expire(workspaceId: number) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    if (subscription.status !== SubscriptionStatus.TRIAL) {
+      return subscription;
+    }
+
+    const now = new Date();
+
+    if (
+      !subscription.trialEndsAt ||
+      subscription.trialEndsAt > now
+    ) {
+      return subscription;
+    }
+
+    const updated = await this.subscriptions.update(workspaceId, {
+      status: SubscriptionStatus.EXPIRED,
+      expiresAt: now,
+    });
+
+    await this.history.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
+      subscription: {
+        connect: {
+          id: subscription.id,
+        },
+      },
+
+      planVersion: {
+        connect: {
+          id: subscription.planVersionId,
+        },
+      },
+
+      status: SubscriptionStatus.EXPIRED,
+
+      startsAt: subscription.startsAt,
+
+      endsAt: now,
+
+      reason: "Trial expired",
+    });
+
+    await BillingContextService.refresh(workspaceId);
+
+    return updated;
+  }
+
+  async extend(workspaceId: number, days: number) {
+    const subscription =
+      await this.subscriptions.findRaw(workspaceId);
+
+    if (!subscription) {
+      throw new Error("Subscription not found.");
+    }
+
+    const base =
+      subscription.trialEndsAt ?? new Date();
+
+    const trialEndsAt = new Date(
+      base.getTime() + days * 24 * 60 * 60 * 1000,
+    );
+
+    const updated = await this.subscriptions.update(workspaceId, {
+      status: SubscriptionStatus.TRIAL,
+      trialEndsAt,
+    });
+
+    await BillingContextService.refresh(workspaceId);
+
+    return updated;
+  }
+
+  async isTrial(workspaceId: number) {
+    const subscription =
+      await this.subscriptions.findRaw(workspaceId);
+
+    return subscription?.status === SubscriptionStatus.TRIAL;
+  }
+}
+
+
+###  ###
 import { Prisma, PrismaClient } from "@prisma/client";
 
 import { QuotaRepository } from "../repositories/quota.repository";
@@ -1004,7 +1206,7 @@ export class QuotaService {
   }
 
   /**
-   * Returns the quota limit for the user's current subscription.
+   * Returns the quota limit for the workspace's current subscription.
    *
    * Example
    * -------
@@ -1026,10 +1228,10 @@ export class QuotaService {
    * This is called before UsageService performs any usage checks.
    */
   async getLimit(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    const cache = await BillingService.get(userId);
+    const cache = await BillingService.get(workspaceId);
     const limit = cache.quotas[quotaKey];
 
     if (typeof limit === "undefined") {
@@ -1040,7 +1242,7 @@ export class QuotaService {
   }
 
   /**
-   * Returns all quota limits available for the user's plan.
+   * Returns all quota limits available for the workspace's plan.
    *
    * Lifecycle
    * ---------
@@ -1051,8 +1253,8 @@ export class QuotaService {
    * - "Your Plan" page
    * - Mobile applications
    */
-  async listPlanQuotas(userId: number) {
-    const cache = await BillingService.get(userId);
+  async listPlanQuotas(workspaceId: number) {
+    const cache = await BillingService.get(workspaceId);
     const quotaKeys = Object.keys(cache.quotas);
 
     const definitions = await this.prisma.quota.findMany({
@@ -1080,120 +1282,17 @@ export class QuotaService {
    * Called by AuthorizationService before denying access.
    */
   async isUnlimited(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<boolean> {
-    const cache = await BillingService.get(userId);
+    const cache = await BillingService.get(workspaceId);
     return cache.quotas[quotaKey] === null;
   }
 }
 
-###  ###
-import {
-  Prisma,
-  PrismaClient,
-  SubscriptionStatus,
-} from "@prisma/client";
-
-import { SubscriptionRepository } from "../repositories/subscription.repository";
-import { HistoryRepository } from "../repositories/history.repository";
-import { BillingService } from "./billing.service.ts";
-import { BillingContextService } from "../cache/billing.context.service.ts";
-
-export class TrialService {
-  constructor(
-    private readonly prisma: PrismaClient | Prisma.TransactionClient,
-    private readonly subscriptions = new SubscriptionRepository(prisma),
-    private readonly history = new HistoryRepository(prisma),
-  ) {}
-
-  async expire(userId: number) {
-    const subscription = await this.subscriptions.findRaw(userId);
-
-    if (!subscription) {
-      throw new Error("Subscription not found.");
-    }
-
-    if (subscription.status !== SubscriptionStatus.TRIAL) {
-      return subscription;
-    }
-
-    const now = new Date();
-
-    if (
-      !subscription.trialEndsAt ||
-      subscription.trialEndsAt > now
-    ) {
-      return subscription;
-    }
-
-    const updated = await this.subscriptions.update(userId, {
-      status: SubscriptionStatus.EXPIRED,
-      expiresAt: now,
-    });
-
-    await this.history.create({
-      subscription: {
-        connect: {
-          id: subscription.id,
-        },
-      },
-
-      planVersion: {
-        connect: {
-          id: subscription.planVersionId,
-        },
-      },
-
-      status: SubscriptionStatus.EXPIRED,
-
-      startsAt: subscription.startsAt,
-
-      endsAt: now,
-
-      reason: "Trial expired",
-    });
-
-    await BillingContextService.refresh(userId);
-
-    return updated;
-  }
-
-  async extend(userId: number, days: number) {
-    const subscription =
-      await this.subscriptions.findRaw(userId);
-
-    if (!subscription) {
-      throw new Error("Subscription not found.");
-    }
-
-    const base =
-      subscription.trialEndsAt ?? new Date();
-
-    const trialEndsAt = new Date(
-      base.getTime() + days * 24 * 60 * 60 * 1000,
-    );
-
-    const updated = await this.subscriptions.update(userId, {
-      status: SubscriptionStatus.TRIAL,
-      trialEndsAt,
-    });
-
-    await BillingContextService.refresh(userId);
-
-    return updated;
-  }
-
-  async isTrial(userId: number) {
-    const subscription =
-      await this.subscriptions.findRaw(userId);
-
-    return subscription?.status === SubscriptionStatus.TRIAL;
-  }
-}
 
 ###  ###
-import { QuotaResetPolicy, Prisma } from "@prisma/client";
+import { QuotaResetPolicy } from "@prisma/client";
 import { prisma } from "../../../db";
 import { UsageService } from "./usage.service.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
@@ -1204,26 +1303,16 @@ export class ResetService {
     const results = [];
     const policiesToReset: QuotaResetPolicy[] = [];
 
-    // ==========================================
-    // 🧪 TESTING OVERRIDE: MINUTELY RESETS
-    // ==========================================
-    // If you are running a cron every minute, this ensures DAILY 
-    // quotas reset every single minute for testing purposes.
-    const isTesting = process.env.NODE_ENV !== 'production'; 
-    
-    if (isTesting) {
-      console.log("⚠️  Running in TESTING mode: All quotas will reset every minute for testing purposes.");
-      policiesToReset.push(QuotaResetPolicy.DAILY); // For testing, treat DAILY quotas as MINUTELY
-      
-      // If you specifically added MINUTELY to your Prisma schema, use this instead:
-      // policiesToReset.push(QuotaResetPolicy.MINUTELY);
-    } else {
-      // --- Standard Production Logic ---
-      // Only push DAILY if it's actually midnight (or whenever your production cron runs)
-      policiesToReset.push(QuotaResetPolicy.DAILY); 
-    }
-    // ==========================================
+    const resetTestMode = process.env.BILLING_RESET_TEST_MODE === "true";
 
+    const isDailyResetWindow = currentDate.getUTCHours() === 0 && currentDate.getUTCMinutes() === 0;
+
+    if (resetTestMode) {
+      console.log("Billing reset test mode enabled: DAILY quotas reset on each run.");
+      policiesToReset.push(QuotaResetPolicy.DAILY);
+    } else if (isDailyResetWindow) {
+      policiesToReset.push(QuotaResetPolicy.DAILY);
+    }
 
     // Weekly: Reset on Monday (1)
     if (currentDate.getUTCDay() === 1) {
@@ -1240,7 +1329,7 @@ export class ResetService {
       results.push(await this.resetByPolicy(policy));
     }
 
-    // Execute User-Specific Billing Cycle Resets
+    // Execute workspace-specific billing cycle resets
     results.push(await this.resetBillingCycleUsages(currentDate));
 
     return results;
@@ -1252,30 +1341,30 @@ export class ResetService {
       include: { usage: true },
     });
 
-    const affectedUserIds = new Set<number>();
+    const affectedWorkspaceIds = new Set<number>();
 
     for (const quota of quotas) {
       for (const usage of quota.usage) {
         await prisma.usage.update({
           where: {
-            userId_quotaId: { userId: usage.userId, quotaId: quota.id },
+            workspaceId_quotaId: { workspaceId: usage.workspaceId, quotaId: quota.id },
           },
           data: { value: 0, resetAt: new Date() },
         });
-        affectedUserIds.add(usage.userId);
+        affectedWorkspaceIds.add(usage.workspaceId);
       }
     }
 
-    await BillingContextService.refreshMany([...affectedUserIds]);
+    await BillingContextService.refreshMany([...affectedWorkspaceIds]);
 
     return {
       policy,
       resetCount: quotas.length,
-      affectedUserCount: affectedUserIds.size,
+      affectedWorkspaceCount: affectedWorkspaceIds.size,
     };
   }
 
-  // 3. Helper to reset user-specific Billing Cycle policies
+  // 3. Helper to reset workspace-specific Billing Cycle policies
   static async resetBillingCycleUsages(currentDate: Date) {
     // Get all quotas that follow the BILLING_CYCLE rule
     const billingCycleQuotas = await prisma.quota.findMany({
@@ -1287,12 +1376,12 @@ export class ResetService {
       return {
         policy: QuotaResetPolicy.BILLING_CYCLE,
         resetCount: 0,
-        affectedUserCount: 0,
+        affectedWorkspaceCount: 0,
       };
     }
 
     const quotaIds = billingCycleQuotas.map((q) => q.id);
-    const affectedUserIds = new Set<number>();
+    const affectedWorkspaceIds = new Set<number>();
 
     // Calculate dates to handle end-of-month edge cases (e.g., renewing on the 31st in a 30-day month)
     const targetDay = currentDate.getUTCDate();
@@ -1306,47 +1395,45 @@ export class ResetService {
     // Fetch active subscriptions
     const subscriptions = await prisma.subscription.findMany({
       where: { status: { in: ["ACTIVE", "TRIAL"] } },
-      select: { userId: true, startsAt: true },
+      select: { workspaceId: true, startsAt: true },
     });
 
-    // Filter users whose anniversary is today
-    const usersToReset = subscriptions
+    // Filter workspaces whose anniversary is today
+    const workspacesToReset = subscriptions
       .filter((sub) => {
         const startDay = sub.startsAt.getUTCDate();
         return startDay === targetDay || (isEndOfMonth && startDay > targetDay);
       })
-      .map((sub) => sub.userId);
+      .map((sub) => sub.workspaceId);
 
-    // Batch update the usages for these specific users
-    if (usersToReset.length > 0) {
+    // Batch update the usages for these specific workspaces
+    if (workspacesToReset.length > 0) {
       await prisma.usage.updateMany({
         where: {
-          userId: { in: usersToReset },
+          workspaceId: { in: workspacesToReset },
           quotaId: { in: quotaIds },
         },
         data: { value: 0, resetAt: currentDate },
       });
 
-      usersToReset.forEach((id) => affectedUserIds.add(id));
-      await BillingContextService.refreshMany([...affectedUserIds]);
+      workspacesToReset.forEach((id) => affectedWorkspaceIds.add(id));
+      await BillingContextService.refreshMany([...affectedWorkspaceIds]);
     }
 
     return {
       policy: QuotaResetPolicy.BILLING_CYCLE,
       resetCount: billingCycleQuotas.length,
-      affectedUserCount: affectedUserIds.size,
+      affectedWorkspaceCount: affectedWorkspaceIds.size,
     };
   }
 
-  // 4. Reset a specific user (Used manually or via Webhooks)
-  static async resetUserQuota(userId: number, quotaKey?: string) {
-    await UsageService.reset(userId, quotaKey);
-    await BillingContextService.refresh(userId);
+  // 4. Reset a specific workspace (Used manually or via Webhooks)
+  static async resetWorkspaceQuota(workspaceId: number, quotaKey?: string) {
+    await UsageService.reset(workspaceId, quotaKey);
+    await BillingContextService.refresh(workspaceId);
   }
 
-  // Add this inside src/services/billing/services/reset.service.ts
-
-  static async resetByPolicyForUser(userId: number, policy: QuotaResetPolicy) {
+  static async resetByPolicyForWorkspace(workspaceId: number, policy: QuotaResetPolicy) {
     // 1. Find all quotas that use this policy
     const quotas = await prisma.quota.findMany({
       where: { resetPolicy: policy },
@@ -1357,10 +1444,10 @@ export class ResetService {
 
     const quotaIds = quotas.map((q) => q.id);
 
-    // 2. Reset those specific usage rows for this user
+    // 2. Reset those specific usage rows for this workspace
     await prisma.usage.updateMany({
       where: {
-        userId: userId,
+        workspaceId,
         quotaId: { in: quotaIds },
       },
       data: {
@@ -1369,8 +1456,8 @@ export class ResetService {
       },
     });
 
-    // 3. Flush the Redis cache so the user instantly sees their fresh limits
-    await BillingContextService.refresh(userId);
+    // 3. Flush the Redis cache so the workspace instantly sees its fresh limits
+    await BillingContextService.refresh(workspaceId);
   }
 }
 
@@ -1399,48 +1486,48 @@ import { SubscriptionStatus } from "@prisma/client";
 export class BillingService {
   private static readonly usageCache = new UsageCache();
 
-  static async get(userId: number): Promise<BillingCache> {
-    return await BillingContextService.get(userId);
+  static async get(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.get(workspaceId);
   }
 
-  static async rebuild(userId: number): Promise<BillingCache> {
-    return await BillingContextService.refresh(userId);
+  static async rebuild(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(workspaceId);
   }
 
-  static async refresh(userId: number): Promise<BillingCache> {
-    return await BillingContextService.refresh(userId);
+  static async refresh(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(workspaceId);
   }
 
-  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
-    return await BillingContextService.refreshMany(userIds);
+  static async refreshMany(workspaceIds: number[]): Promise<BillingCache[]> {
+    return await BillingContextService.refreshMany(workspaceIds);
   }
 
-  static async invalidate(userId: number): Promise<void> {
-    await BillingContextService.invalidate(userId);
+  static async invalidate(workspaceId: number): Promise<void> {
+    await BillingContextService.invalidate(workspaceId);
   }
 
-  static async subscription(userId: number) {
-    return SubscriptionCache.get(await this.get(userId));
+  static async subscription(workspaceId: number) {
+    return SubscriptionCache.get(await this.get(workspaceId));
   }
 
-  static async plan(userId: number) {
-    return (await this.get(userId)).plan;
+  static async plan(workspaceId: number) {
+    return (await this.get(workspaceId)).plan;
   }
 
-  static async features(userId: number) {
-    return FeatureCache.all(await this.get(userId));
+  static async features(workspaceId: number) {
+    return FeatureCache.all(await this.get(workspaceId));
   }
 
-  static async quotas(userId: number) {
-    return QuotaCache.all(await this.get(userId));
+  static async quotas(workspaceId: number) {
+    return QuotaCache.all(await this.get(workspaceId));
   }
 
-  static async usage(userId: number) {
-    return (await this.get(userId)).usage;
+  static async usage(workspaceId: number) {
+    return (await this.get(workspaceId)).usage;
   }
 
-  static async getEffectivePlan(userId: number) {
-    const cache = await this.get(userId);
+  static async getEffectivePlan(workspaceId: number) {
+    const cache = await this.get(workspaceId);
 
     if (!cache.plan || !cache.subscription) {
       return null;
@@ -1457,40 +1544,40 @@ export class BillingService {
     };
   }
 
-  static async getUserUsage(userId: number) {
-    return await this.usage(userId);
+  static async getWorkspaceUsage(workspaceId: number) {
+    return await this.usage(workspaceId);
   }
 
   static async hasFeature(
-    userId: number,
+    workspaceId: number,
     featureKey: string,
   ): Promise<boolean> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     return FeatureCache.get(cache, featureKey);
   }
 
   static async canUseFeature(
-    userId: number,
+    workspaceId: number,
     featureKey: string,
   ): Promise<boolean> {
-    return this.hasFeature(userId, featureKey);
+    return this.hasFeature(workspaceId, featureKey);
   }
 
   static async getLimit(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     return QuotaCache.getLimit(cache, quotaKey);
   }
 
-  static async isUnlimited(userId: number, quotaKey: string): Promise<boolean> {
-    const cache = await this.get(userId);
+  static async isUnlimited(workspaceId: number, quotaKey: string): Promise<boolean> {
+    const cache = await this.get(workspaceId);
     return QuotaCache.isUnlimited(cache, quotaKey);
   }
 
   static async canPerformAction(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<{
     allowed: boolean;
@@ -1498,7 +1585,7 @@ export class BillingService {
     used: number;
     remaining: number | null;
   }> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     const limit = QuotaCache.getLimit(cache, quotaKey);
     const used = cache.usage[quotaKey] ?? 0;
 
@@ -1517,53 +1604,53 @@ export class BillingService {
   }
 
   static async consumeQuota(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
     amount: number = 1,
   ) {
-    return await UsageService.consume(userId, quotaKey, amount);
+    return await UsageService.consume(workspaceId, quotaKey, amount);
   }
 
   static async releaseQuota(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
     amount: number = 1,
   ) {
-    return await UsageService.release(userId, quotaKey, amount);
+    return await UsageService.release(workspaceId, quotaKey, amount);
   }
 
   static async remaining(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    return await UsageService.remaining(userId, quotaKey);
+    return await UsageService.remaining(workspaceId, quotaKey);
   }
 
-  static async reset(userId: number, quotaKey?: string) {
-    return await UsageService.reset(userId, quotaKey);
+  static async reset(workspaceId: number, quotaKey?: string) {
+    return await UsageService.reset(workspaceId, quotaKey);
   }
 
-  static async invalidateCache(userId: number): Promise<void> {
-    await this.invalidate(userId);
+  static async invalidateCache(workspaceId: number): Promise<void> {
+    await this.invalidate(workspaceId);
   }
 
-  static async rebuildCache(userId: number): Promise<BillingCache> {
-    return await this.rebuild(userId);
+  static async rebuildCache(workspaceId: number): Promise<BillingCache> {
+    return await this.rebuild(workspaceId);
   }
 
-  static async isTrial(userId: number): Promise<boolean> {
-    const subscription = await this.subscription(userId);
+  static async isTrial(workspaceId: number): Promise<boolean> {
+    const subscription = await this.subscription(workspaceId);
     return subscription?.status === SubscriptionStatus.TRIAL;
   }
 
-  static async isActive(userId: number): Promise<boolean> {
-    const subscription = await this.subscription(userId);
+  static async isActive(workspaceId: number): Promise<boolean> {
+    const subscription = await this.subscription(workspaceId);
     return (
       subscription?.status === SubscriptionStatus.ACTIVE || subscription?.status === SubscriptionStatus.TRIAL
     );
   }
 
-  static async createFreeSubscription(userId: number) {
+  static async createFreeSubscription(workspaceId: number, billingOwnerId?: number) {
     const planRepository = new PlanRepository(prisma);
     const freePlan = await planRepository.findLatestVersion("free");
 
@@ -1584,9 +1671,10 @@ export class BillingService {
       }
 
       await tx.subscription.upsert({
-        where: { userId },
+        where: { workspaceId },
         create: {
-          userId,
+          workspaceId,
+          billingOwnerId: billingOwnerId ?? null,
           planVersionId: latest.id,
           status: SubscriptionStatus.ACTIVE,
           startsAt: new Date(),
@@ -1597,45 +1685,46 @@ export class BillingService {
           startsAt: new Date(),
           expiresAt: null,
           cancelledAt: null,
+          billingOwnerId: billingOwnerId ?? null,
         },
       });
     });
 
-    await UsageService.initialize(userId, freePlan.id);
+    await UsageService.initialize(workspaceId, freePlan.id);
 
-    return await this.refresh(userId);
+    return await this.refresh(workspaceId);
   }
 
   static async authorizeAndConsume(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
-    return await BillingLockService.withUserLock(userId, async () => {
-      return await this.authorizeInternal(userId, request, true);
+    return await BillingLockService.withWorkspaceLock(workspaceId, async () => {
+      return await this.authorizeInternal(workspaceId, request, true);
     });
   }
 
   public static async authorize(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
     const shouldConsume = request.quotas?.some((quota) => quota.consume) ?? false;
 
     if (shouldConsume) {
-      return await BillingLockService.withUserLock(userId, async () => {
-        return await this.authorizeInternal(userId, request, true);
+      return await BillingLockService.withWorkspaceLock(workspaceId, async () => {
+        return await this.authorizeInternal(workspaceId, request, true);
       });
     }
 
-    return await this.authorizeInternal(userId, request, false);
+    return await this.authorizeInternal(workspaceId, request, false);
   }
 
   private static async authorizeInternal(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
     consumeQuotas: boolean,
   ): Promise<BillingAuthorizationResult> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
 
     if (!cache.subscription) {
       throw new SubscriptionRequiredError();
@@ -1681,7 +1770,7 @@ export class BillingService {
       if (consumeQuotas && consumedUsage.size > 0) {
         for (const [quotaKey, nextValue] of consumedUsage.entries()) {
           // Delegate to UsageService: Updates Redis, BillingCache, AND triggers scheduleSync()
-          await UsageService.set(userId, quotaKey, nextValue);
+          await UsageService.setWithinLock(workspaceId, quotaKey, nextValue);
           
           // Keep our local result object in sync to return to the middleware
           cache.usage[quotaKey] = nextValue;
@@ -1721,7 +1810,7 @@ export class PlanValidator {
     const pricingKeys = new Set<string>();
 
     for (const pricing of definition.pricing) {
-      if (!pricing.currency || pricing.amount <= 0) {
+      if (!pricing.currency || pricing.amount < 0) {
         throw new InvalidPlanError(definition.key);
       }
 
@@ -1759,6 +1848,7 @@ export class PlanValidator {
     }
   }
 }
+
 
 ###  ###
 import { BillingCache } from "../types/billing-cache.type.ts";
@@ -1844,13 +1934,14 @@ import {
 } from "express";
 
 import { BillingService } from "../../services/billing.service";
+import { BillingAuthorizationService } from "../../services/billing-authorization.service";
 
 import {
   BillingAuthorizationRequest,
 } from "../../types";
 
 export function billingMiddleware(
-  getUserId: (req: Request) => number,
+  getWorkspaceId: (req: Request) => number,
   request: BillingAuthorizationRequest
 ) {
   return async (
@@ -1860,6 +1951,14 @@ export function billingMiddleware(
   ) => {
 
     try {
+      const workspaceId = getWorkspaceId(req);
+
+      if (req.user?.id) {
+        await BillingAuthorizationService.ensureWorkspaceMember(
+          Number(req.user.id),
+          workspaceId,
+        );
+      }
 
       const shouldConsume =
         request.quotas?.some((quota) => quota.consume) ?? false;
@@ -1867,11 +1966,11 @@ export function billingMiddleware(
       const result =
         shouldConsume
           ? await BillingService.authorizeAndConsume(
-              getUserId(req),
+              workspaceId,
               request
             )
           : await BillingService.authorize(
-              getUserId(req),
+              workspaceId,
               request
             );
 
@@ -1884,6 +1983,7 @@ export function billingMiddleware(
     }
   };
 }
+
 
 ###  ###
 export class InvoiceNumberGenerator {
@@ -1917,7 +2017,7 @@ export class InvoiceRepository {
 }
 
 ###  ###
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 import { InvoiceRepository } from "./invoice.repository.ts";
 import { InvoiceNumberGenerator } from "./invoice-number.generator.ts";
@@ -1926,11 +2026,12 @@ import { InvoiceType } from "./invoice-type.enum.ts";
 
 export class InvoiceService {
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
     private readonly invoices = new InvoiceRepository(prisma),
   ) {}
 
   async create(input: {
+    workspaceId?: number;
     subscriptionId: number;
     paymentId: number;
     amount: number;
@@ -1940,6 +2041,7 @@ export class InvoiceService {
     metadata?: Record<string, unknown>;
   }) {
     return await this.invoices.create({
+      ...(input.workspaceId ? { workspace: { connect: { id: input.workspaceId } } } : {}),
       subscription: { connect: { id: input.subscriptionId } },
       payment: { connect: { id: input.paymentId } },
       invoiceNumber: InvoiceNumberGenerator.generate(),
@@ -1960,6 +2062,7 @@ export class InvoiceService {
     return await this.invoices.findBySubscription(subscriptionId);
   }
 }
+
 
 ###  ###
 export enum InvoiceType {
@@ -2064,7 +2167,7 @@ export abstract class MockPaymentProvider implements PaymentProvider {
     const currency = request.currency ?? "INR";
 
     console.log(`Payment successful via ${this.gateway} (${event})`, {
-      userId: request.userId,
+      workspaceId: request.workspaceId,
       planKey: request.planKey,
       transactionId,
       customerId,
@@ -2094,17 +2197,18 @@ export abstract class MockPaymentProvider implements PaymentProvider {
 
   async verifyPayment(_payload: unknown): Promise<PaymentResultDto> {
     // For mock verify, just return a succeeded payment placeholder
-    return this.createSuccessResult({ userId: 0, planKey: "mock", amount: 0 }, "verify");
+    return this.createSuccessResult({ workspaceId: 0, planKey: "mock", amount: 0 }, "verify");
   }
 
   async handleWebhook(payload: unknown): Promise<void> {
     console.log("Mock provider webhook received:", payload);
   }
 
-  async createCustomerPortal(_userId: number) {
+  async createCustomerPortal(_workspaceId: number) {
     return { url: `https://mock-payments.example/portal` };
   }
 }
+
 
 ###  ###
 import { PaymentGateway } from "@prisma/client";
@@ -2181,7 +2285,7 @@ export * from "./providers/paddle.provider.ts";
 export * from "./payment.repository.ts";
 
 ###  ###
-import { PaymentGateway, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { PaymentGateway, PaymentStatus, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../../../db";
 import { BillingContextService } from "../cache/billing.context.service.ts";
@@ -2219,7 +2323,7 @@ export class PurchaseService {
       const existing = await this.paymentRepo.findByIdempotencyKey(request.idempotencyKey);
 
       if (existing) {
-        return { success: true, payment: existing } as any;
+        return { success: true, payment: existing };
       }
     }
 
@@ -2241,44 +2345,45 @@ export class PurchaseService {
     });
 
     // If payment did not succeed, persist a payment record and return status.
-    if (payment.status !== ("PAID" as any)) {
+    if (payment.status !== PaymentStatus.PAID) {
       await this.paymentRepo.create({
-        subscription: undefined as any,
+        workspace: { connect: { id: request.workspaceId } },
         gateway: payment.gateway,
         gatewayPaymentId: payment.transactionId,
         gatewayCustomerId: payment.customerId ?? undefined,
         amount: payment.amount,
         currency: payment.currency,
-        status: payment.status as any,
-        paidAt: payment.status === ("PAID" as any) ? new Date() : null,
+        status: payment.status,
+        paidAt: null,
         metadata: (payment.metadata ?? {}) as Prisma.InputJsonValue,
-      } as Prisma.PaymentCreateInput);
+      });
 
-      return { success: false, payment } as any;
+      return { success: false, payment };
     }
 
     // Payment succeeded: hand over to the workflow which encapsulates the DB transaction.
     const workflow = new SubscriptionPurchaseWorkflow(this.prismaClient);
 
     const result = await workflow.execute({
-      userId: request.userId,
+      workspaceId: request.workspaceId,
+      ...(request.billingOwnerId ? { billingOwnerId: request.billingOwnerId } : {}),
       planId: plan.id,
       paymentResult: {
         gateway: payment.gateway,
         transactionId: payment.transactionId,
-        customerId: payment.customerId,
-        subscriptionId: payment.subscriptionId,
+        ...(payment.customerId ? { customerId: payment.customerId } : {}),
+        ...(payment.subscriptionId ? { subscriptionId: payment.subscriptionId } : {}),
         amount: payment.amount,
         currency: payment.currency,
-        metadata: payment.metadata as Record<string, unknown> | undefined,
+        ...(payment.metadata ? { metadata: payment.metadata as Record<string, unknown> } : {}),
       },
     });
 
     // Refresh cache AFTER commit
-    await BillingContextService.refresh(request.userId);
+    await BillingContextService.refresh(request.workspaceId);
 
     // Ensure Redis usage seeds
-    await UsageService.initialize(request.userId, plan.id);
+    await UsageService.initialize(request.workspaceId, plan.id);
 
     return { success: true, ...result };
   }
@@ -2296,7 +2401,7 @@ export class PurchaseService {
   }
 
   async cancel(request: PurchasePlanDto) {
-    const subscription = await this.subscriptions.findRaw(request.userId);
+    const subscription = await this.subscriptions.findRaw(request.workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -2304,25 +2409,27 @@ export class PurchaseService {
 
     const now = new Date();
 
-    await this.subscriptions.update(request.userId, {
+    await this.subscriptions.update(request.workspaceId, {
       status: SubscriptionStatus.CANCELLED,
       cancelledAt: now,
-    } as any);
+    });
 
     await this.history.create({
+      workspace: { connect: { id: request.workspaceId } },
       subscription: { connect: { id: subscription.id } },
       planVersion: { connect: { id: subscription.planVersionId } },
       status: SubscriptionStatus.CANCELLED,
       startsAt: subscription.startsAt,
       endsAt: now,
       reason: "Cancelled",
-    } as any);
+    });
 
-    await BillingContextService.refresh(request.userId);
+    await BillingContextService.refresh(request.workspaceId);
 
     return { success: true };
   }
 }
+
 
 ###  ###
 import { PaymentGateway } from "@prisma/client";
@@ -2356,8 +2463,9 @@ export interface PaymentProvider {
 
   handleWebhook?(payload: unknown): Promise<void>;
 
-  createCustomerPortal?(userId: number): Promise<{ url?: string }>;
+  createCustomerPortal?(workspaceId: number): Promise<{ url?: string }>;
 }
+
 
 ###  ###
 import { PaymentGateway, PaymentStatus } from "@prisma/client";
@@ -2386,7 +2494,8 @@ export interface PaymentResultDto {
 import { PaymentGateway, BillingCycle } from "@prisma/client";
 
 export interface PurchasePlanDto {
-  userId: number;
+  workspaceId: number;
+  billingOwnerId?: number;
   planKey: string;
   gateway?: PaymentGateway;
   currency?: string;
@@ -2396,6 +2505,7 @@ export interface PurchasePlanDto {
   // Optional idempotency key to dedupe duplicate requests
   idempotencyKey?: string;
 }
+
 
 ###  ###
 import { PaymentGateway } from "@prisma/client";
@@ -2420,7 +2530,7 @@ export class PaymentProviderFactory {
 }
 
 ###  ###
-import { Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { PaymentGateway, PaymentStatus, Prisma, PrismaClient, SubscriptionStatus } from "@prisma/client";
 import { InvoiceService } from "./invoice/invoice.service.ts";
 import { PaymentRepository } from "./payment.repository.ts";
 import { SubscriptionRepository } from "../repositories/subscription.repository.ts";
@@ -2430,28 +2540,30 @@ export class SubscriptionPurchaseWorkflow {
   constructor(private readonly prisma: PrismaClient) {}
 
   async execute(args: {
-    userId: number;
+    workspaceId: number;
+    billingOwnerId?: number;
     planId: number;
-    paymentResult: { gateway: any; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
+    paymentResult: { gateway: PaymentGateway; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
   }) {
-    const { userId, planId, paymentResult } = args;
+    const { workspaceId, billingOwnerId, planId, paymentResult } = args;
 
     return await this.prisma.$transaction(async (tx) => {
-      const subRepo = new SubscriptionRepository(tx as any);
-      const historyRepo = new HistoryRepository(tx as any);
-      const paymentRepo = new PaymentRepository(tx as any);
-      const invoiceSvc = new InvoiceService(tx as any);
+      const subRepo = new SubscriptionRepository(tx);
+      const historyRepo = new HistoryRepository(tx);
+      const paymentRepo = new PaymentRepository(tx);
+      const invoiceSvc = new InvoiceService(tx);
 
       const startsAt = new Date();
-      let status = SubscriptionStatus.ACTIVE as SubscriptionStatus;
-      let trialEndsAt: Date | null = null;
+      const status = SubscriptionStatus.ACTIVE;
+      const trialEndsAt: Date | null = null;
 
       // Plan trial handling is done by caller if required; keep basic active
 
       const subscription = await subRepo.upsert(
-        userId,
+        workspaceId,
         {
-          user: { connect: { id: userId } },
+          workspace: { connect: { id: workspaceId } },
+          ...(billingOwnerId ? { billingOwner: { connect: { id: billingOwnerId } } } : {}),
           planVersion: { connect: { id: planId } },
           status,
           startsAt,
@@ -2460,9 +2572,10 @@ export class SubscriptionPurchaseWorkflow {
           gateway: paymentResult.gateway,
           gatewayCustomerId: paymentResult.customerId ?? null,
           gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
-        } as any,
+        },
         {
           planVersion: { connect: { id: planId } },
+          billingOwner: billingOwnerId ? { connect: { id: billingOwnerId } } : { disconnect: true },
           status,
           startsAt,
           trialEndsAt,
@@ -2470,33 +2583,36 @@ export class SubscriptionPurchaseWorkflow {
           gateway: paymentResult.gateway,
           gatewayCustomerId: paymentResult.customerId ?? null,
           gatewaySubscriptionId: paymentResult.subscriptionId ?? null,
-        } as any,
+        },
       );
 
       await historyRepo.create({
+        workspace: { connect: { id: workspaceId } },
         subscription: { connect: { id: subscription.id } },
         planVersion: { connect: { id: planId } },
         status,
         startsAt,
         endsAt: null,
         reason: "Purchase completed",
-      } as any);
+      });
 
       const paymentRecord = await paymentRepo.create({
+        workspace: { connect: { id: workspaceId } },
         subscription: { connect: { id: subscription.id } },
         gateway: paymentResult.gateway,
         gatewayPaymentId: paymentResult.transactionId,
         gatewayCustomerId: paymentResult.customerId ?? undefined,
-        gatewayPriceId: paymentResult.metadata?.gatewayPriceId as any,
+        gatewayPriceId: typeof paymentResult.metadata?.gatewayPriceId === "string" ? paymentResult.metadata.gatewayPriceId : undefined,
         amount: paymentResult.amount,
         currency: paymentResult.currency,
-        status: ("PAID" as any),
+        status: PaymentStatus.PAID,
         paidAt: new Date(),
         metadata: (paymentResult.metadata ?? {}) as Prisma.InputJsonValue,
         idempotencyKey: (paymentResult.metadata?.idempotencyKey as string) ?? undefined,
       } as Prisma.PaymentCreateInput);
 
       const invoice = await invoiceSvc.create({
+        workspaceId,
         subscriptionId: subscription.id,
         paymentId: paymentRecord.id,
         amount: paymentResult.amount,
@@ -2508,15 +2624,16 @@ export class SubscriptionPurchaseWorkflow {
       });
 
       // Initialize usage rows
-      const quotaKeys = Object.keys((await tx.planVersion.findUnique({ where: { id: planId }, include: { quotas: true } }))?.quotas ?? {});
+      const planVersion = await tx.planVersion.findUnique({
+        where: { id: planId },
+        include: { quotas: true },
+      });
 
-      if (quotaKeys.length > 0) {
-        const quotas = await tx.quota.findMany({ where: { key: { in: quotaKeys } } });
-
-        for (const quota of quotas) {
+      if (planVersion?.quotas.length) {
+        for (const quota of planVersion.quotas) {
           await tx.usage.upsert({
-            where: { userId_quotaId: { userId, quotaId: quota.id } },
-            create: { userId, quotaId: quota.id, value: 0 },
+            where: { workspaceId_quotaId: { workspaceId, quotaId: quota.quotaId } },
+            create: { workspaceId, quotaId: quota.quotaId, value: 0 },
             update: { value: 0 },
           });
         }
@@ -2532,13 +2649,14 @@ export class SubscriptionPurchaseWorkflow {
 import { PaymentGateway } from "@prisma/client";
 
 export interface PaymentCompletedEvent {
-  userId: number;
+  workspaceId: number;
   planKey: string;
   amount: number;
   currency: string;
   provider: PaymentGateway;
   transactionId: string;
 }
+
 
 ###  ###
 export enum BillingEvent {
@@ -2742,8 +2860,8 @@ export class TrialExpiredError extends BillingError {
 }
 
 export class SubscriptionNotFoundError extends BillingError {
-  constructor(userId: number) {
-    super(`Subscription not found for user '${userId}'.`, 404, BillingErrorCode.SUBSCRIPTION_NOT_FOUND, { userId });
+  constructor(workspaceId: number) {
+    super(`Subscription not found for workspace '${workspaceId}'.`, 404, BillingErrorCode.SUBSCRIPTION_NOT_FOUND, { workspaceId });
   }
 }
 
@@ -2752,6 +2870,7 @@ export class SubscriptionExpiredError extends BillingError {
     super("Subscription has expired.", 402, BillingErrorCode.SUBSCRIPTION_EXPIRED, { expiresAt });
   }
 }
+
 
 ###  ###
 import { Prisma } from "@prisma/client";
@@ -2792,54 +2911,57 @@ export class HistoryRepository extends BaseRepository {
 import { BaseRepository } from "./base.repository";
 
 export class UsageRepository extends BaseRepository {
-  findByQuotaKey(userId: number, quotaKey: string) {
+  findByQuotaKey(workspaceId: number, quotaKey: string) {
     return this.prisma.usage.findFirst({
       where: {
-        userId,
+        workspaceId,
         quota: {
           key: quotaKey,
         },
       },
+      include: {
+        quota: true,
+      },
     });
   }
 
-  initialize(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  initialize(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Quota not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Quota not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
       return this.prisma.usage.upsert({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         update: {},
         create: {
-          userId,
-          quotaId: quota.id,
+          workspaceId,
+          quotaId: quota.quotaId,
           value: 0,
         },
       });
     });
   }
 
-  increment(userId: number, quotaKey: string, value: number) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  increment(workspaceId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -2851,19 +2973,19 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  decrement(userId: number, quotaKey: string, value: number) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  decrement(workspaceId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -2875,19 +2997,19 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  reset(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  reset(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -2897,29 +3019,29 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  delete(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  delete(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.delete({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
       });
     });
   }
 
-  listUserUsage(userId: number) {
+  listWorkspaceUsage(workspaceId: number) {
     return this.prisma.usage.findMany({
       where: {
-        userId,
+        workspaceId,
       },
       include: {
         quota: true,
@@ -2952,9 +3074,9 @@ import { Prisma, SubscriptionStatus } from "@prisma/client";
 import { BaseRepository } from "./base.repository";
 
 export class SubscriptionRepository extends BaseRepository {
-  async findByUserId(userId: number) {
+  async findByWorkspaceId(workspaceId: number) {
     return this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
       include: {
         planVersion: {
           include: {
@@ -2983,27 +3105,27 @@ export class SubscriptionRepository extends BaseRepository {
     });
   }
 
-  async update(userId: number, data: Prisma.SubscriptionUpdateInput) {
+  async update(workspaceId: number, data: Prisma.SubscriptionUpdateInput) {
     return this.prisma.subscription.update({
       where: {
-        userId,
+        workspaceId,
       },
       data,
     });
   }
 
-  async delete(userId: number) {
+  async delete(workspaceId: number) {
     return this.prisma.subscription.delete({
       where: {
-        userId,
+        workspaceId,
       },
     });
   }
 
-  async updateStatus(userId: number, status: SubscriptionStatus) {
+  async updateStatus(workspaceId: number, status: SubscriptionStatus) {
     return this.prisma.subscription.update({
       where: {
-        userId,
+        workspaceId,
       },
       data: {
         status,
@@ -3012,29 +3134,29 @@ export class SubscriptionRepository extends BaseRepository {
   }
 
   async upsert(
-    userId: number,
+    workspaceId: number,
     create: Prisma.SubscriptionCreateInput,
     update: Prisma.SubscriptionUpdateInput,
   ) {
     return this.prisma.subscription.upsert({
       where: {
-        userId,
+        workspaceId,
       },
       create,
       update,
     });
   }
 
-  async exists(userId: number) {
+  async exists(workspaceId: number) {
     return !!(await this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
       select: { id: true },
     }));
   }
 
-  async findRaw(userId: number) {
+  async findRaw(workspaceId: number) {
     return this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
     });
   }
 }

@@ -1,4 +1,4 @@
-import { QuotaResetPolicy, Prisma } from "@prisma/client";
+import { QuotaResetPolicy } from "@prisma/client";
 import { prisma } from "../../../db";
 import { UsageService } from "./usage.service.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
@@ -9,26 +9,16 @@ export class ResetService {
     const results = [];
     const policiesToReset: QuotaResetPolicy[] = [];
 
-    // ==========================================
-    // 🧪 TESTING OVERRIDE: MINUTELY RESETS
-    // ==========================================
-    // If you are running a cron every minute, this ensures DAILY 
-    // quotas reset every single minute for testing purposes.
-    const isTesting = process.env.NODE_ENV !== 'production'; 
-    
-    if (isTesting) {
-      console.log("⚠️  Running in TESTING mode: All quotas will reset every minute for testing purposes.");
-      policiesToReset.push(QuotaResetPolicy.DAILY); // For testing, treat DAILY quotas as MINUTELY
-      
-      // If you specifically added MINUTELY to your Prisma schema, use this instead:
-      // policiesToReset.push(QuotaResetPolicy.MINUTELY);
-    } else {
-      // --- Standard Production Logic ---
-      // Only push DAILY if it's actually midnight (or whenever your production cron runs)
-      policiesToReset.push(QuotaResetPolicy.DAILY); 
-    }
-    // ==========================================
+    const resetTestMode = process.env.BILLING_RESET_TEST_MODE === "false";
 
+    const isDailyResetWindow = currentDate.getUTCHours() === 0 && currentDate.getUTCMinutes() === 0;
+
+    if (resetTestMode) {
+      console.log("Billing reset test mode enabled: DAILY quotas reset on each run.");
+      policiesToReset.push(QuotaResetPolicy.DAILY);
+    } else if (isDailyResetWindow) {
+      policiesToReset.push(QuotaResetPolicy.DAILY);
+    }
 
     // Weekly: Reset on Monday (1)
     if (currentDate.getUTCDay() === 1) {
@@ -80,7 +70,7 @@ export class ResetService {
     };
   }
 
-  // 3. Helper to reset user-specific Billing Cycle policies
+  // 3. Helper to reset workspace-specific Billing Cycle policies
   static async resetBillingCycleUsages(currentDate: Date) {
     // Get all quotas that follow the BILLING_CYCLE rule
     const billingCycleQuotas = await prisma.quota.findMany({
@@ -148,8 +138,6 @@ export class ResetService {
     await UsageService.reset(workspaceId, quotaKey);
     await BillingContextService.refresh(workspaceId);
   }
-
-  // Add this inside src/services/billing/services/reset.service.ts
 
   static async resetByPolicyForWorkspace(workspaceId: number, policy: QuotaResetPolicy) {
     // 1. Find all quotas that use this policy

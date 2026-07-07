@@ -15,7 +15,7 @@ export class PlanValidator {
     const pricingKeys = new Set<string>();
 
     for (const pricing of definition.pricing) {
-      if (!pricing.currency || pricing.amount <= 0) {
+      if (!pricing.currency || pricing.amount < 0) {
         throw new InvalidPlanError(definition.key);
       }
 

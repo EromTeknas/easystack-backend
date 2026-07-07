@@ -76,6 +76,37 @@ test("PlanValidator accepts a valid plan definition", () => {
   });
 });
 
+test("PlanValidator accepts free plan pricing", () => {
+  assert.doesNotThrow(() => {
+    PlanValidator.validateDefinition({
+      key: "free",
+      version: 1,
+      metadata: {
+        displayName: "Free",
+        description: "Free plan",
+        isPublic: true,
+        isEnterprise: false,
+        isActive: true,
+        displayOrder: 0,
+      },
+      trial: {
+        enabled: false,
+        durationDays: 0,
+      },
+      pricing: [
+        {
+          currency: "INR",
+          billingCycle: BillingCycle.MONTHLY,
+          amount: 0,
+          isDefault: true,
+        },
+      ],
+      features: {},
+      quotas: {},
+    });
+  });
+});
+
 test("PlanValidator rejects invalid trial duration", () => {
   assert.throws(
     () => {
