@@ -40,7 +40,7 @@ export abstract class MockPaymentProvider implements PaymentProvider {
     const currency = request.currency ?? "INR";
 
     console.log(`Payment successful via ${this.gateway} (${event})`, {
-      userId: request.userId,
+      workspaceId: request.workspaceId,
       planKey: request.planKey,
       transactionId,
       customerId,
@@ -70,14 +70,14 @@ export abstract class MockPaymentProvider implements PaymentProvider {
 
   async verifyPayment(_payload: unknown): Promise<PaymentResultDto> {
     // For mock verify, just return a succeeded payment placeholder
-    return this.createSuccessResult({ userId: 0, planKey: "mock", amount: 0 }, "verify");
+    return this.createSuccessResult({ workspaceId: 0, planKey: "mock", amount: 0 }, "verify");
   }
 
   async handleWebhook(payload: unknown): Promise<void> {
     console.log("Mock provider webhook received:", payload);
   }
 
-  async createCustomerPortal(_userId: number) {
+  async createCustomerPortal(_workspaceId: number) {
     return { url: `https://mock-payments.example/portal` };
   }
 }

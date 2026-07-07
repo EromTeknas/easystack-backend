@@ -5,13 +5,14 @@ import {
 } from "express";
 
 import { BillingService } from "../../services/billing.service";
+import { BillingAuthorizationService } from "../../services/billing-authorization.service";
 
 import {
   BillingAuthorizationRequest,
 } from "../../types";
 
 export function billingMiddleware(
-  getUserId: (req: Request) => number,
+  getWorkspaceId: (req: Request) => number,
   request: BillingAuthorizationRequest
 ) {
   return async (
@@ -21,6 +22,14 @@ export function billingMiddleware(
   ) => {
 
     try {
+      const workspaceId = getWorkspaceId(req);
+
+      if (req.user?.id) {
+        await BillingAuthorizationService.ensureWorkspaceMember(
+          Number(req.user.id),
+          workspaceId,
+        );
+      }
 
       const shouldConsume =
         request.quotas?.some((quota) => quota.consume) ?? false;
@@ -28,11 +37,11 @@ export function billingMiddleware(
       const result =
         shouldConsume
           ? await BillingService.authorizeAndConsume(
-              getUserId(req),
+              workspaceId,
               request
             )
           : await BillingService.authorize(
-              getUserId(req),
+              workspaceId,
               request
             );
 

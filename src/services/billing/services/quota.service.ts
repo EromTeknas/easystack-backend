@@ -56,7 +56,7 @@ export class QuotaService {
   }
 
   /**
-   * Returns the quota limit for the user's current subscription.
+   * Returns the quota limit for the workspace's current subscription.
    *
    * Example
    * -------
@@ -78,10 +78,10 @@ export class QuotaService {
    * This is called before UsageService performs any usage checks.
    */
   async getLimit(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    const cache = await BillingService.get(userId);
+    const cache = await BillingService.get(workspaceId);
     const limit = cache.quotas[quotaKey];
 
     if (typeof limit === "undefined") {
@@ -92,7 +92,7 @@ export class QuotaService {
   }
 
   /**
-   * Returns all quota limits available for the user's plan.
+   * Returns all quota limits available for the workspace's plan.
    *
    * Lifecycle
    * ---------
@@ -103,8 +103,8 @@ export class QuotaService {
    * - "Your Plan" page
    * - Mobile applications
    */
-  async listPlanQuotas(userId: number) {
-    const cache = await BillingService.get(userId);
+  async listPlanQuotas(workspaceId: number) {
+    const cache = await BillingService.get(workspaceId);
     const quotaKeys = Object.keys(cache.quotas);
 
     const definitions = await this.prisma.quota.findMany({
@@ -132,10 +132,10 @@ export class QuotaService {
    * Called by AuthorizationService before denying access.
    */
   async isUnlimited(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<boolean> {
-    const cache = await BillingService.get(userId);
+    const cache = await BillingService.get(workspaceId);
     return cache.quotas[quotaKey] === null;
   }
 }

@@ -33,6 +33,11 @@ const normalizeWorkspace = (workspace: Workspace) => {
   };
 };
 
+function buildWorkspaceSlug(name: string, userId: number) {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workspace";
+  return `${base}-${userId}-${Date.now()}`;
+}
+
 /**
  * GET /workspace
  * List all workspaces for the authenticated user
@@ -108,6 +113,7 @@ export const createWorkspaceController = asyncHandler(
       const workspace = await tx.workspace.create({
         data: {
           name: name.trim(),
+          slug: buildWorkspaceSlug(name.trim(), userId),
           logoUrl: logoUrl || null,
           createdById: userId,
         },

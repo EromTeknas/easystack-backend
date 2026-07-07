@@ -16,8 +16,8 @@ export class TrialService {
     private readonly history = new HistoryRepository(prisma),
   ) {}
 
-  async expire(userId: number) {
-    const subscription = await this.subscriptions.findRaw(userId);
+  async expire(workspaceId: number) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -36,12 +36,17 @@ export class TrialService {
       return subscription;
     }
 
-    const updated = await this.subscriptions.update(userId, {
+    const updated = await this.subscriptions.update(workspaceId, {
       status: SubscriptionStatus.EXPIRED,
       expiresAt: now,
     });
 
     await this.history.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
       subscription: {
         connect: {
           id: subscription.id,
@@ -63,14 +68,14 @@ export class TrialService {
       reason: "Trial expired",
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return updated;
   }
 
-  async extend(userId: number, days: number) {
+  async extend(workspaceId: number, days: number) {
     const subscription =
-      await this.subscriptions.findRaw(userId);
+      await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -83,19 +88,19 @@ export class TrialService {
       base.getTime() + days * 24 * 60 * 60 * 1000,
     );
 
-    const updated = await this.subscriptions.update(userId, {
+    const updated = await this.subscriptions.update(workspaceId, {
       status: SubscriptionStatus.TRIAL,
       trialEndsAt,
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return updated;
   }
 
-  async isTrial(userId: number) {
+  async isTrial(workspaceId: number) {
     const subscription =
-      await this.subscriptions.findRaw(userId);
+      await this.subscriptions.findRaw(workspaceId);
 
     return subscription?.status === SubscriptionStatus.TRIAL;
   }

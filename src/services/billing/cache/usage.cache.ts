@@ -1,34 +1,34 @@
 import redis from "../../../config/redis";
 
 export class UsageCache {
-  private key(userId: number, quotaKey: string) {
-    return `billing:v1:usage:${userId}:${quotaKey}`;
+  private key(workspaceId: number, quotaKey: string) {
+    return `billing:v1:workspace:${workspaceId}:usage:${quotaKey}`;
   }
 
-  async get(userId: number, quotaKey: string) {
-    const value = await redis.get(this.key(userId, quotaKey));
+  async get(workspaceId: number, quotaKey: string) {
+    const value = await redis.get(this.key(workspaceId, quotaKey));
 
     return value ? Number(value) : null;
   }
 
-  async set(userId: number, quotaKey: string, value: number, ttl?: number) {
+  async set(workspaceId: number, quotaKey: string, value: number, ttl?: number) {
     if (ttl) {
-      await redis.set(this.key(userId, quotaKey), String(value), "EX", ttl);
+      await redis.set(this.key(workspaceId, quotaKey), String(value), "EX", ttl);
       return;
     }
 
-    await redis.set(this.key(userId, quotaKey), String(value));
+    await redis.set(this.key(workspaceId, quotaKey), String(value));
   }
 
-  async increment(userId: number, quotaKey: string, value = 1) {
-    return redis.incrby(this.key(userId, quotaKey), value);
+  async increment(workspaceId: number, quotaKey: string, value = 1) {
+    return redis.incrby(this.key(workspaceId, quotaKey), value);
   }
 
-  async decrement(userId: number, quotaKey: string, value = 1) {
-    return redis.decrby(this.key(userId, quotaKey), value);
+  async decrement(workspaceId: number, quotaKey: string, value = 1) {
+    return redis.decrby(this.key(workspaceId, quotaKey), value);
   }
 
-  async delete(userId: number, quotaKey: string) {
-    await redis.del(this.key(userId, quotaKey));
+  async delete(workspaceId: number, quotaKey: string) {
+    await redis.del(this.key(workspaceId, quotaKey));
   }
 }

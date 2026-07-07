@@ -21,6 +21,12 @@ import { createEmailVerificationToken } from "../../services/email-verification-
 import { UsageService } from "../../services/billing/services/usage.service.ts";
 import { BillingService } from "../../services/billing.service";
 
+function buildDefaultWorkspaceSlug(emailAddress: string, userId: number) {
+  const localPart = emailAddress.split("@")[0] ?? "workspace";
+  const base = localPart.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workspace";
+  return `${base}-${userId}`;
+}
+
 /**
  * Register a new user account (transactional)
  * POST /auth/register
@@ -132,6 +138,50 @@ export const registerController = asyncHandler(async (req, res) => {
     }
 
     const selectedPlanKey = planKey ?? "free";
+    const ownerRole = await tx.role.findUnique({
+      where: { key: "WORKSPACE_OWNER" },
+    });
+
+    if (!ownerRole) {
+      throw new InternalServerError("Workspace owner role not found. Ensure roles are seeded.");
+    }
+
+    let workspace = await tx.workspace.findFirst({
+      where: {
+        members: {
+          some: {
+            userId,
+            removedAt: null,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    if (!workspace) {
+      workspace = await tx.workspace.create({
+        data: {
+          name: `${firstName.trim()}'s Workspace`,
+          slug: buildDefaultWorkspaceSlug(email.toLowerCase(), userId),
+          createdById: userId,
+        },
+      });
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId,
+          roleId: ownerRole.id,
+        },
+      });
+    }
+
+    await tx.user.update({
+      where: { id: userId },
+      data: { defaultWorkspaceId: workspace.id },
+    });
 
     const plan = await tx.plan.findUnique({
       where: {
@@ -168,16 +218,18 @@ export const registerController = asyncHandler(async (req, res) => {
     }
 
     const subscription = await tx.subscription.upsert({
-      where: { userId },
+      where: { workspaceId: workspace.id },
       update: {
         planVersionId: latestVersion.id,
+        billingOwnerId: userId,
         status, 
         startsAt: new Date(),
         trialEndsAt, 
         expiresAt: null,
       },
       create: {
-        userId,
+        workspaceId: workspace.id,
+        billingOwnerId: userId,
         planVersionId: latestVersion.id,
         status,
         startsAt: new Date(),
@@ -188,6 +240,7 @@ export const registerController = asyncHandler(async (req, res) => {
 
     await tx.subscriptionHistory.create({
       data: {
+        workspaceId: workspace.id,
         subscriptionId: subscription.id,
         planVersionId: latestVersion.id,
         status,
@@ -221,14 +274,15 @@ export const registerController = asyncHandler(async (req, res) => {
 
     return {
       userId,
+      workspaceId: workspace.id,
       planVersionId: latestVersion.id,
       email: email.toLowerCase(),
       verificationToken,
     };
   });
 
-  await BillingService.invalidate(result.userId);
-  await UsageService.initialize(result.userId, result.planVersionId);
+  await BillingService.invalidate(result.workspaceId);
+  await UsageService.initialize(result.workspaceId, result.planVersionId);
 
   return ok(res, {
     email: result.email,

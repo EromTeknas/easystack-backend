@@ -29,5 +29,5 @@ export interface PaymentProvider {
 
   handleWebhook?(payload: unknown): Promise<void>;
 
-  createCustomerPortal?(userId: number): Promise<{ url?: string }>;
+  createCustomerPortal?(workspaceId: number): Promise<{ url?: string }>;
 }

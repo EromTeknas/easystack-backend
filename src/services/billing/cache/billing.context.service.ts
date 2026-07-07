@@ -6,27 +6,27 @@ import { BillingCache } from "../types/billing-cache.type.ts";
 export class BillingContextService {
   private static readonly builder = new BillingBuilder();
 
-  static async get(userId: number): Promise<BillingCache> {
-    const cached = await BillingCacheService.get(userId);
+  static async get(workspaceId: number): Promise<BillingCache> {
+    const cached = await BillingCacheService.get(workspaceId);
 
     if (cached) {
       return cached;
     }
 
-    return await this.refresh(userId);
+    return await this.refresh(workspaceId);
   }
 
-  static async refresh(userId: number): Promise<BillingCache> {
-    const cache = await this.builder.build(userId);
+  static async refresh(workspaceId: number): Promise<BillingCache> {
+    const cache = await this.builder.build(workspaceId);
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
     return cache;
   }
 
-  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
-    return await Promise.all(userIds.map((userId) => this.refresh(userId)));
+  static async refreshMany(workspaceIds: number[]): Promise<BillingCache[]> {
+    return await Promise.all(workspaceIds.map((workspaceId) => this.refresh(workspaceId)));
   }
 
-  static async invalidate(userId: number): Promise<void> {
-    await BillingCacheService.evict(userId);
+  static async invalidate(workspaceId: number): Promise<void> {
+    await BillingCacheService.evict(workspaceId);
   }
 }

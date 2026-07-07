@@ -6,6 +6,7 @@ export { TrialService } from "./services/trail.service.ts";
 export { UsageService } from "./services/usage.service.ts";
 export { FeatureService } from "./services/feature.service.ts";
 export { ResetService } from "./services/reset.service.ts";
+export { BillingAuthorizationService } from "./services/billing-authorization.service.ts";
 export { BillingContextService } from "./cache/billing.context.service.ts";
 export { BillingLockService } from "./cache/billing.lock.service.ts";
 export * from "./validators/index.ts";

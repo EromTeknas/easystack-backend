@@ -14,8 +14,8 @@ export class TrialExpiredError extends BillingError {
 }
 
 export class SubscriptionNotFoundError extends BillingError {
-  constructor(userId: number) {
-    super(`Subscription not found for user '${userId}'.`, 404, BillingErrorCode.SUBSCRIPTION_NOT_FOUND, { userId });
+  constructor(workspaceId: number) {
+    super(`Subscription not found for workspace '${workspaceId}'.`, 404, BillingErrorCode.SUBSCRIPTION_NOT_FOUND, { workspaceId });
   }
 }
 

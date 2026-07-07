@@ -45,7 +45,7 @@ export class ResetService {
       results.push(await this.resetByPolicy(policy));
     }
 
-    // Execute User-Specific Billing Cycle Resets
+    // Execute workspace-specific billing cycle resets
     results.push(await this.resetBillingCycleUsages(currentDate));
 
     return results;
@@ -57,26 +57,26 @@ export class ResetService {
       include: { usage: true },
     });
 
-    const affectedUserIds = new Set<number>();
+    const affectedWorkspaceIds = new Set<number>();
 
     for (const quota of quotas) {
       for (const usage of quota.usage) {
         await prisma.usage.update({
           where: {
-            userId_quotaId: { userId: usage.userId, quotaId: quota.id },
+            workspaceId_quotaId: { workspaceId: usage.workspaceId, quotaId: quota.id },
           },
           data: { value: 0, resetAt: new Date() },
         });
-        affectedUserIds.add(usage.userId);
+        affectedWorkspaceIds.add(usage.workspaceId);
       }
     }
 
-    await BillingContextService.refreshMany([...affectedUserIds]);
+    await BillingContextService.refreshMany([...affectedWorkspaceIds]);
 
     return {
       policy,
       resetCount: quotas.length,
-      affectedUserCount: affectedUserIds.size,
+      affectedWorkspaceCount: affectedWorkspaceIds.size,
     };
   }
 
@@ -92,12 +92,12 @@ export class ResetService {
       return {
         policy: QuotaResetPolicy.BILLING_CYCLE,
         resetCount: 0,
-        affectedUserCount: 0,
+        affectedWorkspaceCount: 0,
       };
     }
 
     const quotaIds = billingCycleQuotas.map((q) => q.id);
-    const affectedUserIds = new Set<number>();
+    const affectedWorkspaceIds = new Set<number>();
 
     // Calculate dates to handle end-of-month edge cases (e.g., renewing on the 31st in a 30-day month)
     const targetDay = currentDate.getUTCDate();
@@ -111,47 +111,47 @@ export class ResetService {
     // Fetch active subscriptions
     const subscriptions = await prisma.subscription.findMany({
       where: { status: { in: ["ACTIVE", "TRIAL"] } },
-      select: { userId: true, startsAt: true },
+      select: { workspaceId: true, startsAt: true },
     });
 
-    // Filter users whose anniversary is today
-    const usersToReset = subscriptions
+    // Filter workspaces whose anniversary is today
+    const workspacesToReset = subscriptions
       .filter((sub) => {
         const startDay = sub.startsAt.getUTCDate();
         return startDay === targetDay || (isEndOfMonth && startDay > targetDay);
       })
-      .map((sub) => sub.userId);
+      .map((sub) => sub.workspaceId);
 
-    // Batch update the usages for these specific users
-    if (usersToReset.length > 0) {
+    // Batch update the usages for these specific workspaces
+    if (workspacesToReset.length > 0) {
       await prisma.usage.updateMany({
         where: {
-          userId: { in: usersToReset },
+          workspaceId: { in: workspacesToReset },
           quotaId: { in: quotaIds },
         },
         data: { value: 0, resetAt: currentDate },
       });
 
-      usersToReset.forEach((id) => affectedUserIds.add(id));
-      await BillingContextService.refreshMany([...affectedUserIds]);
+      workspacesToReset.forEach((id) => affectedWorkspaceIds.add(id));
+      await BillingContextService.refreshMany([...affectedWorkspaceIds]);
     }
 
     return {
       policy: QuotaResetPolicy.BILLING_CYCLE,
       resetCount: billingCycleQuotas.length,
-      affectedUserCount: affectedUserIds.size,
+      affectedWorkspaceCount: affectedWorkspaceIds.size,
     };
   }
 
-  // 4. Reset a specific user (Used manually or via Webhooks)
-  static async resetUserQuota(userId: number, quotaKey?: string) {
-    await UsageService.reset(userId, quotaKey);
-    await BillingContextService.refresh(userId);
+  // 4. Reset a specific workspace (Used manually or via Webhooks)
+  static async resetWorkspaceQuota(workspaceId: number, quotaKey?: string) {
+    await UsageService.reset(workspaceId, quotaKey);
+    await BillingContextService.refresh(workspaceId);
   }
 
   // Add this inside src/services/billing/services/reset.service.ts
 
-  static async resetByPolicyForUser(userId: number, policy: QuotaResetPolicy) {
+  static async resetByPolicyForWorkspace(workspaceId: number, policy: QuotaResetPolicy) {
     // 1. Find all quotas that use this policy
     const quotas = await prisma.quota.findMany({
       where: { resetPolicy: policy },
@@ -162,10 +162,10 @@ export class ResetService {
 
     const quotaIds = quotas.map((q) => q.id);
 
-    // 2. Reset those specific usage rows for this user
+    // 2. Reset those specific usage rows for this workspace
     await prisma.usage.updateMany({
       where: {
-        userId: userId,
+        workspaceId,
         quotaId: { in: quotaIds },
       },
       data: {
@@ -174,7 +174,7 @@ export class ResetService {
       },
     });
 
-    // 3. Flush the Redis cache so the user instantly sees their fresh limits
-    await BillingContextService.refresh(userId);
+    // 3. Flush the Redis cache so the workspace instantly sees its fresh limits
+    await BillingContextService.refresh(workspaceId);
   }
 }

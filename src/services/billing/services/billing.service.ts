@@ -21,48 +21,48 @@ import { SubscriptionStatus } from "@prisma/client";
 export class BillingService {
   private static readonly usageCache = new UsageCache();
 
-  static async get(userId: number): Promise<BillingCache> {
-    return await BillingContextService.get(userId);
+  static async get(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.get(workspaceId);
   }
 
-  static async rebuild(userId: number): Promise<BillingCache> {
-    return await BillingContextService.refresh(userId);
+  static async rebuild(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(workspaceId);
   }
 
-  static async refresh(userId: number): Promise<BillingCache> {
-    return await BillingContextService.refresh(userId);
+  static async refresh(workspaceId: number): Promise<BillingCache> {
+    return await BillingContextService.refresh(workspaceId);
   }
 
-  static async refreshMany(userIds: number[]): Promise<BillingCache[]> {
-    return await BillingContextService.refreshMany(userIds);
+  static async refreshMany(workspaceIds: number[]): Promise<BillingCache[]> {
+    return await BillingContextService.refreshMany(workspaceIds);
   }
 
-  static async invalidate(userId: number): Promise<void> {
-    await BillingContextService.invalidate(userId);
+  static async invalidate(workspaceId: number): Promise<void> {
+    await BillingContextService.invalidate(workspaceId);
   }
 
-  static async subscription(userId: number) {
-    return SubscriptionCache.get(await this.get(userId));
+  static async subscription(workspaceId: number) {
+    return SubscriptionCache.get(await this.get(workspaceId));
   }
 
-  static async plan(userId: number) {
-    return (await this.get(userId)).plan;
+  static async plan(workspaceId: number) {
+    return (await this.get(workspaceId)).plan;
   }
 
-  static async features(userId: number) {
-    return FeatureCache.all(await this.get(userId));
+  static async features(workspaceId: number) {
+    return FeatureCache.all(await this.get(workspaceId));
   }
 
-  static async quotas(userId: number) {
-    return QuotaCache.all(await this.get(userId));
+  static async quotas(workspaceId: number) {
+    return QuotaCache.all(await this.get(workspaceId));
   }
 
-  static async usage(userId: number) {
-    return (await this.get(userId)).usage;
+  static async usage(workspaceId: number) {
+    return (await this.get(workspaceId)).usage;
   }
 
-  static async getEffectivePlan(userId: number) {
-    const cache = await this.get(userId);
+  static async getEffectivePlan(workspaceId: number) {
+    const cache = await this.get(workspaceId);
 
     if (!cache.plan || !cache.subscription) {
       return null;
@@ -79,40 +79,40 @@ export class BillingService {
     };
   }
 
-  static async getUserUsage(userId: number) {
-    return await this.usage(userId);
+  static async getWorkspaceUsage(workspaceId: number) {
+    return await this.usage(workspaceId);
   }
 
   static async hasFeature(
-    userId: number,
+    workspaceId: number,
     featureKey: string,
   ): Promise<boolean> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     return FeatureCache.get(cache, featureKey);
   }
 
   static async canUseFeature(
-    userId: number,
+    workspaceId: number,
     featureKey: string,
   ): Promise<boolean> {
-    return this.hasFeature(userId, featureKey);
+    return this.hasFeature(workspaceId, featureKey);
   }
 
   static async getLimit(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     return QuotaCache.getLimit(cache, quotaKey);
   }
 
-  static async isUnlimited(userId: number, quotaKey: string): Promise<boolean> {
-    const cache = await this.get(userId);
+  static async isUnlimited(workspaceId: number, quotaKey: string): Promise<boolean> {
+    const cache = await this.get(workspaceId);
     return QuotaCache.isUnlimited(cache, quotaKey);
   }
 
   static async canPerformAction(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<{
     allowed: boolean;
@@ -120,7 +120,7 @@ export class BillingService {
     used: number;
     remaining: number | null;
   }> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
     const limit = QuotaCache.getLimit(cache, quotaKey);
     const used = cache.usage[quotaKey] ?? 0;
 
@@ -139,53 +139,53 @@ export class BillingService {
   }
 
   static async consumeQuota(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
     amount: number = 1,
   ) {
-    return await UsageService.consume(userId, quotaKey, amount);
+    return await UsageService.consume(workspaceId, quotaKey, amount);
   }
 
   static async releaseQuota(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
     amount: number = 1,
   ) {
-    return await UsageService.release(userId, quotaKey, amount);
+    return await UsageService.release(workspaceId, quotaKey, amount);
   }
 
   static async remaining(
-    userId: number,
+    workspaceId: number,
     quotaKey: string,
   ): Promise<number | null> {
-    return await UsageService.remaining(userId, quotaKey);
+    return await UsageService.remaining(workspaceId, quotaKey);
   }
 
-  static async reset(userId: number, quotaKey?: string) {
-    return await UsageService.reset(userId, quotaKey);
+  static async reset(workspaceId: number, quotaKey?: string) {
+    return await UsageService.reset(workspaceId, quotaKey);
   }
 
-  static async invalidateCache(userId: number): Promise<void> {
-    await this.invalidate(userId);
+  static async invalidateCache(workspaceId: number): Promise<void> {
+    await this.invalidate(workspaceId);
   }
 
-  static async rebuildCache(userId: number): Promise<BillingCache> {
-    return await this.rebuild(userId);
+  static async rebuildCache(workspaceId: number): Promise<BillingCache> {
+    return await this.rebuild(workspaceId);
   }
 
-  static async isTrial(userId: number): Promise<boolean> {
-    const subscription = await this.subscription(userId);
+  static async isTrial(workspaceId: number): Promise<boolean> {
+    const subscription = await this.subscription(workspaceId);
     return subscription?.status === SubscriptionStatus.TRIAL;
   }
 
-  static async isActive(userId: number): Promise<boolean> {
-    const subscription = await this.subscription(userId);
+  static async isActive(workspaceId: number): Promise<boolean> {
+    const subscription = await this.subscription(workspaceId);
     return (
       subscription?.status === SubscriptionStatus.ACTIVE || subscription?.status === SubscriptionStatus.TRIAL
     );
   }
 
-  static async createFreeSubscription(userId: number) {
+  static async createFreeSubscription(workspaceId: number, billingOwnerId?: number) {
     const planRepository = new PlanRepository(prisma);
     const freePlan = await planRepository.findLatestVersion("free");
 
@@ -206,9 +206,10 @@ export class BillingService {
       }
 
       await tx.subscription.upsert({
-        where: { userId },
+        where: { workspaceId },
         create: {
-          userId,
+          workspaceId,
+          billingOwnerId: billingOwnerId ?? null,
           planVersionId: latest.id,
           status: SubscriptionStatus.ACTIVE,
           startsAt: new Date(),
@@ -219,45 +220,46 @@ export class BillingService {
           startsAt: new Date(),
           expiresAt: null,
           cancelledAt: null,
+          billingOwnerId: billingOwnerId ?? null,
         },
       });
     });
 
-    await UsageService.initialize(userId, freePlan.id);
+    await UsageService.initialize(workspaceId, freePlan.id);
 
-    return await this.refresh(userId);
+    return await this.refresh(workspaceId);
   }
 
   static async authorizeAndConsume(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
-    return await BillingLockService.withUserLock(userId, async () => {
-      return await this.authorizeInternal(userId, request, true);
+    return await BillingLockService.withWorkspaceLock(workspaceId, async () => {
+      return await this.authorizeInternal(workspaceId, request, true);
     });
   }
 
   public static async authorize(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
   ): Promise<BillingAuthorizationResult> {
     const shouldConsume = request.quotas?.some((quota) => quota.consume) ?? false;
 
     if (shouldConsume) {
-      return await BillingLockService.withUserLock(userId, async () => {
-        return await this.authorizeInternal(userId, request, true);
+      return await BillingLockService.withWorkspaceLock(workspaceId, async () => {
+        return await this.authorizeInternal(workspaceId, request, true);
       });
     }
 
-    return await this.authorizeInternal(userId, request, false);
+    return await this.authorizeInternal(workspaceId, request, false);
   }
 
   private static async authorizeInternal(
-    userId: number,
+    workspaceId: number,
     request: BillingAuthorizationRequest,
     consumeQuotas: boolean,
   ): Promise<BillingAuthorizationResult> {
-    const cache = await this.get(userId);
+    const cache = await this.get(workspaceId);
 
     if (!cache.subscription) {
       throw new SubscriptionRequiredError();
@@ -303,7 +305,7 @@ export class BillingService {
       if (consumeQuotas && consumedUsage.size > 0) {
         for (const [quotaKey, nextValue] of consumedUsage.entries()) {
           // Delegate to UsageService: Updates Redis, BillingCache, AND triggers scheduleSync()
-          await UsageService.set(userId, quotaKey, nextValue);
+          await UsageService.set(workspaceId, quotaKey, nextValue);
           
           // Keep our local result object in sync to return to the middleware
           cache.usage[quotaKey] = nextValue;

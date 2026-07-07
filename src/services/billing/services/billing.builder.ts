@@ -3,22 +3,27 @@ import { BillingCache } from "../types/billing-cache.type";
 import { BILLING_CACHE_VERSION } from "../cache/cache.constants";
 
 export class BillingBuilder {
-  async build(userId: number): Promise<BillingCache> {
-    const subscription = await prisma.subscription.findUnique({
-      where: { userId },
+  async build(workspaceId: number): Promise<BillingCache> {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
       include: {
-        planVersion: {
+        subscription: {
           include: {
-            plan: true,
-            features: { include: { feature: true } },
-            quotas: { include: { quota: true } },
+            planVersion: {
+              include: {
+                plan: true,
+                features: { include: { feature: true } },
+                quotas: { include: { quota: true } },
+              },
+            },
           },
         },
       },
     });
+    const subscription = workspace?.subscription ?? null;
 
     const usageRows = await prisma.usage.findMany({
-      where: { userId },
+      where: { workspaceId },
       include: { quota: true },
     });
 
@@ -41,7 +46,7 @@ export class BillingBuilder {
     }
 
     return {
-      userId,
+      workspaceId,
       version: BILLING_CACHE_VERSION,
       updatedAt: new Date().toISOString(),
       subscription: subscription

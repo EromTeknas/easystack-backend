@@ -1,7 +1,8 @@
 import { PaymentGateway, BillingCycle } from "@prisma/client";
 
 export interface PurchasePlanDto {
-  userId: number;
+  workspaceId: number;
+  billingOwnerId?: number;
   planKey: string;
   gateway?: PaymentGateway;
   currency?: string;

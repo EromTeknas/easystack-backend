@@ -13,7 +13,7 @@ router.use('/webhook', webhookRoutes);
 // router.get('/plans', billingController.getAvailablePlans);
 
 // Protected routes
-// router.get('/my-plan', authenticate, billingController.getMyPlan);
+router.get('/workspaces/:workspaceId/my-plan', authenticate, billingController.getMyPlan);
 
 
 
@@ -22,7 +22,7 @@ router.post(
   "/test/add-content",
   authenticate,
   billingMiddleware(
-    (req) => Number(req.user!.id) , // Replace with your actual user extraction
+    (req) => Number(req.body.workspaceId ?? req.query.workspaceId),
     {
       subscription: true, // Requires an active plan
       quotas: [

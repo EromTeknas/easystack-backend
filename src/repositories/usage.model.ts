@@ -1,12 +1,12 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 /**
- * Usage tracking for billing - stores dynamic counters per user per month
+ * Usage tracking for billing - stores dynamic counters per workspace per month
  * This allows flexible tracking without schema migrations
  */
 
 export interface IUsage extends Document {
-  userId: number;
+  workspaceId: number;
   month: string; // Format: "YYYY-MM"
   usage: {
     projects?: number;
@@ -23,7 +23,7 @@ export interface IUsage extends Document {
 
 const UsageSchema = new Schema<IUsage>(
   {
-    userId: {
+    workspaceId: {
       type: Number,
       required: true,
       index: true,
@@ -45,7 +45,7 @@ const UsageSchema = new Schema<IUsage>(
 );
 
 // Compound index for efficient queries
-UsageSchema.index({ userId: 1, month: 1 }, { unique: true });
+UsageSchema.index({ workspaceId: 1, month: 1 }, { unique: true });
 
 export const Usage = mongoose.model<IUsage>('Usage', UsageSchema);
 
@@ -60,17 +60,17 @@ export function getCurrentMonth(): string {
 }
 
 /**
- * Increment usage counter for a user
+ * Increment usage counter for a workspace
  */
 export async function incrementUsage(
-  userId: number,
+  workspaceId: number,
   featureKey: string,
   amount: number = 1
 ): Promise<void> {
   const month = getCurrentMonth();
   
   await Usage.findOneAndUpdate(
-    { userId, month },
+    { workspaceId, month },
     {
       $inc: { [`usage.${featureKey}`]: amount },
     },
@@ -79,27 +79,27 @@ export async function incrementUsage(
 }
 
 /**
- * Get usage for a specific user and month
+ * Get usage for a specific workspace and month
  */
-export async function getUserUsage(
-  userId: number,
+export async function getWorkspaceUsage(
+  workspaceId: number,
   month?: string
 ): Promise<IUsage['usage']> {
   const targetMonth = month || getCurrentMonth();
   
-  const usageDoc = await Usage.findOne({ userId, month: targetMonth });
+  const usageDoc = await Usage.findOne({ workspaceId, month: targetMonth });
   
   return usageDoc?.usage || {};
 }
 
 /**
- * Reset usage for a user (typically at month start)
+ * Reset usage for a workspace (typically at month start)
  */
-export async function resetUserUsage(userId: number): Promise<void> {
+export async function resetWorkspaceUsage(workspaceId: number): Promise<void> {
   const month = getCurrentMonth();
   
   await Usage.findOneAndUpdate(
-    { userId, month },
+    { workspaceId, month },
     { $set: { usage: {} } },
     { upsert: true }
   );

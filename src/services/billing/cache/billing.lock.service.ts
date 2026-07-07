@@ -2,21 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import redis from "../../../config/redis";
 
-const BILLING_LOCK_PREFIX = "billing:v1:lock:user";
+const BILLING_LOCK_PREFIX = "billing:v1:lock:workspace";
 const BILLING_LOCK_TTL_SECONDS = 15;
 const BILLING_LOCK_WAIT_TIMEOUT_MS = 5_000;
 const BILLING_LOCK_RETRY_DELAY_MS = 50;
 
 export class BillingLockService {
-  static async withUserLock<T>(
-    userId: number,
+  static async withWorkspaceLock<T>(
+    workspaceId: number,
     handler: () => Promise<T>,
     options?: {
       waitTimeoutMs?: number;
       ttlSeconds?: number;
     },
   ): Promise<T> {
-    const lockKey = `${BILLING_LOCK_PREFIX}:${userId}`;
+    const lockKey = `${BILLING_LOCK_PREFIX}:${workspaceId}`;
     const token = randomUUID();
     const waitTimeoutMs = options?.waitTimeoutMs ?? BILLING_LOCK_WAIT_TIMEOUT_MS;
     const ttlSeconds = options?.ttlSeconds ?? BILLING_LOCK_TTL_SECONDS;
@@ -30,7 +30,7 @@ export class BillingLockService {
       }
 
       if (Date.now() >= expiresAt) {
-        throw new Error(`Timed out waiting for billing lock on user ${userId}.`);
+        throw new Error(`Timed out waiting for billing lock on workspace ${workspaceId}.`);
       }
 
       await new Promise((resolve) => setTimeout(resolve, BILLING_LOCK_RETRY_DELAY_MS));

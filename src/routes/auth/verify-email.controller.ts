@@ -35,6 +35,12 @@ import { UserStatus } from "@prisma/client";
 import { RoleRepository } from "../../repositories/role.repository";
 import { BillingService } from "../../services/billing.service";
 
+function buildDefaultWorkspaceSlug(emailAddress: string, userId: number) {
+  const localPart = emailAddress.split("@")[0] ?? "workspace";
+  const base = localPart.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workspace";
+  return `${base}-${userId}`;
+}
+
 export const verifyEmailController = asyncHandler(async (req, res) => {
   logger.info("POST /api/auth/verify-email start");
   try {
@@ -84,6 +90,7 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           emailVerified: true,
           status: true,
           onboardingCompleted: true,
+          defaultWorkspaceId: true,
         },
       });
 
@@ -127,6 +134,8 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           },
         });
 
+        let defaultWorkspaceId = existingMembership?.workspaceId ?? updatedUser.defaultWorkspaceId;
+
         if (!existingMembership) {
           const ownerRole = await RoleRepository.findByKey(
             APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
@@ -141,9 +150,11 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           const workspace = await tx.workspace.create({
             data: {
               name: `${updatedUser.firstName}'s Workspace`,
+              slug: buildDefaultWorkspaceSlug(updatedUser.email, updatedUser.id),
               createdById: updatedUser.id,
             },
           });
+          defaultWorkspaceId = workspace.id;
 
           await tx.workspaceMember.create({
             data: {
@@ -156,6 +167,13 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
           logger.info("Default workspace created", {
             workspaceId: workspace.id,
             userId,
+          });
+        }
+
+        if (defaultWorkspaceId && updatedUser.defaultWorkspaceId !== defaultWorkspaceId) {
+          await tx.user.update({
+            where: { id: userId },
+            data: { defaultWorkspaceId },
           });
         }
 
@@ -198,7 +216,9 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
             firstName: updatedUser.firstName,
             lastName: updatedUser.lastName,
             onboardingCompleted: updatedUser.onboardingCompleted,
+            defaultWorkspaceId,
           },
+          defaultWorkspaceId,
           accessToken,
           refreshToken,
         };
@@ -223,9 +243,11 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
 
       // Fire-and-forget cache warm-up. 
       // No need to 'await' it; let it run in the background so it doesn't slow down the login response.
-      BillingService.get(Number(userId)).catch((err) => 
-        logger.error('Failed to warm billing cache post-login', { userId, error: err.message })
-      );
+      if (result.defaultWorkspaceId) {
+        BillingService.get(result.defaultWorkspaceId).catch((err) => 
+          logger.error('Failed to warm billing cache post-login', { userId, workspaceId: result.defaultWorkspaceId, error: err.message })
+        );
+      }
       
       // Return response with tokens
       return ok(res, {

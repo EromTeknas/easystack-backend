@@ -60,7 +60,7 @@ export class PurchaseService {
     // If payment did not succeed, persist a payment record and return status.
     if (payment.status !== ("PAID" as any)) {
       await this.paymentRepo.create({
-        subscription: undefined as any,
+        workspace: { connect: { id: request.workspaceId } },
         gateway: payment.gateway,
         gatewayPaymentId: payment.transactionId,
         gatewayCustomerId: payment.customerId ?? undefined,
@@ -78,24 +78,25 @@ export class PurchaseService {
     const workflow = new SubscriptionPurchaseWorkflow(this.prismaClient);
 
     const result = await workflow.execute({
-      userId: request.userId,
+      workspaceId: request.workspaceId,
+      ...(request.billingOwnerId ? { billingOwnerId: request.billingOwnerId } : {}),
       planId: plan.id,
       paymentResult: {
         gateway: payment.gateway,
         transactionId: payment.transactionId,
-        customerId: payment.customerId,
-        subscriptionId: payment.subscriptionId,
+        ...(payment.customerId ? { customerId: payment.customerId } : {}),
+        ...(payment.subscriptionId ? { subscriptionId: payment.subscriptionId } : {}),
         amount: payment.amount,
         currency: payment.currency,
-        metadata: payment.metadata as Record<string, unknown> | undefined,
+        ...(payment.metadata ? { metadata: payment.metadata as Record<string, unknown> } : {}),
       },
     });
 
     // Refresh cache AFTER commit
-    await BillingContextService.refresh(request.userId);
+    await BillingContextService.refresh(request.workspaceId);
 
     // Ensure Redis usage seeds
-    await UsageService.initialize(request.userId, plan.id);
+    await UsageService.initialize(request.workspaceId, plan.id);
 
     return { success: true, ...result };
   }
@@ -113,7 +114,7 @@ export class PurchaseService {
   }
 
   async cancel(request: PurchasePlanDto) {
-    const subscription = await this.subscriptions.findRaw(request.userId);
+    const subscription = await this.subscriptions.findRaw(request.workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -121,12 +122,13 @@ export class PurchaseService {
 
     const now = new Date();
 
-    await this.subscriptions.update(request.userId, {
+    await this.subscriptions.update(request.workspaceId, {
       status: SubscriptionStatus.CANCELLED,
       cancelledAt: now,
     } as any);
 
     await this.history.create({
+      workspace: { connect: { id: request.workspaceId } },
       subscription: { connect: { id: subscription.id } },
       planVersion: { connect: { id: subscription.planVersionId } },
       status: SubscriptionStatus.CANCELLED,
@@ -135,7 +137,7 @@ export class PurchaseService {
       reason: "Cancelled",
     } as any);
 
-    await BillingContextService.refresh(request.userId);
+    await BillingContextService.refresh(request.workspaceId);
 
     return { success: true };
   }

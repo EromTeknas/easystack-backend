@@ -1,7 +1,7 @@
 import { PaymentGateway } from "@prisma/client";
 
 export interface PaymentCompletedEvent {
-  userId: number;
+  workspaceId: number;
   planKey: string;
   amount: number;
   currency: string;

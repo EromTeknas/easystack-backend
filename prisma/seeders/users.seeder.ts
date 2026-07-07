@@ -57,7 +57,7 @@ export async function seedUsers(prisma: PrismaClient) {
       throw new Error(`Plan '${planKey}' not found.`);
     }
 
-    const userId = await prisma.$transaction(async (tx) => {
+    const seeded = await prisma.$transaction(async (tx) => {
       /**
        * ----------------------------------------------------------------------
        * User
@@ -102,6 +102,7 @@ export async function seedUsers(prisma: PrismaClient) {
         workspace = await tx.workspace.create({
           data: {
             name: fakeUser.workspace.name,
+            slug: fakeUser.workspace.slug,
             createdById: user.id,
           },
         });
@@ -155,11 +156,12 @@ export async function seedUsers(prisma: PrismaClient) {
 
       const subscription = await tx.subscription.upsert({
         where: {
-          userId: user.id,
+          workspaceId: workspace.id,
         },
 
         update: {
           planVersionId: latestPlan.id,
+          billingOwnerId: user.id,
           status,
           startsAt,
           trialEndsAt,
@@ -167,7 +169,8 @@ export async function seedUsers(prisma: PrismaClient) {
         },
 
         create: {
-          userId: user.id,
+          workspaceId: workspace.id,
+          billingOwnerId: user.id,
           planVersionId: latestPlan.id,
           status,
           startsAt,
@@ -185,6 +188,7 @@ export async function seedUsers(prisma: PrismaClient) {
       if (!existingHistory) {
         await tx.subscriptionHistory.create({
           data: {
+            workspaceId: workspace.id,
             subscriptionId: subscription.id,
             planVersionId: subscription.planVersionId,
             status: subscription.status,
@@ -195,14 +199,19 @@ export async function seedUsers(prisma: PrismaClient) {
         });
       }
 
-      return user.id;
+      await tx.user.update({
+        where: { id: user.id },
+        data: { defaultWorkspaceId: workspace.id },
+      });
+
+      return { userId: user.id, workspaceId: workspace.id };
     });
     try{
       // Initialize the usage rows in MySQL and push the state to Redis
-      await UsageService.initialize(Number(userId), latestPlan.id);
+      await UsageService.initialize(Number(seeded.workspaceId), latestPlan.id);
   
       // Ensure the main billing cache is warm
-      await BillingContextService.refresh(Number(userId));
+      await BillingContextService.refresh(Number(seeded.workspaceId));
 
     } catch (error) {
       console.error(`Error initializing usage or refreshing billing context for user ${fakeUser.email}:`, error);

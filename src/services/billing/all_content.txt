@@ -229,11 +229,23 @@ export * from "./payment/index.ts";
 
 
 ###  ###
+import logger from "../../../logger.ts";
 import { ResetService } from "../services/reset.service.ts";
 
-export async function runQuotaResetJob() {
-  return await ResetService.resetDueUsage();
+
+async function run() {
+  logger.info('Starting scheduled quota reset...');
+  try {
+    const results = await ResetService.resetDueUsage();
+    logger.info('Reset completed successfully:', results);
+  } catch (error) {
+    logger.error('Reset failed:', error);
+  } finally {
+    process.exit(0); // Ensure the script exits when done
+  }
 }
+
+run();
 
 
 ###  ###
@@ -1183,17 +1195,61 @@ export class TrialService {
 ###  ###
 import { QuotaResetPolicy, Prisma } from "@prisma/client";
 import { prisma } from "../../../db";
-import { BillingService } from "./billing.service.ts";
 import { UsageService } from "./usage.service.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
 
 export class ResetService {
+  // 1. The Main Cron Entry Point
+  static async resetDueUsage(currentDate: Date = new Date()) {
+    const results = [];
+    const policiesToReset: QuotaResetPolicy[] = [];
+
+    // ==========================================
+    // 🧪 TESTING OVERRIDE: MINUTELY RESETS
+    // ==========================================
+    // If you are running a cron every minute, this ensures DAILY 
+    // quotas reset every single minute for testing purposes.
+    const isTesting = process.env.NODE_ENV !== 'production'; 
+    
+    if (isTesting) {
+      console.log("⚠️  Running in TESTING mode: All quotas will reset every minute for testing purposes.");
+      policiesToReset.push(QuotaResetPolicy.DAILY); // For testing, treat DAILY quotas as MINUTELY
+      
+      // If you specifically added MINUTELY to your Prisma schema, use this instead:
+      // policiesToReset.push(QuotaResetPolicy.MINUTELY);
+    } else {
+      // --- Standard Production Logic ---
+      // Only push DAILY if it's actually midnight (or whenever your production cron runs)
+      policiesToReset.push(QuotaResetPolicy.DAILY); 
+    }
+    // ==========================================
+
+
+    // Weekly: Reset on Monday (1)
+    if (currentDate.getUTCDay() === 1) {
+      policiesToReset.push(QuotaResetPolicy.WEEKLY);
+    }
+
+    // Monthly: Reset on the 1st of the month
+    if (currentDate.getUTCDate() === 1) {
+      policiesToReset.push(QuotaResetPolicy.MONTHLY);
+    }
+
+    // Execute the global calendar resets
+    for (const policy of policiesToReset) {
+      results.push(await this.resetByPolicy(policy));
+    }
+
+    // Execute User-Specific Billing Cycle Resets
+    results.push(await this.resetBillingCycleUsages(currentDate));
+
+    return results;
+  }
+  // 2. Helper to reset global calendar policies
   static async resetByPolicy(policy: QuotaResetPolicy) {
     const quotas = await prisma.quota.findMany({
       where: { resetPolicy: policy },
-      include: {
-        usage: true,
-      },
+      include: { usage: true },
     });
 
     const affectedUserIds = new Set<number>();
@@ -1201,7 +1257,9 @@ export class ResetService {
     for (const quota of quotas) {
       for (const usage of quota.usage) {
         await prisma.usage.update({
-          where: { userId_quotaId: { userId: usage.userId, quotaId: quota.id } },
+          where: {
+            userId_quotaId: { userId: usage.userId, quotaId: quota.id },
+          },
           data: { value: 0, resetAt: new Date() },
         });
         affectedUserIds.add(usage.userId);
@@ -1217,25 +1275,101 @@ export class ResetService {
     };
   }
 
-  static async resetDueUsage() {
-    const policies = [
-      QuotaResetPolicy.DAILY,
-      QuotaResetPolicy.WEEKLY,
-      QuotaResetPolicy.MONTHLY,
-      QuotaResetPolicy.BILLING_CYCLE,
-    ];
+  // 3. Helper to reset user-specific Billing Cycle policies
+  static async resetBillingCycleUsages(currentDate: Date) {
+    // Get all quotas that follow the BILLING_CYCLE rule
+    const billingCycleQuotas = await prisma.quota.findMany({
+      where: { resetPolicy: QuotaResetPolicy.BILLING_CYCLE },
+      select: { id: true },
+    });
 
-    const results = [];
-
-    for (const policy of policies) {
-      results.push(await this.resetByPolicy(policy));
+    if (billingCycleQuotas.length === 0) {
+      return {
+        policy: QuotaResetPolicy.BILLING_CYCLE,
+        resetCount: 0,
+        affectedUserCount: 0,
+      };
     }
 
-    return results;
+    const quotaIds = billingCycleQuotas.map((q) => q.id);
+    const affectedUserIds = new Set<number>();
+
+    // Calculate dates to handle end-of-month edge cases (e.g., renewing on the 31st in a 30-day month)
+    const targetDay = currentDate.getUTCDate();
+    const lastDayOfCurrentMonth = new Date(
+      currentDate.getUTCFullYear(),
+      currentDate.getUTCMonth() + 1,
+      0,
+    ).getUTCDate();
+    const isEndOfMonth = targetDay === lastDayOfCurrentMonth;
+
+    // Fetch active subscriptions
+    const subscriptions = await prisma.subscription.findMany({
+      where: { status: { in: ["ACTIVE", "TRIAL"] } },
+      select: { userId: true, startsAt: true },
+    });
+
+    // Filter users whose anniversary is today
+    const usersToReset = subscriptions
+      .filter((sub) => {
+        const startDay = sub.startsAt.getUTCDate();
+        return startDay === targetDay || (isEndOfMonth && startDay > targetDay);
+      })
+      .map((sub) => sub.userId);
+
+    // Batch update the usages for these specific users
+    if (usersToReset.length > 0) {
+      await prisma.usage.updateMany({
+        where: {
+          userId: { in: usersToReset },
+          quotaId: { in: quotaIds },
+        },
+        data: { value: 0, resetAt: currentDate },
+      });
+
+      usersToReset.forEach((id) => affectedUserIds.add(id));
+      await BillingContextService.refreshMany([...affectedUserIds]);
+    }
+
+    return {
+      policy: QuotaResetPolicy.BILLING_CYCLE,
+      resetCount: billingCycleQuotas.length,
+      affectedUserCount: affectedUserIds.size,
+    };
   }
 
+  // 4. Reset a specific user (Used manually or via Webhooks)
   static async resetUserQuota(userId: number, quotaKey?: string) {
     await UsageService.reset(userId, quotaKey);
+    await BillingContextService.refresh(userId);
+  }
+
+  // Add this inside src/services/billing/services/reset.service.ts
+
+  static async resetByPolicyForUser(userId: number, policy: QuotaResetPolicy) {
+    // 1. Find all quotas that use this policy
+    const quotas = await prisma.quota.findMany({
+      where: { resetPolicy: policy },
+      select: { id: true },
+    });
+
+    if (quotas.length === 0) return;
+
+    const quotaIds = quotas.map((q) => q.id);
+
+    // 2. Reset those specific usage rows for this user
+    await prisma.usage.updateMany({
+      where: {
+        userId: userId,
+        quotaId: { in: quotaIds },
+      },
+      data: {
+        value: 0,
+        resetAt: new Date(),
+      },
+    });
+
+    // 3. Flush the Redis cache so the user instantly sees their fresh limits
     await BillingContextService.refresh(userId);
   }
 }
@@ -1546,11 +1680,12 @@ export class BillingService {
 
       if (consumeQuotas && consumedUsage.size > 0) {
         for (const [quotaKey, nextValue] of consumedUsage.entries()) {
+          // Delegate to UsageService: Updates Redis, BillingCache, AND triggers scheduleSync()
+          await UsageService.set(userId, quotaKey, nextValue);
+          
+          // Keep our local result object in sync to return to the middleware
           cache.usage[quotaKey] = nextValue;
-          await this.usageCache.set(userId, quotaKey, nextValue);
         }
-
-        await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
       }
     }
 
@@ -1714,10 +1849,6 @@ import {
   BillingAuthorizationRequest,
 } from "../../types";
 
-import {
-  BillingError,
-} from "../../errors";
-
 export function billingMiddleware(
   getUserId: (req: Request) => number,
   request: BillingAuthorizationRequest
@@ -1749,15 +1880,6 @@ export function billingMiddleware(
       next();
 
     } catch (error) {
-
-      if (
-        error instanceof BillingError
-      ) {
-        return res
-          .status(error.statusCode)
-          .json(error.serialize());
-      }
-
       next(error);
     }
   };
@@ -2480,222 +2602,13 @@ export class PaymentRepository {
 
 
 ###  ###
-export enum BillingErrorCode {
-  UNKNOWN = "UNKNOWN",
-
-  PLAN_NOT_FOUND = "PLAN_NOT_FOUND",
-  INVALID_PLAN = "INVALID_PLAN",
-
-  SUBSCRIPTION_NOT_FOUND = "SUBSCRIPTION_NOT_FOUND",
-  SUBSCRIPTION_REQUIRED = "SUBSCRIPTION_REQUIRED",
-  SUBSCRIPTION_EXPIRED = "SUBSCRIPTION_EXPIRED",
-
-  TRIAL_EXPIRED = "TRIAL_EXPIRED",
-
-  FEATURE_DISABLED = "FEATURE_DISABLED",
-
-  QUOTA_NOT_FOUND = "QUOTA_NOT_FOUND",
-  INVALID_QUOTA = "INVALID_QUOTA",
-  QUOTA_EXCEEDED = "QUOTA_EXCEEDED",
-
-  USAGE_SYNC_FAILED = "USAGE_SYNC_FAILED",
-  PLAN_INACTIVE = "PLAN_INACTIVE",
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class SubscriptionRequiredError extends BillingError {
-  readonly code = BillingErrorCode.SUBSCRIPTION_REQUIRED;
-  readonly statusCode = 402;
-
-  constructor() {
-    super({
-      message: "An active subscription is required.",
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class TrialExpiredError extends BillingError {
-  readonly code = BillingErrorCode.TRIAL_EXPIRED;
-  readonly statusCode = 402;
-
-  constructor() {
-    super({
-      message: "Trial period has expired.",
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class SubscriptionNotFoundError extends BillingError {
-  readonly code = BillingErrorCode.SUBSCRIPTION_NOT_FOUND;
-  readonly statusCode = 404;
-
-  constructor(userId: number) {
-    super({
-      message: `Subscription not found for user '${userId}'.`,
-      metadata: {
-        userId,
-      },
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class SubscriptionExpiredError extends BillingError {
-  readonly code = BillingErrorCode.SUBSCRIPTION_EXPIRED;
-  readonly statusCode = 402;
-
-  constructor(expiresAt?: Date) {
-    super({
-      message: "Subscription has expired.",
-      metadata: {
-        expiresAt,
-      },
-    });
-  }
-}
-
-###  ###
-export * from "./BillingError";
-export * from "./BillingErrorCode";
-
-export * from "./feature/FeatureDisabledError";
-
-export * from "./plan/InvalidPlanError";
-export * from "./quota/InvalidQuotaError";
-
-export * from "./plan/PlanNotFoundError";
-
-export * from "./quota/QuotaExceededError";
-export * from "./quota/QuotaNotFoundError";
-
-export * from "./subscription/SubscriptionExpiredError";
-export * from "./subscription/SubscriptionNotFoundError";
-export * from "./subscription/SubscriptionRequiredError";
-
-export * from "./subscription/TrialExpiredError";
-
-export * from "./usage/UsageSyncError";
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class UsageSyncError extends BillingError {
-  readonly code = BillingErrorCode.USAGE_SYNC_FAILED;
-  readonly statusCode = 500;
-
-  constructor(cause?: unknown) {
-    super({
-      message: "Failed to synchronize usage with the database.",
-      cause,
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class PlanInactiveError extends BillingError {
-  readonly code = BillingErrorCode.PLAN_INACTIVE;
-  readonly statusCode = 400;
-
-  constructor(planKey: string) {
-    super({
-      message: `Plan '${planKey}' is inactive.`,
-      metadata: {
-        planKey,
-      },
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class InvalidPlanError extends BillingError {
-  readonly code = BillingErrorCode.INVALID_PLAN;
-  readonly statusCode = 400;
-
-  constructor(planKey: string) {
-    super({
-      message: `Plan '${planKey}' is invalid.`,
-      metadata: {
-        planKey,
-      },
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class PlanNotFoundError extends BillingError {
-  readonly code = BillingErrorCode.PLAN_NOT_FOUND;
-  readonly statusCode = 404;
-
-  constructor(planKey: string) {
-    super({
-      message: `Plan '${planKey}' does not exist.`,
-      metadata: {
-        planKey,
-      },
-    });
-  }
-}
-
-###  ###
-###  ###
 import { BillingError } from "./BillingError";
 import { BillingErrorCode } from "./BillingErrorCode";
 
-export class SubscriptionRequiredError extends BillingError {
-  constructor() {
-    super({
-      code: BillingErrorCode.SUBSCRIPTION_REQUIRED,
-      statusCode: 402,
-      message: "An active subscription is required.",
-    });
+export class UsageSyncError extends BillingError {
+  constructor(cause?: unknown) {
+    super("Failed to synchronize usage with the database.", 500, BillingErrorCode.USAGE_SYNC_FAILED, { cause });
   }
-}
-
-###  ###
-export enum BillingErrorCode {
-  UNKNOWN = "UNKNOWN",
-
-  PLAN_NOT_FOUND = "PLAN_NOT_FOUND",
-  INVALID_PLAN = "INVALID_PLAN",
-
-  SUBSCRIPTION_NOT_FOUND = "SUBSCRIPTION_NOT_FOUND",
-  SUBSCRIPTION_REQUIRED = "SUBSCRIPTION_REQUIRED",
-  SUBSCRIPTION_EXPIRED = "SUBSCRIPTION_EXPIRED",
-
-  TRIAL_EXPIRED = "TRIAL_EXPIRED",
-
-  FEATURE_DISABLED = "FEATURE_DISABLED",
-
-  QUOTA_NOT_FOUND = "QUOTA_NOT_FOUND",
-  INVALID_QUOTA = "INVALID_QUOTA",
-  QUOTA_EXCEEDED = "QUOTA_EXCEEDED",
-
-  USAGE_SYNC_FAILED = "USAGE_SYNC_FAILED",
-  PLAN_INACTIVE = "PLAN_INACTIVE",
 }
 
 ###  ###
@@ -2704,38 +2617,50 @@ import { BillingErrorCode } from "./BillingErrorCode";
 
 export class FeatureDisabledError extends BillingError {
   constructor(featureKey: string) {
-    super({
-      code: BillingErrorCode.FEATURE_DISABLED,
-      statusCode: 403,
-      message: `Feature '${featureKey}' is not available on the current plan.`,
-      metadata: {
-        featureKey,
-      },
-    });
+    super(`Feature '${featureKey}' is not available on the current plan.`, 403, BillingErrorCode.FEATURE_DISABLED, { featureKey });
+  }
+}
+
+export class PlanNotFoundError extends BillingError {
+  constructor(planKey: string) {
+    super(`Plan '${planKey}' does not exist.`, 404, BillingErrorCode.PLAN_NOT_FOUND, { planKey });
+  }
+}
+
+export class InvalidPlanError extends BillingError {
+  constructor(planKey: string) {
+    super(`Plan '${planKey}' is invalid.`, 400, BillingErrorCode.INVALID_PLAN, { planKey });
+  }
+}
+
+export class PlanInactiveError extends BillingError {
+  constructor(planKey: string) {
+    super(`Plan '${planKey}' is inactive.`, 400, BillingErrorCode.PLAN_INACTIVE, { planKey });
   }
 }
 
 ###  ###
-export * from "./BillingError";
-export * from "./BillingErrorCode";
+export enum BillingErrorCode {
+  UNKNOWN = "UNKNOWN",
 
-export * from "./FeatureDisabledError";
+  PLAN_NOT_FOUND = "PLAN_NOT_FOUND",
+  INVALID_PLAN = "INVALID_PLAN",
 
-export * from "./InvalidPlanError";
-export * from "./InvalidQuotaError";
+  SUBSCRIPTION_NOT_FOUND = "SUBSCRIPTION_NOT_FOUND",
+  SUBSCRIPTION_REQUIRED = "SUBSCRIPTION_REQUIRED",
+  SUBSCRIPTION_EXPIRED = "SUBSCRIPTION_EXPIRED",
 
-export * from "./PlanNotFoundError";
+  TRIAL_EXPIRED = "TRIAL_EXPIRED",
 
-export * from "./QuotaExceededError";
-export * from "./QuotaNotFoundError";
+  FEATURE_DISABLED = "FEATURE_DISABLED",
 
-export * from "./SubscriptionExpiredError";
-export * from "./SubscriptionNotFoundError";
-export * from "./SubscriptionRequiredError";
+  QUOTA_NOT_FOUND = "QUOTA_NOT_FOUND",
+  INVALID_QUOTA = "INVALID_QUOTA",
+  QUOTA_EXCEEDED = "QUOTA_EXCEEDED",
 
-export * from "./TrialExpiredError";
-
-export * from "./UsageSyncError";
+  USAGE_SYNC_FAILED = "USAGE_SYNC_FAILED",
+  PLAN_INACTIVE = "PLAN_INACTIVE",
+}
 
 ###  ###
 import { BillingError } from "./BillingError";
@@ -2743,204 +2668,55 @@ import { BillingErrorCode } from "./BillingErrorCode";
 
 export class QuotaNotFoundError extends BillingError {
   constructor(quotaKey: string) {
-    super({
-      code: BillingErrorCode.QUOTA_NOT_FOUND,
-      statusCode: 404,
-      message: `Quota '${quotaKey}' does not exist.`,
-      metadata: {
-        quotaKey,
-      },
-    });
+    super(`Quota '${quotaKey}' does not exist.`, 404, BillingErrorCode.QUOTA_NOT_FOUND, { quotaKey });
   }
 }
 
-###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
-
-export class TrialExpiredError extends BillingError {
-  constructor() {
-    super({
-      code: BillingErrorCode.TRIAL_EXPIRED,
-      statusCode: 402,
-      message: "Trial period has expired.",
-    });
+export class InvalidQuotaError extends BillingError {
+  constructor(quotaKey: string) {
+    super(`Quota '${quotaKey}' is invalid.`, 400, BillingErrorCode.INVALID_QUOTA, { quotaKey });
   }
 }
-
-###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
-
-export class PlanNotFoundError extends BillingError {
-  constructor(planKey: string) {
-    super({
-      code: BillingErrorCode.PLAN_NOT_FOUND,
-      statusCode: 404,
-      message: `Plan '${planKey}' does not exist.`,
-      metadata: {
-        planKey,
-      },
-    });
-  }
-}
-
-###  ###
-
-
-###  ###
-import { BillingErrorCode } from "./BillingErrorCode";
-
-export interface BillingErrorOptions {
-  code: BillingErrorCode;
-  message: string;
-  statusCode?: number;
-  metadata?: Record<string, unknown>;
-  cause?: Error;
-}
-
-export class BillingError extends Error {
-  readonly code: BillingErrorCode;
-  readonly statusCode: number;
-  readonly metadata?: Record<string, unknown>;
-
-  constructor(options: BillingErrorOptions) {
-    super(options.message, {
-      cause: options.cause,
-    });
-
-    this.name = new.target.name;
-
-    this.code = options.code;
-    this.statusCode = options.statusCode ?? 400;
-    this.metadata = options.metadata ?? {};
-
-    Error.captureStackTrace?.(this, this.constructor);
-  }
-
-  serialize() {
-    return {
-      error: this.name,
-      code: this.code,
-      message: this.message,
-      statusCode: this.statusCode,
-      metadata: this.metadata,
-    };
-  }
-
-   toJSON() {
-    return this.serialize();
-  }
-}
-
-###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
-
-export class SubscriptionExpiredError extends BillingError {
-  constructor(expiresAt?: Date) {
-    super({
-      code: BillingErrorCode.SUBSCRIPTION_EXPIRED,
-      statusCode: 402,
-      message: "Subscription has expired.",
-      metadata: {
-        expiresAt,
-      },
-    });
-  }
-}
-
-###  ###
-import { BillingError } from "./BillingError";
-import { BillingErrorCode } from "./BillingErrorCode";
 
 export class QuotaExceededError extends BillingError {
-  constructor(
-    quotaKey: string,
-    limit: number,
-    usage: number,
-    requested: number = 1
-  ) {
-    super({
-      code: BillingErrorCode.QUOTA_EXCEEDED,
-      statusCode: 403,
-      message: `Quota '${quotaKey}' has been exceeded.`,
-      metadata: {
-        quotaKey,
-        limit,
-        usage,
-        requested,
-        remaining: Math.max(limit - usage, 0),
-      },
-    });
+  constructor(quotaKey: string, limit: number, usage: number, requested = 1) {
+    super(
+      `Quota '${quotaKey}' has been exceeded.`, 
+      429, 
+      BillingErrorCode.QUOTA_EXCEEDED, 
+      { quotaKey, limit, usage, requested, remaining: Math.max(limit - usage, 0) }
+    );
   }
 }
 
+###  ###
+export * from "./BillingError";
+export * from "./BillingErrorCode";
 
+export * from "./plan.error";
+export * from "./quota.error";
+export * from "./subscription.error";
+export * from "./usage.error";
 
 ###  ###
+import { AppError } from "../../../errors/AppError";
 import { BillingErrorCode } from "./BillingErrorCode";
 
-export interface BillingErrorMetadata {
-  [key: string]: unknown;
-}
-
-export interface BillingErrorOptions {
-  message: string;
-  metadata?: BillingErrorMetadata;
-  cause?: unknown;
-}
-
-export abstract class BillingError extends Error {
-  abstract readonly code: BillingErrorCode;
-  abstract readonly statusCode: number;
-
-  readonly metadata?: BillingErrorMetadata;
+export abstract class BillingError extends AppError {
   readonly isBillingError = true;
 
-  constructor(options: BillingErrorOptions) {
-    super(options.message, {
-      cause: options.cause,
-    });
-
-    this.name = new.target.name;
-    this.metadata = options.metadata ?? {};
-
-    Error.captureStackTrace?.(this, this.constructor);
-  }
-
-  serialize() {
-    return {
-      error: this.name,
-      code: this.code,
-      message: this.message,
-      statusCode: this.statusCode,
-      metadata: this.metadata,
-    };
-  }
-
-  toJSON() {
-    return this.serialize();
+  constructor(
+    message: string,
+    statusCode: number,
+    code: BillingErrorCode,
+    metadata?: Record<string, any>
+  ) {
+    // Pass the standard properties up to AppError
+    super(message, statusCode, code, metadata);
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class FeatureDisabledError extends BillingError {
-  readonly code = BillingErrorCode.FEATURE_DISABLED;
-  readonly statusCode = 403;
-
-  constructor(featureKey: string) {
-    super({
-      message: `Feature '${featureKey}' is not available on the current plan.`,
-      metadata: {
-        featureKey,
-      },
-    });
-  }
-}
 
 ###  ###
 import { BillingError } from "./BillingError";
@@ -2950,65 +2726,30 @@ export function isBillingError(error: unknown): error is BillingError {
 }
 
 ###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
+import { BillingError } from "./BillingError";
+import { BillingErrorCode } from "./BillingErrorCode";
 
-export class QuotaNotFoundError extends BillingError {
-  readonly code = BillingErrorCode.QUOTA_NOT_FOUND;
-  readonly statusCode = 404;
-
-  constructor(quotaKey: string) {
-    super({
-      message: `Quota '${quotaKey}' does not exist.`,
-      metadata: {
-        quotaKey,
-      },
-    });
+export class SubscriptionRequiredError extends BillingError {
+  constructor() {
+    super("An active subscription is required.", 402, BillingErrorCode.SUBSCRIPTION_REQUIRED);
   }
 }
 
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
-
-export class InvalidQuotaError extends BillingError {
-  readonly code = BillingErrorCode.INVALID_QUOTA;
-  readonly statusCode = 400;
-
-  constructor(quotaKey: string) {
-    super({
-      message: `Quota '${quotaKey}' is invalid.`,
-      metadata: {
-        quotaKey,
-      },
-    });
+export class TrialExpiredError extends BillingError {
+  constructor() {
+    super("Trial period has expired.", 402, BillingErrorCode.TRIAL_EXPIRED);
   }
 }
 
-###  ###
-import { BillingError } from "../BillingError";
-import { BillingErrorCode } from "../BillingErrorCode";
+export class SubscriptionNotFoundError extends BillingError {
+  constructor(userId: number) {
+    super(`Subscription not found for user '${userId}'.`, 404, BillingErrorCode.SUBSCRIPTION_NOT_FOUND, { userId });
+  }
+}
 
-export class QuotaExceededError extends BillingError {
-  readonly code = BillingErrorCode.QUOTA_EXCEEDED;
-  readonly statusCode = 429;
-
-  constructor(
-    quotaKey: string,
-    limit: number,
-    usage: number,
-    requested = 1
-  ) {
-    super({
-      message: `Quota '${quotaKey}' has been exceeded.`,
-      metadata: {
-        quotaKey,
-        limit,
-        usage,
-        requested,
-        remaining: Math.max(limit - usage, 0),
-      },
-    });
+export class SubscriptionExpiredError extends BillingError {
+  constructor(expiresAt?: Date) {
+    super("Subscription has expired.", 402, BillingErrorCode.SUBSCRIPTION_EXPIRED, { expiresAt });
   }
 }
 
@@ -3300,349 +3041,6 @@ export class SubscriptionRepository extends BaseRepository {
 
 
 ###  ###
-###  ###
-import { Prisma } from "@prisma/client";
-import { BaseRepository } from "./base.repository";
-
-export class HistoryRepository extends BaseRepository {
-
-    create(data: Prisma.SubscriptionHistoryCreateInput) {
-        return this.prisma.subscriptionHistory.create({
-            data,
-        });
-    }
-
-    findBySubscription(subscriptionId: number) {
-        return this.prisma.subscriptionHistory.findMany({
-            where: {
-                subscriptionId,
-            },
-            orderBy: {
-                createdAt: "desc",
-            },
-        });
-    }
-
-    findLatest(subscriptionId: number) {
-        return this.prisma.subscriptionHistory.findFirst({
-            where: {
-                subscriptionId,
-            },
-            orderBy: {
-                createdAt: "desc",
-            },
-        });
-    }
-}
-
-###  ###
-import { BaseRepository } from "./base.repository";
-
-export class UsageRepository extends BaseRepository {
-
-    initialize(
-        userId: number,
-        quotaId: number,
-    ) {
-        return this.prisma.usage.upsert({
-            where: {
-                userId_quotaId: {
-                    userId,
-                    quotaId,
-                },
-            },
-
-            update: {},
-
-            create: {
-                userId,
-                quotaId,
-                value: 0,
-            },
-        });
-    }
-
-    find(userId: number, quotaId: number) {
-        return this.prisma.usage.findUnique({
-            where: {
-                userId_quotaId: {
-                    userId,
-                    quotaId,
-                },
-            },
-        });
-    }
-
-    increment(userId: number, quotaId: number, value: number) {
-        return this.prisma.usage.update({
-            where: {
-                userId_quotaId: {
-                    userId,
-                    quotaId,
-                },
-            },
-            data: {
-                value: {
-                    increment: value,
-                },
-            },
-        });
-    }
-
-    decrement(userId: number, quotaId: number, value: number) {
-        return this.prisma.usage.update({
-            where: {
-                userId_quotaId: {
-                    userId,
-                    quotaId,
-                },
-            },
-            data: {
-                value: {
-                    decrement: value,
-                },
-            },
-        });
-    }
-
-    reset(userId: number, quotaId: number) {
-        return this.prisma.usage.update({
-            where: {
-                userId_quotaId: {
-                    userId,
-                    quotaId,
-                },
-            },
-            data: {
-                value: 0,
-            },
-        });
-    }
-
-}
-
-###  ###
-// repositories/base.repository.ts
-
-import { PrismaClient, Prisma } from "@prisma/client";
-
-export abstract class BaseRepository {
-  protected readonly prisma: PrismaClient | Prisma.TransactionClient;
-
-  constructor(
-    prisma: PrismaClient | Prisma.TransactionClient,
-  ) {
-    this.prisma = prisma;
-  }
-}
-
-###  ###
-// repositories/subscription.repository.ts
-
-import { Prisma, SubscriptionStatus } from "@prisma/client";
-
-import { BaseRepository } from "./base.repository";
-
-export class SubscriptionRepository extends BaseRepository {
-  async findByUserId(userId: number) {
-    return this.prisma.subscription.findUnique({
-      where: { userId },
-      include: {
-        planVersion: {
-          include: {
-            plan: true,
-            trial: true,
-            pricing: true,
-            features: {
-              include: {
-                feature: true,
-              },
-            },
-            quotas: {
-              include: {
-                quota: true,
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-
-  async create(data: Prisma.SubscriptionCreateInput) {
-    return this.prisma.subscription.create({
-      data,
-    });
-  }
-
-  async update(userId: number, data: Prisma.SubscriptionUpdateInput) {
-    return this.prisma.subscription.update({
-      where: {
-        userId,
-      },
-      data,
-    });
-  }
-
-  async delete(userId: number) {
-    return this.prisma.subscription.delete({
-      where: {
-        userId,
-      },
-    });
-  }
-
-  async updateStatus(userId: number, status: SubscriptionStatus) {
-    return this.prisma.subscription.update({
-      where: {
-        userId,
-      },
-      data: {
-        status,
-      },
-    });
-  }
-
-  async createHistory(
-    data: Prisma.SubscriptionHistoryCreateInput,
-  ) {
-    return this.prisma.subscriptionHistory.create({
-      data,
-    });
-  }
-
-  async upsert(
-    userId: number,
-    create: Prisma.SubscriptionCreateInput,
-    update: Prisma.SubscriptionUpdateInput,
-  ) {
-    return this.prisma.subscription.upsert({
-      where: {
-        userId,
-      },
-      create,
-      update,
-    });
-  }
-
-  async getHistory(subscriptionId: number) {
-    return this.prisma.subscriptionHistory.findMany({
-      where: {
-        subscriptionId,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-  }
-
-  async exists(userId: number) {
-    return !!(await this.prisma.subscription.findUnique({
-      where: { userId },
-      select: { id: true },
-    }));
-  }
-
-  async findRaw(userId: number) {
-    return this.prisma.subscription.findUnique({
-      where: { userId },
-    });
-  }
-}
-
-
-###  ###
-
-
-###  ###
-// repositories/plan.repository.ts
-
-import { BaseRepository } from "./base.repository";
-
-export class PlanRepository extends BaseRepository {
-
-  async findByKey(key: string) {
-    return this.prisma.plan.findUnique({
-      where: { key },
-    });
-  }
-
-  async findLatestVersion(planKey: string) {
-    return this.prisma.planVersion.findFirst({
-      where: {
-        isLatest: true,
-        plan: {
-          key: planKey,
-        },
-      },
-      include: {
-        plan: true,
-        trial: true,
-        pricing: true,
-        features: {
-          include: {
-            feature: true,
-          },
-        },
-        quotas: {
-          include: {
-            quota: true,
-          },
-        },
-      },
-    });
-  }
-
-  async findVersion(planKey: string, version: number) {
-    return this.prisma.planVersion.findFirst({
-      where: {
-        version,
-        plan: {
-          key: planKey,
-        },
-      },
-      include: {
-        plan: true,
-        trial: true,
-        pricing: true,
-        features: {
-          include: {
-            feature: true,
-          },
-        },
-        quotas: {
-          include: {
-            quota: true,
-          },
-        },
-      },
-    });
-  }
-
-  async listPublicPlans() {
-    return this.prisma.plan.findMany({
-      where: {
-        isPublic: true,
-        isActive: true,
-      },
-      orderBy: {
-        displayOrder: "asc",
-      },
-    });
-  }
-
-  async listPlans() {
-    return this.prisma.plan.findMany({
-      orderBy: {
-        displayOrder: "asc",
-      },
-    });
-  }
-}
-
-
-
-###  ###
 // repositories/plan.repository.ts
 
 import { BaseRepository } from "./base.repository";
@@ -3846,7 +3244,8 @@ export const FreePlan: PlanDefinition = {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
-    [Quotas.PROJECTS.key]: 1,
+    [Quotas.PROJECTS.key]: 2,
+    [Quotas.API_REQUESTS.key]: 10,
   },
 };
 
@@ -3889,7 +3288,7 @@ export const ProPlan: PlanDefinition = {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
-    [Quotas.PROJECTS.key]: 50,
+    [Quotas.PROJECTS.key]: 10,
   },
 };
 
@@ -3935,11 +3334,11 @@ export const Quotas = {
   },
 
   API_REQUESTS: {
-    key: "api.requests.month",
+    key: "api.requests.daily",
     displayName: "API Requests",
-    description: "Monthly API Requests",
+    description: "Daily API Requests",
     unit: "requests",
-    resetPolicy: QuotaResetPolicy.BILLING_CYCLE,
+    resetPolicy: QuotaResetPolicy.DAILY,
   },
 } as const;
 

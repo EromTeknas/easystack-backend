@@ -8,11 +8,12 @@ export class SubscriptionPurchaseWorkflow {
   constructor(private readonly prisma: PrismaClient) {}
 
   async execute(args: {
-    userId: number;
+    workspaceId: number;
+    billingOwnerId?: number;
     planId: number;
     paymentResult: { gateway: any; transactionId: string; customerId?: string; subscriptionId?: string; amount: number; currency: string; metadata?: Record<string, unknown> | undefined };
   }) {
-    const { userId, planId, paymentResult } = args;
+    const { workspaceId, billingOwnerId, planId, paymentResult } = args;
 
     return await this.prisma.$transaction(async (tx) => {
       const subRepo = new SubscriptionRepository(tx as any);
@@ -27,9 +28,10 @@ export class SubscriptionPurchaseWorkflow {
       // Plan trial handling is done by caller if required; keep basic active
 
       const subscription = await subRepo.upsert(
-        userId,
+        workspaceId,
         {
-          user: { connect: { id: userId } },
+          workspace: { connect: { id: workspaceId } },
+          ...(billingOwnerId ? { billingOwner: { connect: { id: billingOwnerId } } } : {}),
           planVersion: { connect: { id: planId } },
           status,
           startsAt,
@@ -41,6 +43,7 @@ export class SubscriptionPurchaseWorkflow {
         } as any,
         {
           planVersion: { connect: { id: planId } },
+          billingOwner: billingOwnerId ? { connect: { id: billingOwnerId } } : { disconnect: true },
           status,
           startsAt,
           trialEndsAt,
@@ -52,6 +55,7 @@ export class SubscriptionPurchaseWorkflow {
       );
 
       await historyRepo.create({
+        workspace: { connect: { id: workspaceId } },
         subscription: { connect: { id: subscription.id } },
         planVersion: { connect: { id: planId } },
         status,
@@ -61,6 +65,7 @@ export class SubscriptionPurchaseWorkflow {
       } as any);
 
       const paymentRecord = await paymentRepo.create({
+        workspace: { connect: { id: workspaceId } },
         subscription: { connect: { id: subscription.id } },
         gateway: paymentResult.gateway,
         gatewayPaymentId: paymentResult.transactionId,
@@ -75,6 +80,7 @@ export class SubscriptionPurchaseWorkflow {
       } as Prisma.PaymentCreateInput);
 
       const invoice = await invoiceSvc.create({
+        workspaceId,
         subscriptionId: subscription.id,
         paymentId: paymentRecord.id,
         amount: paymentResult.amount,
@@ -86,15 +92,16 @@ export class SubscriptionPurchaseWorkflow {
       });
 
       // Initialize usage rows
-      const quotaKeys = Object.keys((await tx.planVersion.findUnique({ where: { id: planId }, include: { quotas: true } }))?.quotas ?? {});
+      const planVersion = await tx.planVersion.findUnique({
+        where: { id: planId },
+        include: { quotas: true },
+      });
 
-      if (quotaKeys.length > 0) {
-        const quotas = await tx.quota.findMany({ where: { key: { in: quotaKeys } } });
-
-        for (const quota of quotas) {
+      if (planVersion?.quotas.length) {
+        for (const quota of planVersion.quotas) {
           await tx.usage.upsert({
-            where: { userId_quotaId: { userId, quotaId: quota.id } },
-            create: { userId, quotaId: quota.id, value: 0 },
+            where: { workspaceId_quotaId: { workspaceId, quotaId: quota.quotaId } },
+            create: { workspaceId, quotaId: quota.quotaId, value: 0 },
             update: { value: 0 },
           });
         }

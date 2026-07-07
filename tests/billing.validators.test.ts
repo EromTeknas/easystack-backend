@@ -8,7 +8,7 @@ import { QuotaValidator } from "../src/services/billing/validators/quota.validat
 import { SubscriptionValidator } from "../src/services/billing/validators/subscription.validator.ts";
 
 const cache = {
-  userId: 1,
+  workspaceId: 1,
   version: 1,
   updatedAt: new Date().toISOString(),
   subscription: {

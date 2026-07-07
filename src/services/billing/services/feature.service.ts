@@ -3,17 +3,17 @@ import { BillingContextService } from "../cache/billing.context.service.ts";
 import { FeatureCache } from "../cache/feature.cache.ts";
 
 export class FeatureService {
-  static async enabled(userId: number, featureKey: string): Promise<boolean> {
-    const cache = await BillingContextService.get(userId);
+  static async enabled(workspaceId: number, featureKey: string): Promise<boolean> {
+    const cache = await BillingContextService.get(workspaceId);
     return FeatureCache.get(cache, featureKey);
   }
 
-  static async has(userId: number, featureKey: string): Promise<boolean> {
-    return await this.enabled(userId, featureKey);
+  static async has(workspaceId: number, featureKey: string): Promise<boolean> {
+    return await this.enabled(workspaceId, featureKey);
   }
 
-  static async all(userId: number) {
-    const cache = await BillingContextService.get(userId);
+  static async all(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
     return FeatureCache.all(cache);
   }
 

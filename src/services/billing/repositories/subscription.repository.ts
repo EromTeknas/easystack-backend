@@ -5,9 +5,9 @@ import { Prisma, SubscriptionStatus } from "@prisma/client";
 import { BaseRepository } from "./base.repository";
 
 export class SubscriptionRepository extends BaseRepository {
-  async findByUserId(userId: number) {
+  async findByWorkspaceId(workspaceId: number) {
     return this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
       include: {
         planVersion: {
           include: {
@@ -36,27 +36,27 @@ export class SubscriptionRepository extends BaseRepository {
     });
   }
 
-  async update(userId: number, data: Prisma.SubscriptionUpdateInput) {
+  async update(workspaceId: number, data: Prisma.SubscriptionUpdateInput) {
     return this.prisma.subscription.update({
       where: {
-        userId,
+        workspaceId,
       },
       data,
     });
   }
 
-  async delete(userId: number) {
+  async delete(workspaceId: number) {
     return this.prisma.subscription.delete({
       where: {
-        userId,
+        workspaceId,
       },
     });
   }
 
-  async updateStatus(userId: number, status: SubscriptionStatus) {
+  async updateStatus(workspaceId: number, status: SubscriptionStatus) {
     return this.prisma.subscription.update({
       where: {
-        userId,
+        workspaceId,
       },
       data: {
         status,
@@ -65,29 +65,29 @@ export class SubscriptionRepository extends BaseRepository {
   }
 
   async upsert(
-    userId: number,
+    workspaceId: number,
     create: Prisma.SubscriptionCreateInput,
     update: Prisma.SubscriptionUpdateInput,
   ) {
     return this.prisma.subscription.upsert({
       where: {
-        userId,
+        workspaceId,
       },
       create,
       update,
     });
   }
 
-  async exists(userId: number) {
+  async exists(workspaceId: number) {
     return !!(await this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
       select: { id: true },
     }));
   }
 
-  async findRaw(userId: number) {
+  async findRaw(workspaceId: number) {
     return this.prisma.subscription.findUnique({
-      where: { userId },
+      where: { workspaceId },
     });
   }
 }

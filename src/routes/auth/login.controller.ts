@@ -48,7 +48,8 @@ export const loginController = asyncHandler(async (req, res) => {
       status: true,
       firstName: true,
       lastName: true,
-      onboardingCompleted: true
+      onboardingCompleted: true,
+      defaultWorkspaceId: true,
     }
   });
 
@@ -151,9 +152,11 @@ export const loginController = asyncHandler(async (req, res) => {
 
   // Fire-and-forget cache warm-up. 
   // No need to 'await' it; let it run in the background so it doesn't slow down the login response.
-  BillingService.get(Number(userId)).catch((err) => 
-    logger.error('Failed to warm billing cache post-login', { userId, error: err.message })
-  );
+  if (user.defaultWorkspaceId) {
+    BillingService.get(user.defaultWorkspaceId).catch((err) => 
+      logger.error('Failed to warm billing cache post-login', { userId, workspaceId: user.defaultWorkspaceId, error: err.message })
+    );
+  }
   
   // Return response
   return ok(res, {

@@ -12,6 +12,7 @@ export class InvoiceService {
   ) {}
 
   async create(input: {
+    workspaceId?: number;
     subscriptionId: number;
     paymentId: number;
     amount: number;
@@ -21,6 +22,7 @@ export class InvoiceService {
     metadata?: Record<string, unknown>;
   }) {
     return await this.invoices.create({
+      ...(input.workspaceId ? { workspace: { connect: { id: input.workspaceId } } } : {}),
       subscription: { connect: { id: input.subscriptionId } },
       payment: { connect: { id: input.paymentId } },
       invoiceNumber: InvoiceNumberGenerator.generate(),

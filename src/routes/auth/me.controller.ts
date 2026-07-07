@@ -62,7 +62,8 @@ export const getMeController = asyncHandler(async (req: any, res) => {
           emailVerified: true,
           onboardingCompleted: true,
           status: true,
-          createdAt: true
+          createdAt: true,
+          defaultWorkspaceId: true,
         }
       });
 
@@ -73,9 +74,12 @@ export const getMeController = asyncHandler(async (req: any, res) => {
       // Get user's workspaces
       const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
 
-      // Fetch the full billing context from Redis/MySQL
-      const billing = await BillingService.get(Number(userId));
-      const effectivePlan = await BillingService.getEffectivePlan(Number(userId));
+      const billing = user.defaultWorkspaceId
+        ? await BillingService.get(user.defaultWorkspaceId)
+        : null;
+      const effectivePlan = user.defaultWorkspaceId
+        ? await BillingService.getEffectivePlan(user.defaultWorkspaceId)
+        : null;
 
       return ok(res, {
         user: {
@@ -98,9 +102,9 @@ export const getMeController = asyncHandler(async (req: any, res) => {
         // Expose a unified billing object to the frontend
         billing: {
           plan: effectivePlan,
-          subscription: billing.subscription,
-          usage: billing.usage,
-          features: billing.features, // Crucial for frontend UI toggles
+          subscription: billing?.subscription ?? null,
+          usage: billing?.usage ?? {},
+          features: billing?.features ?? {},
         },
       });
     } catch (error: any) {

@@ -9,17 +9,17 @@ export class UsageService {
   private static readonly usageCache = new UsageCache();
   private static readonly syncTimers = new Map<number, NodeJS.Timeout>();
 
-  static async get(userId: number) {
-    const cache = await BillingContextService.get(userId);
+  static async get(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
     return cache.usage;
   }
 
-  static async list(userId: number) {
-    return await this.get(userId);
+  static async list(workspaceId: number) {
+    return await this.get(workspaceId);
   }
 
-  static async initialize(userId: number, _planVersionId?: number) {
-    const cache = await BillingContextService.refresh(userId);
+  static async initialize(workspaceId: number, _planVersionId?: number) {
+    const cache = await BillingContextService.refresh(workspaceId);
     const quotaKeys = Object.keys(cache.quotas);
 
     if (quotaKeys.length > 0) {
@@ -29,9 +29,9 @@ export class UsageService {
 
       for (const quota of quotas) {
         await prisma.usage.upsert({
-          where: { userId_quotaId: { userId, quotaId: quota.id } },
+          where: { workspaceId_quotaId: { workspaceId, quotaId: quota.id } },
           create: {
-            userId,
+            workspaceId,
             quotaId: quota.id,
             value: cache.usage[quota.key] ?? 0,
           },
@@ -42,74 +42,74 @@ export class UsageService {
       }
     }
 
-    await this.seedRedisUsage(userId, cache.usage);
+    await this.seedRedisUsage(workspaceId, cache.usage);
     return cache.usage;
   }
 
-  static async consume(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await BillingContextService.get(userId);
+  static async consume(workspaceId: number, quotaKey: string, amount: number = 1) {
+    const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = currentValue + amount;
 
     cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, nextValue);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, nextValue);
+    this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async release(userId: number, quotaKey: string, amount: number = 1) {
-    const cache = await BillingContextService.get(userId);
+  static async release(workspaceId: number, quotaKey: string, amount: number = 1) {
+    const cache = await BillingContextService.get(workspaceId);
     const currentValue = cache.usage[quotaKey] ?? 0;
     const nextValue = Math.max(0, currentValue - amount);
 
     cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, nextValue);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, nextValue);
+    this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async increment(userId: number, quotaKey: string, amount: number = 1) {
-    return await this.consume(userId, quotaKey, amount);
+  static async increment(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await this.consume(workspaceId, quotaKey, amount);
   }
 
-  static async decrement(userId: number, quotaKey: string, amount: number = 1) {
-    return await this.release(userId, quotaKey, amount);
+  static async decrement(workspaceId: number, quotaKey: string, amount: number = 1) {
+    return await this.release(workspaceId, quotaKey, amount);
   }
 
-  static async set(userId: number, quotaKey: string, value: number) {
-    const cache = await BillingContextService.get(userId);
+  static async set(workspaceId: number, quotaKey: string, value: number) {
+    const cache = await BillingContextService.get(workspaceId);
     cache.usage[quotaKey] = value;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(userId, quotaKey, value);
-    this.scheduleSync(userId);
+    await this.usageCache.set(workspaceId, quotaKey, value);
+    this.scheduleSync(workspaceId);
     return value;
   }
 
-  static async reset(userId: number, quotaKey?: string) {
-    const cache = await BillingContextService.get(userId);
+  static async reset(workspaceId: number, quotaKey?: string) {
+    const cache = await BillingContextService.get(workspaceId);
 
     if (quotaKey) {
       cache.usage[quotaKey] = 0;
-      await this.usageCache.set(userId, quotaKey, 0);
+      await this.usageCache.set(workspaceId, quotaKey, 0);
     } else {
       for (const key of Object.keys(cache.usage)) {
         cache.usage[key] = 0;
-        await this.usageCache.set(userId, key, 0);
+        await this.usageCache.set(workspaceId, key, 0);
       }
     }
 
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    this.scheduleSync(userId);
+    this.scheduleSync(workspaceId);
 
     return cache.usage;
   }
 
-  static async remaining(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await BillingContextService.get(userId);
+  static async remaining(workspaceId: number, quotaKey: string): Promise<number | null> {
+    const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null) {
@@ -119,8 +119,8 @@ export class UsageService {
     return Math.max(0, limit - (cache.usage[quotaKey] ?? 0));
   }
 
-  static async percent(userId: number, quotaKey: string): Promise<number | null> {
-    const cache = await BillingContextService.get(userId);
+  static async percent(workspaceId: number, quotaKey: string): Promise<number | null> {
+    const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
     if (limit === null || limit === 0) {
@@ -130,53 +130,52 @@ export class UsageService {
     return Math.min(100, Math.round(((cache.usage[quotaKey] ?? 0) / limit) * 100));
   }
 
-  static async hasRemaining(userId: number, quotaKey: string, amount: number = 1): Promise<boolean> {
-    const remaining = await this.remaining(userId, quotaKey);
+  static async hasRemaining(workspaceId: number, quotaKey: string, amount: number = 1): Promise<boolean> {
+    const remaining = await this.remaining(workspaceId, quotaKey);
     return remaining === null ? true : remaining >= amount;
   }
 
-  static async sync(userId: number) {
-    const cache = await BillingContextService.get(userId);
-    const rows = await prisma.usage.findMany({ where: { userId }, include: { quota: true } });
+  static async sync(workspaceId: number) {
+    const cache = await BillingContextService.get(workspaceId);
+    const rows = await prisma.usage.findMany({ where: { workspaceId }, include: { quota: true } });
 
     for (const [quotaKey, value] of Object.entries(cache.usage)) {
       const row = rows.find((item) => item.quota.key === quotaKey);
 
       if (row) {
         await prisma.usage.update({
-          where: { userId_quotaId: { userId, quotaId: row.quotaId } },
+          where: { workspaceId_quotaId: { workspaceId, quotaId: row.quotaId } },
           data: { value },
         });
       }
     }
   }
 
-  static async flush(userId: number) {
-    await this.sync(userId);
-    await BillingContextService.invalidate(userId);
+  static async flush(workspaceId: number) {
+    await this.sync(workspaceId);
+    await BillingContextService.invalidate(workspaceId);
   }
 
-  private static async seedRedisUsage(userId: number, usage: Record<string, number>) {
+  private static async seedRedisUsage(workspaceId: number, usage: Record<string, number>) {
     for (const [quotaKey, value] of Object.entries(usage)) {
-      await this.usageCache.set(userId, quotaKey, value);
+      await this.usageCache.set(workspaceId, quotaKey, value);
     }
   }
 
-  private static scheduleSync(userId: number) {
-    console.log(this.syncTimers);
-    const existing = this.syncTimers.get(userId);
+  private static scheduleSync(workspaceId: number) {
+    const existing = this.syncTimers.get(workspaceId);
 
     if (existing) {
       clearTimeout(existing);
     }
 
     const timer = setTimeout(() => {
-      console.log(`Syncing usage for user ${userId}...`);
-      void this.sync(userId).finally(() => {
-        this.syncTimers.delete(userId);
+      console.log(`Syncing usage for workspace ${workspaceId}...`);
+      void this.sync(workspaceId).finally(() => {
+        this.syncTimers.delete(workspaceId);
       });
     }, 30_000);
 
-    this.syncTimers.set(userId, timer);
+    this.syncTimers.set(workspaceId, timer);
   }
 }

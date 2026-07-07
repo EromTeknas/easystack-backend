@@ -14,16 +14,16 @@ export class SubscriptionService {
     private readonly plans = new PlanRepository(prisma),
   ) {}
 
-  async get(userId: number) {
-    return BillingService.subscription(userId);
+  async get(workspaceId: number) {
+    return BillingService.subscription(workspaceId);
   }
 
-  async exists(userId: number) {
-    return !!(await BillingService.subscription(userId));
+  async exists(workspaceId: number) {
+    return !!(await BillingService.subscription(workspaceId));
   }
 
   async assignPlan(
-    userId: number,
+    workspaceId: number,
     planKey: string,
     options?: {
       trial?: boolean;
@@ -31,6 +31,7 @@ export class SubscriptionService {
       gateway?: PaymentGateway;
       gatewayCustomerId?: string;
       gatewaySubscriptionId?: string;
+      billingOwnerId?: number;
     },
   ) {
     const plan = await this.plans.findLatestVersion(planKey);
@@ -54,13 +55,16 @@ export class SubscriptionService {
     }
 
     const subscription = await this.subscriptions.upsert(
-      userId,
+      workspaceId,
       {
-        user: {
+        workspace: {
           connect: {
-            id: userId,
+            id: workspaceId,
           },
         },
+        ...(options?.billingOwnerId
+          ? { billingOwner: { connect: { id: options.billingOwnerId } } }
+          : {}),
 
         planVersion: {
           connect: {
@@ -91,10 +95,18 @@ export class SubscriptionService {
         gateway: options?.gateway ? options.gateway : null,
         gatewayCustomerId: options?.gatewayCustomerId ?? null,
         gatewaySubscriptionId: options?.gatewaySubscriptionId ?? null,
+        billingOwner: options?.billingOwnerId
+          ? { connect: { id: options.billingOwnerId } }
+          : { disconnect: true },
       },
     );
 
     await this.historyRepo.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
       subscription: {
         connect: {
           id: subscription.id,
@@ -116,13 +128,13 @@ export class SubscriptionService {
       reason: options?.reason ?? "Subscription assigned",
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return subscription;
   }
 
-  async cancel(userId: number, reason?: string) {
-    const subscription = await this.subscriptions.findRaw(userId);
+  async cancel(workspaceId: number, reason?: string) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       throw new Error("Subscription not found.");
@@ -130,12 +142,17 @@ export class SubscriptionService {
 
     const now = new Date();
 
-    const updated = await this.subscriptions.update(userId, {
+    const updated = await this.subscriptions.update(workspaceId, {
       status: SubscriptionStatus.CANCELLED,
       cancelledAt: now,
     });
 
     await this.historyRepo.create({
+      workspace: {
+        connect: {
+          id: workspaceId,
+        },
+      },
       subscription: {
         connect: {
           id: subscription.id,
@@ -157,13 +174,13 @@ export class SubscriptionService {
       reason: reason ?? "Cancelled",
     });
 
-    await BillingContextService.refresh(userId);
+    await BillingContextService.refresh(workspaceId);
 
     return updated;
   }
 
-  async history(userId: number) {
-    const subscription = await this.subscriptions.findRaw(userId);
+  async history(workspaceId: number) {
+    const subscription = await this.subscriptions.findRaw(workspaceId);
 
     if (!subscription) {
       return [];

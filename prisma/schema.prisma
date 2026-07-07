@@ -41,11 +41,9 @@ model User {
   createdWorkspaces Workspace[] @relation("WorkspaceCreatedBy")
   createdProjects   Project[]   @relation("ProjectCreatedBy")
 
-  subscription     Subscription?
-  roles            Role[]
-  usage            Usage[]
-  defaultWorkspace Workspace?      @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id])
-  discountUsages   DiscountUsage[]
+  roles                Role[]
+  defaultWorkspace     Workspace?     @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id], map: "User_defaultWorkspace_fkey")
+  billingSubscriptions Subscription[] @relation("SubscriptionBillingOwner")
 
   @@index([status])
 }
@@ -93,6 +91,8 @@ model Workspace {
 
   name String
 
+  slug String @unique
+
   logoUrl String? @map("logo_url")
 
   createdById Int @map("created_by")
@@ -105,9 +105,15 @@ model Workspace {
 
   members WorkspaceMember[]
 
-  projects        Project[]
-  roles           Role[]
-  defaultForUsers User[]    @relation("UserDefaultWorkspace")
+  projects              Project[]
+  roles                 Role[]
+  defaultForUsers       User[]                @relation("UserDefaultWorkspace")
+  discountUsages        DiscountUsage[]
+  subscription          Subscription?
+  usages                Usage[]
+  payments              Payment[]
+  invoices              Invoice[]
+  subscriptionHistories SubscriptionHistory[]
 
   @@index([createdById])
 }
@@ -444,9 +450,9 @@ model DiscountUsage {
 
   discountId Int
 
-  userId Int
+  workspaceId Int
 
-  subscriptionId Int?
+  subscriptionId Int
 
   paymentId Int?
 
@@ -454,15 +460,15 @@ model DiscountUsage {
 
   discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
 
   payment Payment? @relation(fields: [paymentId], references: [id])
 
-  @@unique([discountId, userId, subscriptionId])
+  @@unique([discountId, workspaceId, subscriptionId])
   @@index([discountId])
-  @@index([userId])
+  @@index([workspaceId])
 }
 
 ////////////////////////////////////////////////////////////////
@@ -573,7 +579,7 @@ model PlanQuota {
 model Subscription {
   id Int @id @default(autoincrement())
 
-  userId Int @unique
+  workspaceId Int @unique
 
   planVersionId Int
 
@@ -591,15 +597,18 @@ model Subscription {
 
   customOverride Json?
 
-  gatewayCustomerId String?
-
+  gatewayCustomerId     String?
   gatewaySubscriptionId String?
+
+  billingOwnerId Int?
 
   createdAt DateTime @default(now())
 
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  billingOwner User? @relation("SubscriptionBillingOwner", fields: [billingOwnerId], references: [id])
 
   planVersion           PlanVersion           @relation(fields: [planVersionId], references: [id])
   discountUsages        DiscountUsage[]
@@ -618,6 +627,8 @@ model Subscription {
 model SubscriptionHistory {
   id Int @id @default(autoincrement())
 
+  workspaceId Int
+
   subscriptionId Int
 
   planVersionId Int
@@ -632,10 +643,13 @@ model SubscriptionHistory {
 
   createdAt DateTime @default(now())
 
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
 
+  @@index([workspaceId])
   @@index([subscriptionId])
   @@index([planVersionId])
 }
@@ -646,8 +660,8 @@ model SubscriptionHistory {
 model Usage {
   id Int @id @default(autoincrement())
 
-  userId  Int
-  quotaId Int
+  workspaceId Int
+  quotaId     Int
 
   value Int @default(0)
 
@@ -657,10 +671,11 @@ model Usage {
 
   updatedAt DateTime @updatedAt
 
-  quota Quota @relation(fields: [quotaId], references: [id])
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quota     Quota     @relation(fields: [quotaId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, quotaId])
+  @@unique([workspaceId, quotaId])
+  @@index([workspaceId])
 }
 
 //////////////////////////////////////////////////////////////
@@ -670,7 +685,9 @@ model Usage {
 model Payment {
   id Int @id @default(autoincrement())
 
-  subscriptionId Int
+  workspaceId Int
+
+  subscriptionId Int?
 
   gateway PaymentGateway
 
@@ -703,10 +720,13 @@ model Payment {
 
   updatedAt DateTime @updatedAt
 
-  subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   discountUsages DiscountUsage[]
   invoices       Invoice[]
 
+  @@index([workspaceId])
   @@index([subscriptionId])
   @@index([gatewayPaymentId])
   @@index([status])
@@ -718,6 +738,8 @@ model Payment {
 
 model Invoice {
   id Int @id @default(autoincrement())
+
+  workspaceId Int?
 
   subscriptionId Int
 
@@ -745,10 +767,13 @@ model Invoice {
 
   createdAt DateTime @default(now())
 
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
   subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
   payment Payment? @relation(fields: [paymentId], references: [id])
 
+  @@index([workspaceId])
   @@index([subscriptionId])
 }
 
@@ -813,7 +838,6 @@ enum PaymentStatus {
   PARTIALLY_REFUNDED
   CANCELLED
 }
-
 
 // CouponCampaign
 // TaxRate

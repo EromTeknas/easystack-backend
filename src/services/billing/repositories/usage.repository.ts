@@ -1,54 +1,57 @@
 import { BaseRepository } from "./base.repository";
 
 export class UsageRepository extends BaseRepository {
-  findByQuotaKey(userId: number, quotaKey: string) {
+  findByQuotaKey(workspaceId: number, quotaKey: string) {
     return this.prisma.usage.findFirst({
       where: {
-        userId,
+        workspaceId,
         quota: {
           key: quotaKey,
         },
       },
+      include: {
+        quota: true,
+      },
     });
   }
 
-  initialize(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  initialize(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Quota not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Quota not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
       return this.prisma.usage.upsert({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         update: {},
         create: {
-          userId,
-          quotaId: quota.id,
+          workspaceId,
+          quotaId: quota.quotaId,
           value: 0,
         },
       });
     });
   }
 
-  increment(userId: number, quotaKey: string, value: number) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  increment(workspaceId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -60,19 +63,19 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  decrement(userId: number, quotaKey: string, value: number) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  decrement(workspaceId: number, quotaKey: string, value: number) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -84,19 +87,19 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  reset(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  reset(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.update({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
         data: {
@@ -106,29 +109,29 @@ export class UsageRepository extends BaseRepository {
     });
   }
 
-  delete(userId: number, quotaKey: string) {
-    this.findByQuotaKey(userId, quotaKey).then((quota) => {
+  delete(workspaceId: number, quotaKey: string) {
+    this.findByQuotaKey(workspaceId, quotaKey).then((quota) => {
       if (!quota) {
         throw new Error(
-          `Usage not found for userId ${userId} and quotaKey ${quotaKey}`,
+          `Usage not found for workspaceId ${workspaceId} and quotaKey ${quotaKey}`,
         );
       }
 
       return this.prisma.usage.delete({
         where: {
-          userId_quotaId: {
-            userId,
-            quotaId: quota.id,
+          workspaceId_quotaId: {
+            workspaceId,
+            quotaId: quota.quotaId,
           },
         },
       });
     });
   }
 
-  listUserUsage(userId: number) {
+  listWorkspaceUsage(workspaceId: number) {
     return this.prisma.usage.findMany({
       where: {
-        userId,
+        workspaceId,
       },
       include: {
         quota: true,

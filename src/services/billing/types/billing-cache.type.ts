@@ -19,7 +19,7 @@ export interface BillingPlanCache {
 }
 
 export interface BillingCache {
-  userId: number;
+  workspaceId: number;
   version: number;
   updatedAt: string;
   subscription: BillingSubscriptionCache | null;
