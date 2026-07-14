@@ -1,7 +1,7 @@
 import { authenticationService } from "../../services/authentication";
 import { auth } from "../../config/auth";
 import WorkspaceRepository from "../../repositories/workspace.repository";
-import { BillingService } from "../../services/billing.service";
+import { BillingService } from "../../services/billing/";
 import { UnauthorizedError } from "../../errors";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../../utils/auth-cookies";

@@ -1,0 +1,406 @@
+/utils/s3.service.ts
+import {
+  S3Client,
+  HeadBucketCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { s3 as s3Config } from '../config';
+
+let s3Client: S3Client | null = null;
+
+const getS3Client = (): S3Client => {
+  if (s3Client) return s3Client;
+
+  const credentials = s3Config.accessKeyId && s3Config.secretAccessKey
+    ? {
+        accessKeyId: s3Config.accessKeyId,
+        secretAccessKey: s3Config.secretAccessKey,
+        ...(s3Config.sessionToken ? { sessionToken: s3Config.sessionToken } : {})
+      }
+    : undefined;
+
+  const clientConfig = {
+    region: s3Config.region,
+    forcePathStyle: s3Config.forcePathStyle,
+    ...(s3Config.endpoint ? { endpoint: s3Config.endpoint } : {}),
+    ...(credentials ? { credentials } : {})
+  };
+
+  s3Client = new S3Client(clientConfig);
+
+  return s3Client;
+};
+
+export const S3Service = {
+  async checkBucket(): Promise<void> {
+    const client = getS3Client();
+    await client.send(new HeadBucketCommand({ Bucket: s3Config.bucket }));
+  },
+
+  async putTestObject(key: string, body: string, contentType?: string) {
+    const client = getS3Client();
+    return client.send(
+      new PutObjectCommand({
+        Bucket: s3Config.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType
+      })
+    );
+  },
+
+  async deleteObject(key: string) {
+    const client = getS3Client();
+    return client.send(
+      new DeleteObjectCommand({
+        Bucket: s3Config.bucket,
+        Key: key
+      })
+    );
+  },
+
+  async listObjects(options?: { prefix?: string; maxKeys?: number; continuationToken?: string }) {
+    const client = getS3Client();
+    const response = await client.send(
+      new ListObjectsV2Command({
+        Bucket: s3Config.bucket,
+        Prefix: options?.prefix,
+        MaxKeys: options?.maxKeys,
+        ContinuationToken: options?.continuationToken
+      })
+    );
+
+    return {
+      items: (response.Contents || []).map((item) => ({
+        key: item.Key,
+        size: item.Size,
+        lastModified: item.LastModified?.toISOString() ?? null,
+        etag: item.ETag ?? null
+      })),
+      isTruncated: response.IsTruncated ?? false,
+      nextToken: response.NextContinuationToken ?? null
+    };
+  },
+
+  async generatePresignedUploadUrl(
+    key: string,
+    contentType: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    const client = getS3Client();
+    const command = new PutObjectCommand({
+      Bucket: s3Config.bucket,
+      Key: key,
+      ContentType: contentType
+    });
+
+    return getSignedUrl(client, command, { expiresIn });
+  },
+
+  async generatePresignedGetUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    const client = getS3Client();
+    const command = new GetObjectCommand({
+      Bucket: s3Config.bucket,
+      Key: key
+    });
+
+    return getSignedUrl(client, command, { expiresIn });
+  }
+};
+
+export default S3Service;
+
+/utils/image-url.service.ts
+import { s3 as s3Config } from '../config';
+import { S3Service } from './s3.service';
+
+/**
+ * Extract S3 key from a raw S3 URL
+ * Handles both virtual-hosted-style and path-style URLs
+ */
+const extractKeyFromUrl = (url: string): string | null => {
+  if (!url) return null;
+
+  try {
+    const urlObj = new URL(url);
+
+    // Virtual-hosted-style: https://bucket.s3.region.amazonaws.com/key
+    if (urlObj.hostname?.includes(s3Config.bucket)) {
+      return urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+    }
+
+    // Path-style: https://s3.region.amazonaws.com/bucket/key
+    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    if (pathParts[0] === s3Config.bucket) {
+      return pathParts.slice(1).join('/');
+    }
+
+    // Custom endpoint (MinIO, etc): https://endpoint/bucket/key
+    if (urlObj.pathname.includes(`/${s3Config.bucket}/`)) {
+      const key = urlObj.pathname.split(`/${s3Config.bucket}/`)[1];
+      return key || null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * ImageUrlService
+ * Converts raw S3 URLs to presigned URLs for secure image delivery
+ */
+export const ImageUrlService = {
+  /**
+   * Convert a single raw S3 URL to presigned URL
+   */
+  async convertToPresigned(url: string, expiresIn: number = 3600): Promise<string | null> {
+    if (!url) return null;
+
+    const key = extractKeyFromUrl(url);
+    if (!key) return url; // Return original if not an S3 URL
+
+    try {
+      return await S3Service.generatePresignedGetUrl(key, expiresIn);
+    } catch (err) {
+      console.error('Failed to generate presigned URL:', err);
+      return url; // Fallback to original URL on error
+    }
+  },
+
+  /**
+   * Convert multiple URLs in an object
+   * @param data Object containing image URL fields
+   * @param imageFields Array of field names that contain image URLs
+   * @param expiresIn URL expiration in seconds
+   */
+  async hydrateObject(
+    data: Record<string, any>,
+    imageFields: string[],
+    expiresIn: number = 3600
+  ): Promise<Record<string, any>> {
+    if (!data) return data;
+
+    const hydrated = { ...data };
+
+    for (const field of imageFields) {
+      if (hydrated[field]) {
+        hydrated[field] = await this.convertToPresigned(hydrated[field], expiresIn);
+      }
+    }
+
+    return hydrated;
+  },
+
+  /**
+   * Convert multiple URLs in an array of objects
+   * @param dataArray Array of objects containing image URLs
+   * @param imageFields Array of field names that contain image URLs
+   * @param expiresIn URL expiration in seconds
+   */
+  async hydrateArray(
+    dataArray: Record<string, any>[],
+    imageFields: string[],
+    expiresIn: number = 3600
+  ): Promise<Record<string, any>[]> {
+    if (!Array.isArray(dataArray)) return dataArray;
+
+    return Promise.all(dataArray.map((item) => this.hydrateObject(item, imageFields, expiresIn)));
+  }
+};
+
+export default ImageUrlService;
+
+// workspace.controller.ts
+
+import { Response } from "express";
+import { asyncHandler } from "../../utils/asyncHandler";
+import { ok } from "../../utils/response";
+import {
+  BadRequestError,
+  InternalServerError,
+  NotFoundError,
+} from "../../errors";
+import WorkspaceRepository from "../../repositories/workspace.repository";
+import { ImageUrlService } from "../../services/image-url.service";
+import { isValidName } from "../../utils/validation";
+import { prisma } from "../../db";
+import logger from "../../utils/logger";
+import { RoleRegistry } from "../../services/authorization/configs/roles-registry.config";
+import { RoleRepository } from "../../repositories/role.repository";
+import { APP_ROLES } from "../../services/authorization/constants/role.constants";
+import { Workspace } from "@prisma/client";
+
+const normalizeWorkspace = (workspace: Workspace) => {
+  if (!workspace) return null;
+
+  const createdAt = workspace.createdAt ;
+  const updatedAt = workspace.updatedAt;
+
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    logoUrl: workspace.logoUrl,
+    createdBy: workspace.createdById,
+    // role: workspace.createdById. ?? null,
+    createdAt: createdAt ? new Date(createdAt).toISOString() : null,
+    updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
+  };
+};
+
+function buildWorkspaceSlug(name: string, userId: number) {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workspace";
+  return `${base}-${userId}-${Date.now()}`;
+}
+
+/**
+ * GET /workspace
+ * List all workspaces for the authenticated user
+ */
+export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
+  logger.debug("GET /api/workspace start");
+
+  const userId = Number(req.user!.id);
+
+  try {
+    logger.debug("Fetching workspaces for user", { userId });
+    const workspaces = await WorkspaceRepository.getUserWorkspaces(userId);
+
+    if (!Array.isArray(workspaces)) {
+      logger.error("Invalid workspaces data received", {
+        userId,
+        data: workspaces,
+      });
+      throw new InternalServerError("Failed to retrieve workspaces");
+    }
+
+    const normalized = workspaces
+      .map(normalizeWorkspace)
+      .filter(
+        (
+          w,
+        ): w is typeof normalizeWorkspace extends (...args: any[]) => infer R
+          ? R & {}
+          : never => w !== null,
+      );
+
+    const hydrated = await ImageUrlService.hydrateArray(
+      normalized as Record<string, any>[],
+      ["logoUrl"],
+    );
+
+    logger.debug("Workspaces retrieved successfully", {
+      userId,
+      count: hydrated.length,
+    });
+    return ok(res, { workspaces: hydrated });
+  } catch (error) {
+    logger.error("Error fetching workspaces", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new InternalServerError("Failed to retrieve workspaces");
+  }
+});
+
+/**
+ * POST /workspace
+ * Create a new workspace and add creator as OWNER (transactional)
+ * If any step fails, all changes are rolled back
+ */
+export const createWorkspaceController = asyncHandler(
+  async (req: any, res: Response) => {
+    logger.debug("POST /api/workspace start");
+    const userId = Number(req.user!.id);
+    const { name, logoUrl } = req.body;
+
+    if (!name || typeof name !== "string" || !isValidName(name)) {
+      throw new BadRequestError("Invalid workspace name");
+    }
+
+    // if (logoUrl !== undefined && logoUrl !== null && typeof logoUrl !== 'string') {
+    //   throw new BadRequestError('Invalid logoUrl');
+    // }
+
+    // Transactional: Create workspace + add member
+    const result = await prisma.$transaction(async (tx) => {
+      // Step 1: Create workspace
+      const workspace = await tx.workspace.create({
+        data: {
+          name: name.trim(),
+          slug: buildWorkspaceSlug(name.trim(), userId),
+          logoUrl: logoUrl || null,
+          createdById: userId,
+        },
+      });
+
+      logger.info("Workspace created in transaction", {
+        workspaceId: workspace.id,
+        name: workspace.name,
+        createdBy: userId,
+      });
+
+      const ownerRole = await RoleRepository.findByKey(
+        APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
+      );
+
+      if (!ownerRole) {
+        throw new InternalServerError(
+          "Workspace owner role not found. Ensure roles are seeded.",
+        );
+      }
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: workspace.createdById,
+          roleId: ownerRole.id,
+        },
+      });
+
+      logger.info("Workspace created", {
+        workspaceId: workspace.id,
+        userId: workspace.createdById,
+      });
+
+      return workspace;
+    });
+
+    const normalized = normalizeWorkspace(result);
+    const hydrated = normalized
+      ? await ImageUrlService.hydrateObject(normalized, ["logoUrl"])
+      : null;
+
+    return ok(res, { workspace: hydrated }, { statusCode: 201 });
+  },
+);
+
+/**
+ * GET /workspace/:workspaceId
+ * Get a workspace by ID for authenticated member
+ */
+export const getWorkspaceById = asyncHandler(
+  async (req: any, res: Response) => {
+    const userId = Number(req.user!.id);
+    const workspaceId = Number(req.params.workspaceId);
+
+    const workspace = await WorkspaceRepository.getUserWorkspaceById(userId, workspaceId);
+
+    if (!workspace) {
+      throw new NotFoundError("Workspace not found");
+    }
+
+    const hydrated = await ImageUrlService.hydrateObject(workspace, ["logoUrl"])
+
+    return ok(res, { workspace: hydrated });
+  },
+);
+
+export const updateWorkspace = asyncHandler( async (req: any, res: Response) => {
+  return ok(res, { message: "Update workspace endpoint is under construction" });
+});

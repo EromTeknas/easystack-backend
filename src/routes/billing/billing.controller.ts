@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { BillingService } from '../../services/billing.service';
+import { BillingService } from '../../services/billing';
 import { BillingAuthorizationService } from '../../services/billing/services/billing-authorization.service';
 import { BadRequestError } from '../../errors';
 import { ok } from '../../utils/response';
