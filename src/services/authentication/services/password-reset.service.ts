@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, UnauthorizedError } from "../../../errors";
+import logger from "../../../utils/logger";
 import { hashPassword } from "../../../utils/password";
 import type { AuthenticationNotifier } from "../adapters/authentication-notifier";
 import { PasswordResetCache } from "../cache/password-reset.cache";
@@ -16,12 +17,27 @@ export class PasswordResetService {
     email: string;
     firstName: string | null;
   }): Promise<void> {
+    logger.debug("Creating password reset token", {
+      userId: input.userId,
+      email: input.email,
+    });
+
     const token = await this.cache.create(input.userId.toString());
+
+    logger.debug("Password reset token created; enqueueing email", {
+      userId: input.userId,
+      email: input.email,
+    });
 
     await this.notifier.sendPasswordReset({
       email: input.email,
       firstName: input.firstName ?? "",
       token,
+    });
+
+    logger.debug("Password reset email enqueue completed", {
+      userId: input.userId,
+      email: input.email,
     });
   }
 

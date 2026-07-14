@@ -121,6 +121,11 @@ function parseEnabledQueues(): QueueId[] {
   const cliArg = process.argv[2];
   const raw = cliArg || process.env.WORKER_QUEUES;
 
+  logger.info('Worker queue configuration received', {
+    cliArg,
+    workerQueues: process.env.WORKER_QUEUES,
+  });
+
   if (!raw || raw.trim() === '') {
     // Default: all queues
     return workerConfigs.map((c) => c.id);
@@ -138,11 +143,20 @@ function main() {
   const enabledIds = parseEnabledQueues();
 
   if (enabledIds.length === 0) {
-    logger.warn('No valid queues configured for worker. Exiting.');
+    logger.warn('No valid queues configured for worker. Exiting.', {
+      validQueues: workerConfigs.map((config) => config.id),
+      cliArg: process.argv[2],
+      workerQueues: process.env.WORKER_QUEUES,
+    });
     process.exit(0);
   }
 
-  logger.info('Starting workers for queues', { queues: enabledIds });
+  logger.info('Starting workers for queues', {
+    queues: enabledIds,
+    queueNames: workerConfigs
+      .filter((config) => enabledIds.includes(config.id))
+      .map((config) => config.queueName),
+  });
 
   const workers: Worker[] = [];
 
@@ -151,12 +165,62 @@ function main() {
 
     const worker = cfg.createWorker();
 
+    logger.info('Worker initialized for queue', {
+      queue: cfg.id,
+      queueName: cfg.queueName,
+    });
+
+    worker.on('ready', () => {
+      logger.info('Worker ready', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+      });
+    });
+
+    worker.on('active', (job: Job) => {
+      logger.info('Job active', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+        jobId: job.id,
+        jobName: job.name,
+      });
+    });
+
     worker.on('completed', (job: Job) => {
-      logger.info('Job completed', { queue: cfg.id, jobId: job.id });
+      logger.info('Job completed', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+        jobId: job.id,
+        jobName: job.name,
+      });
     });
 
     worker.on('failed', (job: Job | undefined, err: Error) => {
-      logger.error('Job failed', { queue: cfg.id, jobId: job?.id, error: err });
+      logger.error('Job failed', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+        jobId: job?.id,
+        jobName: job?.name,
+        error: err.message,
+        stack: err.stack,
+      });
+    });
+
+    worker.on('error', (err: Error) => {
+      logger.error('Worker error', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+        error: err.message,
+        stack: err.stack,
+      });
+    });
+
+    worker.on('stalled', (jobId: string) => {
+      logger.warn('Job stalled', {
+        queue: cfg.id,
+        queueName: cfg.queueName,
+        jobId,
+      });
     });
 
     workers.push(worker);

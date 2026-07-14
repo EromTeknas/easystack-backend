@@ -3,6 +3,7 @@ import { AuthProvider, Prisma, UserStatus } from "@prisma/client";
 import {
   BadRequestError,
   ConflictError,
+  NotFoundError,
   UnauthorizedError,
 } from "../../errors";
 import { AUTH_ERROR_CODES } from "../../constants/errorCodes";
@@ -306,14 +307,30 @@ export class AuthenticationService {
     const email = this.validation.normalizeEmail(emailInput);
     const genericMessage =
       "If an account exists with this email, password reset instructions have been sent.";
+
+    logger.info("POST /auth/forgot-password service start", { email });
+
     const user = await this.users.findUserByEmail(email);
 
     if (!user) {
-      return { message: genericMessage };
+      logger.warn("POST /auth/forgot-password user not found", { email });
+      throw new NotFoundError("No account exists with this email", {
+        field: "email",
+      });
     }
 
     if (!user.emailVerified) {
+      logger.info("POST /auth/forgot-password user is not verified", {
+        userId: user.id,
+        email,
+      });
+
       const verificationToken = await this.verification.issue(user);
+
+      logger.info("POST /auth/forgot-password verification OTP enqueued", {
+        userId: user.id,
+        email,
+      });
 
       return {
         message: "Verify your email before resetting your password.",
@@ -323,10 +340,20 @@ export class AuthenticationService {
       };
     }
 
+    logger.info("POST /auth/forgot-password issuing password reset", {
+      userId: user.id,
+      email,
+    });
+
     await this.passwordReset.issueForVerifiedUser({
       userId: user.id,
       email: user.email,
       firstName: user.firstName,
+    });
+
+    logger.info("POST /auth/forgot-password password reset enqueued", {
+      userId: user.id,
+      email,
     });
 
     return { message: genericMessage };
