@@ -7,6 +7,7 @@ import requestContextMiddleware from './middlewares/request-context.middleware';
 import { errorHandlerMiddleware, notFoundMiddleware } from './middlewares/error-handler.middleware';
 import { initDatabases } from './db/index';
 import router from './routes/index';
+import { requestLogger } from './middlewares/request-logger.middleware';
 
 async function start() {
   try {
@@ -32,6 +33,9 @@ async function start() {
     // Request context middleware (must be after cookie parser)
     app.use(requestContextMiddleware);
 
+    // Register after the body parser so req.body is available. app.use(requestLogger);
+    app.use(requestLogger);
+    
     // Routes
     app.use('/api', router);
 
