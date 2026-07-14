@@ -80,7 +80,6 @@ export async function seedUsers(prisma: PrismaClient) {
           email: fakeUser.email,
           firstName: fakeUser.firstName,
           lastName: fakeUser.lastName,
-          passwordHash,
           status: fakeUser.status,
           emailVerified: fakeUser.emailVerified,
         },

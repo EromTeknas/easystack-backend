@@ -1,7 +1,4 @@
 -- Move authentication credentials into provider accounts and add durable refresh-session IDs.
-ALTER TABLE `User`
-  MODIFY `password_hash` VARCHAR(191) NULL;
-
 CREATE TABLE `AuthAccount` (
   `id` INTEGER NOT NULL AUTO_INCREMENT,
   `user_id` INTEGER NOT NULL,
@@ -43,6 +40,9 @@ SELECT
   `updated_at`
 FROM `User`
 WHERE `password_hash` IS NOT NULL;
+
+ALTER TABLE `User`
+  DROP COLUMN `password_hash`;
 
 ALTER TABLE `AuthAccount`
   ADD CONSTRAINT `AuthAccount_user_id_fkey`

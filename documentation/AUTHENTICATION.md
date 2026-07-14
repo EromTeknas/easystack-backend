@@ -38,7 +38,8 @@ Production-ready authentication system for EasyStack Backend with Next.js fronte
                                        │
 ┌──────────────────────────────────────▼──────────────────────────┐
 │                         MySQL Database                          │
-│  • users table - User accounts & credentials                    │
+│  • users table - User profile & account state                   │
+│  • auth_accounts table - Password/OAuth provider identities     │
 │  • refresh_tokens table - Valid tokens & revocation status      │
 │  • audit_logs table (optional) - Login attempts                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -311,20 +312,42 @@ Client                          Backend                      Database
 CREATE TABLE users (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
   first_name VARCHAR(100),
   last_name VARCHAR(100),
-  role ENUM('USER', 'ADMIN', 'MODERATOR') DEFAULT 'USER',
-  status ENUM('active', 'inactive', 'suspended') DEFAULT 'active',
+  status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION', 'EXPIRED') DEFAULT 'PENDING_VERIFICATION',
   email_verified BOOLEAN DEFAULT FALSE,
-  email_verified_at TIMESTAMP NULL,
+  onboarding_completed BOOLEAN DEFAULT FALSE,
   last_login_at TIMESTAMP NULL,
+  deleted_at TIMESTAMP NULL,
+  default_workspace_id BIGINT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  
+
   INDEX idx_email (email),
-  INDEX idx_status (status),
-  INDEX idx_created_at (created_at)
+  INDEX idx_status (status)
+);
+```
+
+### Auth Accounts Table
+
+```sql
+CREATE TABLE auth_accounts (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  provider ENUM('PASSWORD', 'GOOGLE', 'MICROSOFT', 'GITHUB') NOT NULL,
+  provider_account_id VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  email_verified BOOLEAN DEFAULT FALSE,
+  password_hash VARCHAR(255) NULL,
+  metadata JSON NULL,
+  last_used_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uk_provider_account (provider, provider_account_id),
+  UNIQUE KEY uk_user_provider (user_id, provider),
+  INDEX idx_email (email)
 );
 ```
 
