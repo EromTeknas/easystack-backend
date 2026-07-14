@@ -398,6 +398,72 @@ CREATE TABLE audit_logs (
 
 ## API Endpoints
 
+### Post-Authentication Redirects
+
+Auth endpoints accept an optional `redirectUrl` in the JSON body or query string. The backend validates it and returns a safe app-relative path for the frontend to navigate to after authentication.
+
+Supported endpoints:
+
+- `POST /auth/register`
+- `POST /auth/verify-email`
+- `POST /auth/login`
+- `POST /auth/providers/google`
+
+Example:
+
+```json
+{
+  "email": "john@example.com",
+  "password": "SecurePassword123!",
+  "redirectUrl": "/projects/my-project"
+}
+```
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "1",
+      "email": "john@example.com"
+    },
+    "redirectUrl": "/projects/my-project"
+  }
+}
+```
+
+Redirect safety rules:
+
+- Relative app paths are allowed, for example `/projects/my-project`.
+- Empty or missing values default to `/dashboard`.
+- Protocol-relative URLs such as `//evil.example` are rejected.
+- External absolute URLs are rejected unless their origin is configured in `CORS_ORIGIN`, `FRONTEND_URL`, or `APP_FRONTEND_URL`.
+- Allowed absolute URLs are normalized back to app-relative paths before being returned.
+
+Frontend flow:
+
+```ts
+const redirectUrl = window.location.pathname + window.location.search;
+
+router.push(`/login?redirectUrl=${encodeURIComponent(redirectUrl)}`);
+```
+
+Then on login:
+
+```ts
+const response = await fetch("/api/auth/login", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email, password, redirectUrl }),
+});
+
+const body = await response.json();
+router.push(body.data.redirectUrl);
+```
+
 ### 1. POST /auth/register
 
 **Purpose**: Create a new user account, send OTP for email verification, and issue a short-lived verification token for API-based email verification.

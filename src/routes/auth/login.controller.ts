@@ -4,8 +4,13 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../../utils/auth-cookies";
 import { ok } from "../../utils/response";
 import { getClientIP, getDeviceName } from "../../utils/validation";
+import { redirectUrlService } from "../../services/authentication/services/redirect-url.service";
 
 export const loginController = asyncHandler(async (req, res) => {
+  const redirectUrl = redirectUrlService.resolve(
+    req.body?.redirectUrl ?? req.query?.redirectUrl,
+  );
+
   const session = await authenticationService.loginWithPassword(req.body, {
     ipAddress: getClientIP(req),
     userAgent: req.headers["user-agent"] as string | undefined,
@@ -25,5 +30,6 @@ export const loginController = asyncHandler(async (req, res) => {
       defaultWorkspaceId: session.user.defaultWorkspaceId,
     },
     expiresIn: auth.accessTokenExpirySeconds,
+    redirectUrl,
   });
 });

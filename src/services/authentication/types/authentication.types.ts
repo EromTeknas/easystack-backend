@@ -46,21 +46,25 @@ export interface RegisterPasswordInput {
   firstName: string;
   lastName: string;
   planKey?: string;
+  redirectUrl?: string;
 }
 
 export interface LoginPasswordInput {
   email: string;
   password: string;
+  redirectUrl?: string;
 }
 
 export interface ProviderLoginInput {
   provider: AuthProvider;
   credential: string;
+  redirectUrl?: string;
 }
 
 export interface VerifyEmailInput {
   verificationToken: string;
   otpCode: string;
+  redirectUrl?: string;
 }
 
 export interface ResetPasswordInput {

@@ -3,8 +3,13 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../../utils/auth-cookies";
 import { ok } from "../../utils/response";
 import { getClientIP, getDeviceName } from "../../utils/validation";
+import { redirectUrlService } from "../../services/authentication/services/redirect-url.service";
 
 export const googleLoginController = asyncHandler(async (req, res) => {
+  const redirectUrl = redirectUrlService.resolve(
+    req.body?.redirectUrl ?? req.query?.redirectUrl,
+  );
+
   const session = await authenticationService.loginWithGoogle(
     req.body?.credential,
     {
@@ -26,6 +31,7 @@ export const googleLoginController = asyncHandler(async (req, res) => {
       onboardingCompleted: session.user.onboardingCompleted,
       defaultWorkspaceId: session.user.defaultWorkspaceId,
     },
+    redirectUrl,
   });
 });
 
