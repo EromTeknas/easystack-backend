@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../../middlewares/authentication.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import * as workspaceController from './workspace.controller';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
 import { PERMISSIONS } from '../../services/authorization/constants/permission.constants';

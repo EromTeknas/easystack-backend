@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { AuthProvider, PrismaClient, SubscriptionStatus } from "@prisma/client";
 
 import { fakeUsers } from "../data/users.data";
 import { UsageService } from "../../src/services/billing/services/usage.service";
@@ -83,6 +83,29 @@ export async function seedUsers(prisma: PrismaClient) {
           passwordHash,
           status: fakeUser.status,
           emailVerified: fakeUser.emailVerified,
+        },
+      });
+
+      await tx.authAccount.upsert({
+        where: {
+          provider_providerAccountId: {
+            provider: AuthProvider.PASSWORD,
+            providerAccountId: fakeUser.email,
+          },
+        },
+        update: {
+          userId: user.id,
+          email: fakeUser.email,
+          emailVerified: fakeUser.emailVerified,
+          passwordHash,
+        },
+        create: {
+          userId: user.id,
+          provider: AuthProvider.PASSWORD,
+          providerAccountId: fakeUser.email,
+          email: fakeUser.email,
+          emailVerified: fakeUser.emailVerified,
+          passwordHash,
         },
       });
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../../middlewares/authentication.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import * as onboardingController from './onboarding.controller';
 
 const router = Router();

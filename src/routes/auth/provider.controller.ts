@@ -1,16 +1,18 @@
 import { authenticationService } from "../../services/authentication";
-import { auth } from "../../config/auth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../../utils/auth-cookies";
 import { ok } from "../../utils/response";
 import { getClientIP, getDeviceName } from "../../utils/validation";
 
-export const verifyEmailController = asyncHandler(async (req, res) => {
-  const session = await authenticationService.verifyEmail(req.body, {
-    ipAddress: getClientIP(req),
-    userAgent: req.headers["user-agent"] as string | undefined,
-    deviceName: getDeviceName((req.headers["user-agent"] as string) ?? ""),
-  });
+export const googleLoginController = asyncHandler(async (req, res) => {
+  const session = await authenticationService.loginWithGoogle(
+    req.body?.credential,
+    {
+      ipAddress: getClientIP(req),
+      userAgent: req.headers["user-agent"] as string | undefined,
+      deviceName: getDeviceName((req.headers["user-agent"] as string) ?? ""),
+    },
+  );
 
   setAccessTokenCookie(res, session.accessToken);
   setRefreshTokenCookie(res, session.refreshToken);
@@ -21,10 +23,17 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
       email: session.user.email,
       firstName: session.user.firstName,
       lastName: session.user.lastName,
-      emailVerified: session.user.emailVerified,
       onboardingCompleted: session.user.onboardingCompleted,
       defaultWorkspaceId: session.user.defaultWorkspaceId,
     },
-    expiresIn: auth.accessTokenExpirySeconds,
   });
+});
+
+export const linkGoogleController = asyncHandler(async (req, res) => {
+  const result = await authenticationService.linkGoogle(
+    req.user!.id.toString(),
+    req.body?.credential,
+  );
+
+  return ok(res, result);
 });

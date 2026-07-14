@@ -7,7 +7,7 @@ import {
 	generateUploadUrl,
 	generateGetUrl
 } from './storage.controller';
-import { authenticate } from '../../middlewares/authentication.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 
 const router = Router();
 

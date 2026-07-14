@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../../middlewares/authentication.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import * as billingController from './billing.controller';
 import webhookRoutes from './webhook.route';
 import { billingMiddleware } from '../../services/billing/middleware/express/billing.middleware';

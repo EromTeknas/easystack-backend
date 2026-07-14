@@ -9,6 +9,8 @@ import { resendOtpController } from './resend-otp.controller';
 import { forgotPasswordController } from './forgot-password.controller';
 import { resetPasswordController } from './reset-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
+import { googleLoginController, linkGoogleController } from './provider.controller';
 
 const router = Router();
 
@@ -106,6 +108,10 @@ router.post('/reset-password', authRateLimiter, resetPasswordController);
  *   - Cookies: accessToken, refreshToken (HttpOnly)
  */
 router.post('/login', authRateLimiter, loginController);
+
+router.post('/providers/google', authRateLimiter, googleLoginController);
+
+router.post('/providers/google/link', authenticate, linkGoogleController);
 
 /**
  * POST /auth/refresh

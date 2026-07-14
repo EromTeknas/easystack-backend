@@ -10,7 +10,7 @@ import {
 import {
   checkSubdomainAvailability
 } from './projects.public.controller';
-import { authenticate } from '../../middlewares/authentication.middleware';
+import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 
 const router = Router();
 
