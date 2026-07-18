@@ -1,6 +1,13 @@
 import { prisma } from "../db";
+import { generateUniqueIdentifier } from "../utils/identifier";
 
 export default class WorkspaceRepository {
+    private static WORKSPACE_IDENTIFIER_PREFIX : string = "WSP";
+    private static WORKSPACE_IDENTIFIER_LENGTH : number = 12;
+
+    static getWorkspaceIdentifier() {
+        return generateUniqueIdentifier(this.WORKSPACE_IDENTIFIER_PREFIX, this.WORKSPACE_IDENTIFIER_LENGTH);
+    }
     static async getUserWorkspaces(userId: number) {
         return prisma.workspace.findMany({
             where: { members: { some: { userId } } },

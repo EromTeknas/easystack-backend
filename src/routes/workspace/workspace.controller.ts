@@ -11,8 +11,6 @@ import { ImageUrlService } from "../../services/image-url.service";
 import { isValidName } from "../../utils/validation";
 import { prisma } from "../../db";
 import logger from "../../utils/logger";
-import { RoleRegistry } from "../../services/authorization/configs/roles-registry.config";
-import { RoleRepository } from "../../repositories/role.repository";
 import { APP_ROLES } from "../../services/authorization/constants/role.constants";
 import { Workspace } from "@prisma/client";
 
@@ -125,9 +123,11 @@ export const createWorkspaceController = asyncHandler(
         createdBy: userId,
       });
 
-      const ownerRole = await RoleRepository.findByKey(
-        APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
-      );
+      const ownerRole = await prisma.role.findUnique({
+        where: {
+          key: APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
+        },
+      });
 
       if (!ownerRole) {
         throw new InternalServerError(

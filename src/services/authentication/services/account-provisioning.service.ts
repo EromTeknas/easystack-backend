@@ -1,7 +1,7 @@
 import logger from "../../../utils/logger";
 import type { VerifiedProviderIdentity } from "../types/provider.types";
 import { AccountProvisioningRepository } from "../repositories/account-provisioning.repository";
-import { BillingService } from "../../billing.service";
+import { BillingService } from "../../billing";
 
 export class AccountProvisioningService {
   constructor(private readonly repository: AccountProvisioningRepository) {}

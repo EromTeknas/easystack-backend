@@ -147,6 +147,6 @@ router.post('/logout', logoutController);
  * Response:
  *   - user object with workspaces
  */
-router.get('/me', getMeController);
+router.get('/me', authenticate, getMeController);
 
 export default router;
