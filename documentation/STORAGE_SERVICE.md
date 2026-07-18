@@ -190,6 +190,144 @@ The upload protocol has three stages:
 2. The browser sends the file directly to object storage using the returned presigned POST.
 3. The backend completes the intent, verifies the object, promotes it to its final key, and commits the asset record.
 
+### Runnable demo APIs
+
+The authenticated demo API is mounted under `/api/storage/demo`. It isolates every target under the authenticated user's ID and uses server-controlled policy presets.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/storage/demo/presets` | List supported demo policies and targets |
+| `POST` | `/api/storage/demo/upload-intents` | Create an intent and presigned multipart POST |
+| `POST` | `/api/storage/demo/upload-intents/:uploadId/complete` | Verify, promote, and activate the upload |
+| `GET` | `/api/storage/demo/assets` | Hydrate public CDN or private presigned inline URLs |
+| `DELETE` | `/api/storage/demo/assets/:assetId` | Mark an asset for asynchronous deletion |
+
+The routes use the normal access-token cookie authentication middleware. In the examples below, replace `cookies.txt` with your authenticated cookie jar if using curl.
+
+#### List presets
+
+```bash
+curl --cookie cookies.txt \
+  http://localhost:3000/api/storage/demo/presets
+```
+
+Available presets:
+
+- `public-image-single`
+- `private-image-single`
+- `private-document-multiple`
+- `private-binary-multiple`
+
+#### Create a presigned upload
+
+```bash
+curl --cookie cookies.txt \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "preset": "public-image-single",
+    "file": {
+      "originalName": "demo-logo.png",
+      "mimeType": "image/png",
+      "sizeBytes": 42871
+    }
+  }' \
+  http://localhost:3000/api/storage/demo/upload-intents
+```
+
+The response contains `data.uploadId` and `data.upload`, including the presigned URL and all required form fields.
+
+#### Upload the file
+
+Use the browser `FormData` example below, or submit all returned fields with curl. Field names and values are generated dynamically, so a small script is usually more convenient than manually copying them.
+
+```ts
+const intentResponse = await fetch("/api/storage/demo/upload-intents", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    preset: "public-image-single",
+    file: {
+      originalName: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+    },
+  }),
+});
+
+const { data } = await intentResponse.json();
+const form = new FormData();
+for (const [name, value] of Object.entries(data.upload.fields)) {
+  form.append(name, String(value));
+}
+form.append("file", file);
+
+const objectUploadResponse = await fetch(data.upload.url, {
+  method: data.upload.method,
+  body: form,
+});
+if (!objectUploadResponse.ok) throw new Error("Object upload failed");
+
+const completionResponse = await fetch(
+  `/api/storage/demo/upload-intents/${data.uploadId}/complete`,
+  { method: "POST", credentials: "include" },
+);
+const completion = await completionResponse.json();
+console.log(completion.data.asset);
+```
+
+#### Hydrate URLs
+
+Public-only hydration returns CDN URLs and omits private assets:
+
+```bash
+curl --cookie cookies.txt \
+  'http://localhost:3000/api/storage/demo/assets?preset=public-image-single'
+```
+
+Authorized private hydration returns short-lived presigned inline URLs:
+
+```bash
+curl --cookie cookies.txt \
+  'http://localhost:3000/api/storage/demo/assets?preset=private-image-single&includePrivate=true&expiresInSeconds=300'
+```
+
+The demo route may use `AUTHORIZED_PRIVATE` safely because its target is always derived from the authenticated user's ID. Production domain routes must perform their own resource authorization before requesting private hydration.
+
+#### Replace a singleton
+
+Run create → browser upload → complete twice with `public-image-single` or `private-image-single`. The second asset becomes active and the first is marked `DELETION_PENDING` and asynchronously removed.
+
+#### Create multiple assets
+
+Run the flow multiple times with `private-document-multiple` or `private-binary-multiple`. Hydration returns every active asset for that target.
+
+#### Delete an asset
+
+```bash
+curl --request DELETE \
+  --cookie cookies.txt \
+  --header 'Content-Type: application/json' \
+  --data '{"preset":"public-image-single"}' \
+  http://localhost:3000/api/storage/demo/assets/ast_REPLACE_ME
+```
+
+The response reports `DELETION_PENDING`; the storage worker performs physical deletion.
+
+#### Demo logging
+
+The controller emits structured logs for:
+
+- Authenticated actor and selected server-side preset.
+- Target, safe file metadata, and resolved policy.
+- Intent ID, upload method, upload host, expiry, and returned form-field names.
+- Completion validation/promotion start and resulting asset metadata.
+- Hydration mode, count, URL kind, URL host, and asset metadata.
+- Deletion request and scheduling result.
+- Operation duration and detailed failure name, message, and storage error code.
+
+For security, logs intentionally exclude full presigned URLs, signatures, credentials, and form-field values. The complete URLs and fields are returned only in the authenticated API response.
+
 ### 1. Create an upload intent
 
 Example domain method for a public, single workspace logo:

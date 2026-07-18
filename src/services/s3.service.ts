@@ -97,7 +97,14 @@ export const S3Service = {
       ContentType: contentType
     });
 
-    return getSignedUrl(client, command, { expiresIn });
+    // @aws-sdk/client-s3 and the presigner can resolve different internal
+    // @smithy client versions. Their runtime contract is compatible, but
+    // TypeScript rejects the duplicated private `handlers` declarations.
+    return getSignedUrl(
+      client as unknown as Parameters<typeof getSignedUrl>[0],
+      command,
+      { expiresIn }
+    );
   },
 
   async generatePresignedGetUrl(key: string, expiresIn: number = 3600): Promise<string> {
@@ -107,7 +114,11 @@ export const S3Service = {
       Key: key
     });
 
-    return getSignedUrl(client, command, { expiresIn });
+    return getSignedUrl(
+      client as unknown as Parameters<typeof getSignedUrl>[0],
+      command,
+      { expiresIn }
+    );
   }
 };
 
