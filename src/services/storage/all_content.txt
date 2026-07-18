@@ -1,0 +1,3109 @@
+###  ###
+import {
+  CompleteUploadTransactionInput,
+  CompleteUploadTransactionResult,
+  StorageAssetRecord,
+  StorageUploadIntentRecord,
+} from "../domain/storage.records";
+
+export interface StoragePersistence {
+  createUploadIntent(
+    intent: StorageUploadIntentRecord,
+  ): Promise<void>;
+
+  findUploadIntentById(
+    uploadIntentId: string,
+  ): Promise<StorageUploadIntentRecord | null>;
+
+  findAssetById(
+    assetId: string,
+  ): Promise<StorageAssetRecord | null>;
+
+  findActiveAssetsByTarget(
+    targetKey: string,
+  ): Promise<StorageAssetRecord[]>;
+
+  /**
+   * Must run in one database transaction:
+   *
+   * 1. Verify intent is still CREATED.
+   * 2. Create the new asset.
+   * 3. Mark intent COMPLETED.
+   * 4. For SINGLE targets, mark old assets DELETION_PENDING.
+   */
+  completeUpload(
+    input: CompleteUploadTransactionInput,
+  ): Promise<CompleteUploadTransactionResult>;
+
+  markUploadIntentFailed(
+    uploadIntentId: string,
+    reason: string,
+  ): Promise<void>;
+
+  /**
+   * Removes the asset from active queries and marks it for
+   * asynchronous physical deletion.
+   */
+  requestAssetDeletion(
+    assetId: string,
+  ): Promise<StorageAssetRecord>;
+
+  markAssetDeleted(assetId: string): Promise<void>;
+}
+
+###  ###
+import {
+  ObjectStorageProviderError,
+  ObjectStorageProviderErrorCode,
+} from "../infrastructure/s3/ObjectStorageProviderError";
+
+###  ###
+export enum StorageDeletionReason {
+  TEMPORARY_UPLOAD_COMPLETED = "TEMPORARY_UPLOAD_COMPLETED",
+  REPLACED_BY_NEW_ASSET = "REPLACED_BY_NEW_ASSET",
+  USER_REQUESTED_DELETION = "USER_REQUESTED_DELETION",
+  ROLLBACK_AFTER_FAILURE = "ROLLBACK_AFTER_FAILURE",
+  EXPIRED_UPLOAD = "EXPIRED_UPLOAD",
+}
+
+export interface ScheduleObjectDeletionInput {
+  objectKey: string;
+  assetId?: string;
+  reason: StorageDeletionReason;
+}
+
+export interface StorageCleanupScheduler {
+  scheduleObjectDeletion(
+    input: ScheduleObjectDeletionInput,
+  ): Promise<void>;
+}
+
+###  ###
+export interface CreatePresignedPostInput {
+  objectKey: string;
+  contentType: string;
+
+  minimumSizeBytes: number;
+  maximumSizeBytes: number;
+
+  expiresInSeconds: number;
+  cacheControl: string;
+
+  metadata: Readonly<Record<string, string>>;
+}
+
+export interface PresignedPostResult {
+  url: string;
+  fields: Record<string, string>;
+}
+
+export interface ObjectMetadata {
+  contentType: string | null;
+  contentLength: number | null;
+  etag: string | null;
+  checksum: string | null;
+  metadata: Record<string, string>;
+}
+
+export interface CopyStoredObjectInput {
+  sourceObjectKey: string;
+  destinationObjectKey: string;
+
+  contentType: string;
+  cacheControl: string;
+
+  metadata: Readonly<Record<string, string>>;
+}
+
+export interface CreatePresignedDownloadInput {
+  objectKey: string;
+  expiresInSeconds: number;
+  downloadFileName?: string;
+}
+
+export interface ObjectStorageProvider {
+  createPresignedPost(
+    input: CreatePresignedPostInput,
+  ): Promise<PresignedPostResult>;
+
+  headObject(objectKey: string): Promise<ObjectMetadata>;
+
+  copyObject(input: CopyStoredObjectInput): Promise<void>;
+
+  deleteObject(objectKey: string): Promise<void>;
+
+  createPresignedDownloadUrl(
+    input: CreatePresignedDownloadInput,
+  ): Promise<string>;
+}
+
+###  ###
+/**
+ * Public storage module exports.
+ *
+ * Infrastructure ports and implementations are intentionally not exported.
+ */
+
+export type { StorageService } from "./public/StorageService";
+
+export {
+  StorageCardinality,
+  StorageFileClass,
+  StoragePrivateAccess,
+  StorageVisibility,
+} from "./public/storage.contracts";
+
+export type {
+  CompleteUploadInput,
+  CompletedStorageAsset,
+  CreateUploadIntentInput,
+  DeleteStorageAssetInput,
+  PresignedPostUpload,
+  ResolvedStorageAsset,
+  ResolveTargetUrlsInput,
+  StorageFileDescriptor,
+  StoragePathNode,
+  StoragePolicyOverrides,
+  StorageTarget,
+  UploadIntentResult,
+} from "./public/storage.contracts";
+
+export {
+  StorageError,
+  StorageErrorCode,
+} from "./domain/StorageError";
+
+###  ###
+import {
+  CompleteUploadInput,
+  CompletedStorageAsset,
+  CreateUploadIntentInput,
+  DeleteStorageAssetInput,
+  ResolvedStorageAsset,
+  ResolveTargetUrlsInput,
+  UploadIntentResult,
+} from "./storage.contracts";
+
+export interface StorageService {
+  /**
+   * Creates a temporary upload intent and returns a presigned
+   * browser upload request.
+   */
+  createUploadIntent(
+    input: CreateUploadIntentInput,
+  ): Promise<UploadIntentResult>;
+
+  /**
+   * Verifies the uploaded object and promotes it from temporary
+   * storage into its final public/private location.
+   */
+  completeUpload(
+    input: CompleteUploadInput,
+  ): Promise<CompletedStorageAsset>;
+
+  /**
+   * Resolves active assets attached to a logical target.
+   *
+   * SINGLE targets return zero or one asset.
+   * MULTIPLE targets may return multiple assets.
+   */
+  resolveTargetUrls(
+    input: ResolveTargetUrlsInput,
+  ): Promise<ResolvedStorageAsset[]>;
+
+  /**
+   * Removes the asset from active application use and queues the
+   * physical object for deletion.
+   */
+  deleteAsset(input: DeleteStorageAssetInput): Promise<void>;
+}
+
+###  ###
+export enum StorageVisibility {
+  PUBLIC = "PUBLIC",
+  PRIVATE = "PRIVATE",
+}
+
+export enum StorageCardinality {
+  SINGLE = "SINGLE",
+  MULTIPLE = "MULTIPLE",
+}
+
+export enum StorageFileClass {
+  IMAGE = "IMAGE",
+  DOCUMENT = "DOCUMENT",
+  BINARY = "BINARY",
+}
+
+export enum StoragePrivateAccess {
+  PUBLIC_ONLY = "PUBLIC_ONLY",
+  AUTHORIZED_PRIVATE = "AUTHORIZED_PRIVATE",
+}
+
+/**
+ * A trusted backend path component.
+ *
+ * Example:
+ * [
+ *   { collection: "workspaces", id: "wrk_123" },
+ *   { collection: "projects", id: "prj_456" }
+ * ]
+ */
+export interface StoragePathNode {
+  collection: string;
+  id: string;
+}
+
+/**
+ * Identifies the logical location of an asset.
+ *
+ * This does not contain an S3 key. The storage module creates the key.
+ */
+export interface StorageTarget {
+  nodes: readonly StoragePathNode[];
+
+  /**
+   * Logical field such as:
+   * avatar, logo, cover, thumbnail, gallery, attachment.
+   */
+  slot: string;
+}
+
+export interface StorageFileDescriptor {
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface StoragePolicyOverrides {
+  visibility?: StorageVisibility;
+  cardinality?: StorageCardinality;
+  maxSizeBytes?: number;
+  allowedMimeTypes?: readonly string[];
+  uploadExpiresInSeconds?: number;
+  cacheControl?: string;
+}
+
+export interface CreateUploadIntentInput {
+  actorId: string;
+  target: StorageTarget;
+  fileClass: StorageFileClass;
+  file: StorageFileDescriptor;
+
+  /**
+   * Supplied only by trusted backend domain services.
+   * This must never come directly from the frontend request.
+   */
+  policy?: StoragePolicyOverrides;
+}
+
+export interface PresignedPostUpload {
+  method: "POST";
+  url: string;
+  fields: Record<string, string>;
+  expiresAt: Date;
+}
+
+export interface UploadIntentResult {
+  uploadId: string;
+  upload: PresignedPostUpload;
+}
+
+export interface CompleteUploadInput {
+  actorId: string;
+  uploadId: string;
+}
+
+export interface CompletedStorageAsset {
+  id: string;
+  targetKey: string;
+  visibility: StorageVisibility;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Date;
+}
+
+export interface ResolveTargetUrlsInput {
+  target: StorageTarget;
+
+  /**
+   * Domain modules must authorize private access before passing
+   * AUTHORIZED_PRIVATE.
+   */
+  privateAccess: StoragePrivateAccess;
+
+  privateUrlExpiresInSeconds?: number;
+}
+
+export interface ResolvedStorageAsset {
+  id: string;
+  url: string;
+  visibility: StorageVisibility;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface DeleteStorageAssetInput {
+  actorId: string;
+  assetId: string;
+}
+
+###  ###
+export interface S3ObjectStorageConfig {
+  bucket: string;
+  region: string;
+
+  /**
+   * Used for backend-to-storage operations.
+   *
+   * Local:
+   * http://minio:9000
+   *
+   * AWS:
+   * undefined
+   */
+  internalEndpoint?: string;
+
+  /**
+   * Used when creating browser-facing signed URLs.
+   *
+   * Local:
+   * http://localhost:9000
+   *
+   * AWS:
+   * undefined
+   */
+  publicEndpoint?: string;
+
+  /**
+   * Required for MinIO and most local S3-compatible services.
+   */
+  forcePathStyle: boolean;
+
+  /**
+   * Leave credentials undefined in production when using an
+   * IAM role or another default AWS credential provider.
+   */
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+
+  serverSideEncryption?:
+    | "AES256"
+    | "aws:kms";
+
+  kmsKeyId?: string;
+}
+
+###  ###
+import { AppError } from "../../../../errors";
+
+export enum ObjectStorageProviderErrorCode {
+  OBJECT_NOT_FOUND = "OBJECT_NOT_FOUND",
+  ACCESS_DENIED = "ACCESS_DENIED",
+  INVALID_REQUEST = "INVALID_REQUEST",
+  TEMPORARY_FAILURE = "TEMPORARY_FAILURE",
+  UNKNOWN = "UNKNOWN",
+}
+
+interface ObjectStorageProviderErrorOptions {
+  code: ObjectStorageProviderErrorCode;
+  message: string;
+  cause?: unknown;
+  retryable?: boolean;
+  statusCode?: number;
+}
+
+export class ObjectStorageProviderError extends AppError {
+  readonly code: ObjectStorageProviderErrorCode;
+  readonly cause?: unknown;
+  readonly retryable: boolean;
+
+  constructor(
+    options: ObjectStorageProviderErrorOptions,
+  ) {
+    super(options.message, options.statusCode ?? 500, options.code);
+
+    this.name = "ObjectStorageProviderError";
+    this.code = options.code;
+    this.cause = options.cause;
+    this.retryable = options.retryable ?? false;
+
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+###  ###
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3,
+  S3Client,
+  S3ClientConfig,
+  S3ServiceException,
+} from "@aws-sdk/client-s3";
+
+import { createPresignedPost } from
+  "@aws-sdk/s3-presigned-post";
+
+import { getSignedUrl } from
+  "@aws-sdk/s3-request-presigner";
+
+import {
+  CopyStoredObjectInput,
+  CreatePresignedDownloadInput,
+  CreatePresignedPostInput,
+  ObjectMetadata,
+  ObjectStorageProvider,
+  PresignedPostResult,
+} from "../../ports/ObjectStorageProvider";
+
+import {
+  ObjectStorageProviderError,
+  ObjectStorageProviderErrorCode,
+} from "./ObjectStorageProviderError";
+
+import { S3ObjectStorageConfig } from "./s3.types";
+
+type ExactPostCondition = [
+  "eq",
+  string,
+  string,
+];
+
+type ContentLengthPostCondition = [
+  "content-length-range",
+  number,
+  number,
+];
+
+type PostCondition =
+  | ExactPostCondition
+  | ContentLengthPostCondition;
+
+export class S3ObjectStorageProvider
+  implements ObjectStorageProvider
+{
+  private readonly operationClient: S3Client;
+  private readonly presignClient: S3Client;
+
+  constructor(
+    private readonly config: S3ObjectStorageConfig,
+  ) {
+    this.validateConfig(config);
+
+    /*
+     * operationClient is used by the backend container.
+     *
+     * Example:
+     * http://minio:9000
+     */
+    this.operationClient = this.createClient(
+      config.internalEndpoint,
+    );
+
+    /*
+     * presignClient creates URLs that must be accessible from
+     * the user's browser.
+     *
+     * Example:
+     * http://localhost:9000
+     */
+    this.presignClient = this.createClient(
+      config.publicEndpoint ??
+        config.internalEndpoint,
+    );
+  }
+
+  async createPresignedPost(
+    input: CreatePresignedPostInput,
+  ): Promise<PresignedPostResult> {
+    return this.execute(
+      "create presigned POST",
+      async () => {
+        this.validateObjectKey(input.objectKey);
+        this.validateExpiry(input.expiresInSeconds);
+
+        if (
+          !Number.isSafeInteger(
+            input.minimumSizeBytes,
+          ) ||
+          !Number.isSafeInteger(
+            input.maximumSizeBytes,
+          ) ||
+          input.minimumSizeBytes < 0 ||
+          input.maximumSizeBytes <= 0 ||
+          input.minimumSizeBytes >
+            input.maximumSizeBytes
+        ) {
+          throw new ObjectStorageProviderError({
+            code:
+              ObjectStorageProviderErrorCode
+                .INVALID_REQUEST,
+
+            message:
+              "Invalid presigned POST size range.",
+          });
+        }
+
+        const contentType =
+          normalizeMimeType(input.contentType);
+
+        const metadataFields =
+          this.buildMetadataFields(input.metadata);
+
+        const fields: Record<string, string> = {
+          "Content-Type": contentType,
+          "Cache-Control": input.cacheControl,
+
+          ...metadataFields,
+          ...this.buildEncryptionFields(),
+        };
+
+        const conditions: PostCondition[] = [
+          [
+            "content-length-range",
+            input.minimumSizeBytes,
+            input.maximumSizeBytes,
+          ],
+
+          [
+            "eq",
+            "$Content-Type",
+            contentType,
+          ],
+
+          [
+            "eq",
+            "$Cache-Control",
+            input.cacheControl,
+          ],
+
+          ...Object.entries(metadataFields).map(
+            ([field, value]) =>
+              [
+                "eq",
+                `$${field}`,
+                value,
+              ] as ExactPostCondition,
+          ),
+
+          ...Object.entries(
+            this.buildEncryptionFields(),
+          ).map(
+            ([field, value]) =>
+              [
+                "eq",
+                `$${field}`,
+                value,
+              ] as ExactPostCondition,
+          ),
+        ];
+
+        const result = await createPresignedPost(
+          this.presignClient,
+          {
+            Bucket: this.config.bucket,
+            Key: input.objectKey,
+            Fields: fields,
+            Conditions: conditions,
+            Expires: input.expiresInSeconds,
+          },
+        );
+
+        return {
+          url: result.url,
+          fields: result.fields,
+        };
+      },
+    );
+  }
+
+  async headObject(
+    objectKey: string,
+  ): Promise<ObjectMetadata> {
+    return this.execute(
+      "read object metadata",
+      async () => {
+        this.validateObjectKey(objectKey);
+
+        const response =
+          await this.operationClient.send(
+            new HeadObjectCommand({
+              Bucket: this.config.bucket,
+              Key: objectKey,
+            }),
+          );
+
+        return {
+          contentType: response.ContentType
+            ? normalizeMimeType(response.ContentType)
+            : null,
+
+          contentLength:
+            response.ContentLength ?? null,
+
+          etag: normalizeEtag(response.ETag),
+
+          checksum:
+            response.ChecksumSHA256 ??
+            response.ChecksumSHA1 ??
+            response.ChecksumCRC32C ??
+            response.ChecksumCRC32 ??
+            null,
+
+          /*
+           * S3 returns user metadata without the
+           * x-amz-meta- prefix.
+           */
+          metadata: normalizeReturnedMetadata(
+            response.Metadata,
+          ),
+        };
+      },
+    );
+  }
+
+  async copyObject(
+    input: CopyStoredObjectInput,
+  ): Promise<void> {
+    await this.execute(
+      "copy object",
+      async () => {
+        this.validateObjectKey(
+          input.sourceObjectKey,
+        );
+
+        this.validateObjectKey(
+          input.destinationObjectKey,
+        );
+
+        const source = encodeCopySource(
+          this.config.bucket,
+          input.sourceObjectKey,
+        );
+
+        await this.operationClient.send(
+          new CopyObjectCommand({
+            Bucket: this.config.bucket,
+            Key: input.destinationObjectKey,
+
+            CopySource: source,
+
+            /*
+             * Replace temporary-object metadata with the final
+             * asset metadata and caching policy.
+             */
+            MetadataDirective: "REPLACE",
+
+            ContentType: normalizeMimeType(
+              input.contentType,
+            ),
+
+            CacheControl: input.cacheControl,
+
+            Metadata: normalizeMetadata(
+              input.metadata,
+            ),
+
+            ...this.buildEncryptionCommandInput(),
+          }),
+        );
+      },
+    );
+  }
+
+  async deleteObject(
+    objectKey: string,
+  ): Promise<void> {
+    await this.execute(
+      "delete object",
+      async () => {
+        this.validateObjectKey(objectKey);
+
+        /*
+         * S3 DeleteObject is naturally suitable for idempotent
+         * cleanup. Repeated deletion requests can use the same
+         * operation.
+         */
+        await this.operationClient.send(
+          new DeleteObjectCommand({
+            Bucket: this.config.bucket,
+            Key: objectKey,
+          }),
+        );
+      },
+    );
+  }
+
+  async createPresignedDownloadUrl(
+    input: CreatePresignedDownloadInput,
+  ): Promise<string> {
+    return this.execute(
+      "create presigned download URL",
+      async () => {
+        this.validateObjectKey(input.objectKey);
+        this.validateExpiry(
+          input.expiresInSeconds,
+        );
+
+        const responseContentDisposition =
+          input.downloadFileName
+            ? buildContentDisposition(
+                input.downloadFileName,
+              )
+            : undefined;
+
+        const command = new GetObjectCommand({
+          Bucket: this.config.bucket,
+          Key: input.objectKey,
+
+          ResponseContentDisposition:
+            responseContentDisposition,
+        });
+
+        return getSignedUrl(
+          this.presignClient,
+          command,
+          {
+            expiresIn: input.expiresInSeconds,
+          },
+        );
+      },
+    );
+  }
+
+  private createClient(
+    endpoint?: string,
+  ): S3Client {
+    const credentials =
+      this.config.accessKeyId &&
+      this.config.secretAccessKey
+        ? {
+            accessKeyId:
+              this.config.accessKeyId,
+
+            secretAccessKey:
+              this.config.secretAccessKey,
+
+            sessionToken:
+              this.config.sessionToken,
+          }
+        : undefined;
+
+    return new S3Client({
+      region: this.config.region,
+      endpoint,
+      forcePathStyle:
+        this.config.forcePathStyle,
+      credentials,
+
+      /*
+       * Do not enable followRegionRedirects when the bucket
+       * region is already known. A correct region avoids an
+       * unnecessary failed request and redirect.
+       */
+      followRegionRedirects: false,
+    } as S3ClientConfig);
+  }
+
+  private buildMetadataFields(
+    metadata: Readonly<Record<string, string>>,
+  ): Record<string, string> {
+    const normalized = normalizeMetadata(metadata);
+
+    return Object.fromEntries(
+      Object.entries(normalized).map(
+        ([key, value]) => [
+          `x-amz-meta-${key}`,
+          value,
+        ],
+      ),
+    );
+  }
+
+  private buildEncryptionFields():
+    Record<string, string> {
+    if (!this.config.serverSideEncryption) {
+      return {};
+    }
+
+    if (
+      this.config.serverSideEncryption ===
+      "AES256"
+    ) {
+      return {
+        "x-amz-server-side-encryption":
+          "AES256",
+      };
+    }
+
+    if (!this.config.kmsKeyId) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          "S3 KMS encryption requires kmsKeyId.",
+      });
+    }
+
+    return {
+      "x-amz-server-side-encryption":
+        "aws:kms",
+
+      "x-amz-server-side-encryption-aws-kms-key-id":
+        this.config.kmsKeyId,
+    };
+  }
+
+  private buildEncryptionCommandInput(): {
+    ServerSideEncryption?:
+      | "AES256"
+      | "aws:kms";
+
+    SSEKMSKeyId?: string;
+  } {
+    if (!this.config.serverSideEncryption) {
+      return {};
+    }
+
+    if (
+      this.config.serverSideEncryption ===
+      "AES256"
+    ) {
+      return {
+        ServerSideEncryption: "AES256",
+      };
+    }
+
+    if (!this.config.kmsKeyId) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          "S3 KMS encryption requires kmsKeyId.",
+      });
+    }
+
+    return {
+      ServerSideEncryption: "aws:kms",
+      SSEKMSKeyId: this.config.kmsKeyId,
+    };
+  }
+
+  private validateObjectKey(
+    objectKey: string,
+  ): void {
+    if (
+      !objectKey ||
+      objectKey.startsWith("/") ||
+      objectKey.endsWith("/") ||
+      objectKey.includes("\\") ||
+      objectKey.includes("\0")
+    ) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message: "Invalid object-storage key.",
+      });
+    }
+
+    const sizeBytes = Buffer.byteLength(
+      objectKey,
+      "utf8",
+    );
+
+    if (sizeBytes > 512) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          "Object-storage key exceeds 512 bytes.",
+      });
+    }
+  }
+
+  private validateExpiry(
+    expiresInSeconds: number,
+  ): void {
+    if (
+      !Number.isSafeInteger(expiresInSeconds) ||
+      expiresInSeconds < 1 ||
+      expiresInSeconds > 3_600
+    ) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          "Signed URL expiry must be between " +
+          "1 and 3600 seconds.",
+      });
+    }
+  }
+
+  private validateConfig(
+    config: S3ObjectStorageConfig,
+  ): void {
+    if (!config.bucket.trim()) {
+      throw new Error(
+        "S3 bucket configuration is required.",
+      );
+    }
+
+    if (!config.region.trim()) {
+      throw new Error(
+        "S3 region configuration is required.",
+      );
+    }
+
+    const hasAccessKey =
+      Boolean(config.accessKeyId);
+
+    const hasSecretKey =
+      Boolean(config.secretAccessKey);
+
+    if (hasAccessKey !== hasSecretKey) {
+      throw new Error(
+        "Both S3 access key and secret key " +
+        "must be configured together.",
+      );
+    }
+
+    if (
+      config.serverSideEncryption ===
+        "aws:kms" &&
+      !config.kmsKeyId
+    ) {
+      throw new Error(
+        "S3 KMS encryption requires a KMS key ID.",
+      );
+    }
+  }
+
+  private async execute<T>(
+    operation: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await callback();
+    } catch (error) {
+      if (
+        error instanceof
+        ObjectStorageProviderError
+      ) {
+        throw error;
+      }
+
+      throw mapS3Error(operation, error);
+    }
+  }
+}
+
+function normalizeMetadata(
+  metadata: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const normalized: Record<string, string> = {};
+
+  for (const [rawKey, rawValue] of Object.entries(
+    metadata,
+  )) {
+    const key = rawKey
+      .trim()
+      .toLowerCase();
+
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(key)) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          `Invalid object metadata key: ${rawKey}`,
+      });
+    }
+
+    const value = rawValue.trim();
+
+    if (!value) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          `Object metadata value is empty: ${key}`,
+      });
+    }
+
+    if (/[\r\n]/.test(value)) {
+      throw new ObjectStorageProviderError({
+        code:
+          ObjectStorageProviderErrorCode
+            .INVALID_REQUEST,
+
+        message:
+          `Object metadata contains invalid characters: ${key}`,
+      });
+    }
+
+    normalized[key] = value;
+  }
+
+  return normalized;
+}
+
+function normalizeReturnedMetadata(
+  metadata:
+    | Record<string, string>
+    | undefined,
+): Record<string, string> {
+  if (!metadata) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).map(
+      ([key, value]) => [
+        key.toLowerCase(),
+        value,
+      ],
+    ),
+  );
+}
+
+function normalizeMimeType(
+  mimeType: string,
+): string {
+  return mimeType
+    .trim()
+    .toLowerCase()
+    .split(";")[0];
+}
+
+function normalizeEtag(
+  etag: string | undefined,
+): string | null {
+  if (!etag) {
+    return null;
+  }
+
+  return etag.replace(/^"|"$/g, "");
+}
+
+function encodeCopySource(
+  bucket: string,
+  objectKey: string,
+): string {
+  const encodedBucket =
+    encodeURIComponent(bucket);
+
+  const encodedKey = objectKey
+    .split("/")
+    .map((segment) =>
+      encodeURIComponent(segment),
+    )
+    .join("/");
+
+  return `${encodedBucket}/${encodedKey}`;
+}
+
+function buildContentDisposition(
+  originalName: string,
+): string {
+  const cleanName = originalName
+    .replace(/[\r\n]/g, "")
+    .trim()
+    .slice(0, 255);
+
+  const asciiFallback = cleanName
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_");
+
+  const encodedUtf8 =
+    encodeURIComponent(cleanName)
+      .replace(/['()*]/g, (character) => {
+        return (
+          "%" +
+          character
+            .charCodeAt(0)
+            .toString(16)
+            .toUpperCase()
+        );
+      });
+
+  return (
+    `attachment; filename="${asciiFallback}"; ` +
+    `filename*=UTF-8''${encodedUtf8}`
+  );
+}
+
+function mapS3Error(
+  operation: string,
+  error: unknown,
+): ObjectStorageProviderError {
+  const statusCode =
+    error instanceof S3ServiceException
+      ? error.$metadata.httpStatusCode
+      : undefined;
+
+  const errorName =
+    error instanceof Error
+      ? error.name
+      : "UnknownError";
+
+  if (
+    statusCode === 404 ||
+    errorName === "NotFound" ||
+    errorName === "NoSuchKey"
+  ) {
+    return new ObjectStorageProviderError({
+      code:
+        ObjectStorageProviderErrorCode
+          .OBJECT_NOT_FOUND,
+
+      message:
+        `Object was not found while attempting to ${operation}.`,
+
+      cause: error,
+      statusCode,
+      retryable: false,
+    });
+  }
+
+  if (
+    statusCode === 401 ||
+    statusCode === 403 ||
+    errorName === "AccessDenied"
+  ) {
+    return new ObjectStorageProviderError({
+      code:
+        ObjectStorageProviderErrorCode
+          .ACCESS_DENIED,
+
+      message:
+        `Object storage denied the request to ${operation}.`,
+
+      cause: error,
+      statusCode,
+      retryable: false,
+    });
+  }
+
+  if (
+    statusCode === 400 ||
+    statusCode === 409 ||
+    statusCode === 412
+  ) {
+    return new ObjectStorageProviderError({
+      code:
+        ObjectStorageProviderErrorCode
+          .INVALID_REQUEST,
+
+      message:
+        `Object storage rejected the request to ${operation}.`,
+
+      cause: error,
+      statusCode,
+      retryable: false,
+    });
+  }
+
+  if (
+    statusCode === 429 ||
+    (statusCode !== undefined &&
+      statusCode >= 500)
+  ) {
+    return new ObjectStorageProviderError({
+      code:
+        ObjectStorageProviderErrorCode
+          .TEMPORARY_FAILURE,
+
+      message:
+        `Object storage temporarily failed to ${operation}.`,
+
+      cause: error,
+      statusCode,
+      retryable: true,
+    });
+  }
+
+  return new ObjectStorageProviderError({
+    code:
+      ObjectStorageProviderErrorCode.UNKNOWN,
+
+    message:
+      `Unexpected object-storage error while attempting to ${operation}.`,
+
+    cause: error,
+    statusCode,
+    retryable: false,
+  });
+}
+
+###  ###
+import {
+  Prisma,
+  PrismaClient,
+  StorageAssetStatus as PrismaStorageAssetStatus,
+  StorageCardinality as PrismaStorageCardinality,
+  StorageFileClass as PrismaStorageFileClass,
+  StorageUploadIntentStatus as PrismaUploadIntentStatus,
+  StorageVisibility as PrismaStorageVisibility,
+} from "@prisma/client";
+
+import {
+  StorageCardinality,
+  StorageFileClass,
+  StorageTarget,
+  StorageVisibility,
+} from "../../public/storage.contracts";
+
+import {
+  CompleteUploadTransactionInput,
+  CompleteUploadTransactionResult,
+  StorageAssetRecord,
+  StorageAssetStatus,
+  StorageUploadIntentRecord,
+  StorageUploadIntentStatus,
+} from "../../domain/storage.records";
+
+import {
+  StorageError,
+  StorageErrorCode,
+} from "../../domain/StorageError";
+
+import { StoragePersistence } from "../../ports/StoragePersistence";
+
+type UploadIntentRow =
+  Prisma.StorageUploadIntentGetPayload<Record<string, never>>;
+
+type AssetRow =
+  Prisma.StorageAssetGetPayload<Record<string, never>>;
+
+const MAX_TRANSACTION_RETRIES = 4;
+
+export class PrismaStoragePersistence
+  implements StoragePersistence
+{
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async createUploadIntent(
+    intent: StorageUploadIntentRecord,
+  ): Promise<void> {
+    await this.execute(
+      "create storage upload intent",
+      async () => {
+        await this.prisma.storageUploadIntent.create({
+          data: {
+            id: intent.id,
+            intendedAssetId: intent.assetId,
+            actorId: intent.actorId,
+
+            targetKey: intent.targetKey,
+            target: serializeTarget(intent.target),
+
+            fileClass: toPrismaFileClass(intent.fileClass),
+
+            originalName: intent.file.originalName,
+            mimeType: intent.file.mimeType,
+            claimedSizeBytes: BigInt(intent.file.sizeBytes),
+
+            visibility: toPrismaVisibility(
+              intent.policy.visibility,
+            ),
+
+            cardinality: toPrismaCardinality(
+              intent.policy.cardinality,
+            ),
+
+            allowedMimeTypes: [
+              ...intent.policy.allowedMimeTypes,
+            ],
+
+            maxSizeBytes: BigInt(
+              intent.policy.maxSizeBytes,
+            ),
+
+            uploadExpiresInSeconds:
+              intent.policy.uploadExpiresInSeconds,
+
+            cacheControl: intent.policy.cacheControl,
+
+            temporaryObjectKey: intent.temporaryObjectKey,
+            finalObjectKey: intent.finalObjectKey,
+
+            status: toPrismaUploadStatus(intent.status),
+
+            expiresAt: intent.expiresAt,
+            completedAt: intent.completedAt,
+
+            createdAt: intent.createdAt,
+          },
+        });
+      },
+    );
+  }
+
+  async findUploadIntentById(
+    uploadIntentId: string,
+  ): Promise<StorageUploadIntentRecord | null> {
+    return this.execute(
+      "find storage upload intent",
+      async () => {
+        const row =
+          await this.prisma.storageUploadIntent.findUnique({
+            where: {
+              id: uploadIntentId,
+            },
+          });
+
+        return row ? mapUploadIntent(row) : null;
+      },
+    );
+  }
+
+  async findAssetById(
+    assetId: string,
+  ): Promise<StorageAssetRecord | null> {
+    return this.execute(
+      "find storage asset",
+      async () => {
+        const row = await this.prisma.storageAsset.findUnique({
+          where: {
+            id: assetId,
+          },
+        });
+
+        return row ? mapAsset(row) : null;
+      },
+    );
+  }
+
+  async findActiveAssetsByTarget(
+    targetKey: string,
+  ): Promise<StorageAssetRecord[]> {
+    return this.execute(
+      "find active storage assets",
+      async () => {
+        const rows =
+          await this.prisma.storageAsset.findMany({
+            where: {
+              targetKey,
+              status: PrismaStorageAssetStatus.ACTIVE,
+            },
+            orderBy: [
+              {
+                createdAt: "asc",
+              },
+              {
+                id: "asc",
+              },
+            ],
+          });
+
+        return rows.map(mapAsset);
+      },
+    );
+  }
+
+  async completeUpload(
+    input: CompleteUploadTransactionInput,
+  ): Promise<CompleteUploadTransactionResult> {
+    return this.execute(
+      "complete storage upload",
+      () =>
+        this.withSerializableTransaction(
+          async (transaction) => {
+            const intent =
+              await transaction.storageUploadIntent.findUnique({
+                where: {
+                  id: input.uploadIntentId,
+                },
+              });
+
+            if (!intent) {
+              throw new StorageError({
+                code:
+                  StorageErrorCode.UPLOAD_INTENT_NOT_FOUND,
+                statusCode: 404,
+                message: "Upload intent was not found.",
+              });
+            }
+
+            /*
+             * Idempotent completion.
+             *
+             * A repeated /complete request returns the existing
+             * asset instead of attempting another replacement.
+             */
+            if (
+              intent.status ===
+              PrismaUploadIntentStatus.COMPLETED
+            ) {
+              const existingAsset =
+                await transaction.storageAsset.findUnique({
+                  where: {
+                    uploadIntentId: intent.id,
+                  },
+                });
+
+              if (!existingAsset) {
+                throw new StorageError({
+                  code:
+                    StorageErrorCode
+                      .STORAGE_PERSISTENCE_ERROR,
+                  statusCode: 500,
+                  message:
+                    "Completed upload intent does not have " +
+                    "an associated storage asset.",
+                });
+              }
+
+              return {
+                asset: mapAsset(existingAsset),
+                replacedAssets: [],
+              };
+            }
+
+            if (
+              intent.status ===
+              PrismaUploadIntentStatus.EXPIRED
+            ) {
+              throw new StorageError({
+                code:
+                  StorageErrorCode.UPLOAD_INTENT_EXPIRED,
+                statusCode: 410,
+                message: "Upload intent has expired.",
+              });
+            }
+
+            if (
+              intent.status ===
+              PrismaUploadIntentStatus.FAILED
+            ) {
+              throw new StorageError({
+                code:
+                  StorageErrorCode.UPLOAD_INTENT_FAILED,
+                statusCode: 409,
+                message: "Upload intent has failed.",
+              });
+            }
+
+            validateCompletionInput(intent, input.asset);
+
+            /*
+             * Claim this upload intent.
+             *
+             * The status change and asset insertion are part of
+             * the same transaction, so a later failure rolls
+             * everything back.
+             */
+            const claimResult =
+              await transaction.storageUploadIntent.updateMany({
+                where: {
+                  id: intent.id,
+                  status:
+                    PrismaUploadIntentStatus.CREATED,
+                },
+                data: {
+                  status:
+                    PrismaUploadIntentStatus.COMPLETED,
+                  completedAt: new Date(),
+                  failureReason: null,
+                },
+              });
+
+            if (claimResult.count !== 1) {
+              throw new StorageError({
+                code:
+                  StorageErrorCode
+                    .STORAGE_PERSISTENCE_ERROR,
+                statusCode: 409,
+                message:
+                  "Upload intent was completed by another request.",
+              });
+            }
+
+            let replacedRows: AssetRow[] = [];
+
+            if (
+              input.asset.cardinality ===
+              StorageCardinality.SINGLE
+            ) {
+              replacedRows =
+                await transaction.storageAsset.findMany({
+                  where: {
+                    targetKey: input.asset.targetKey,
+                    status:
+                      PrismaStorageAssetStatus.ACTIVE,
+                    id: {
+                      not: input.asset.id,
+                    },
+                  },
+                });
+
+              if (replacedRows.length > 0) {
+                const replacedIds = replacedRows.map(
+                  (asset) => asset.id,
+                );
+
+                await transaction.storageAsset.updateMany({
+                  where: {
+                    id: {
+                      in: replacedIds,
+                    },
+                    status:
+                      PrismaStorageAssetStatus.ACTIVE,
+                  },
+                  data: {
+                    status:
+                      PrismaStorageAssetStatus
+                        .DELETION_PENDING,
+
+                    /*
+                     * Release the database-enforced singleton
+                     * lock before inserting the new asset.
+                     */
+                    activeSingletonKey: null,
+                    deletionRequestedAt: new Date(),
+                  },
+                });
+              }
+            }
+
+            const createdAsset =
+              await transaction.storageAsset.create({
+                data: {
+                  id: input.asset.id,
+
+                  uploadIntentId: intent.id,
+
+                  targetKey: input.asset.targetKey,
+                  target: serializeTarget(
+                    input.asset.target,
+                  ),
+
+                  objectKey: input.asset.objectKey,
+
+                  visibility: toPrismaVisibility(
+                    input.asset.visibility,
+                  ),
+
+                  cardinality: toPrismaCardinality(
+                    input.asset.cardinality,
+                  ),
+
+                  originalName:
+                    input.asset.originalName,
+
+                  mimeType: input.asset.mimeType,
+                  sizeBytes: BigInt(
+                    input.asset.sizeBytes,
+                  ),
+
+                  etag: input.asset.etag,
+                  checksum: input.asset.checksum,
+
+                  status: PrismaStorageAssetStatus.ACTIVE,
+
+                  activeSingletonKey:
+                    input.asset.cardinality ===
+                    StorageCardinality.SINGLE
+                      ? input.asset.targetKey
+                      : null,
+
+                  createdById:
+                    input.asset.createdById,
+
+                  createdAt: input.asset.createdAt,
+                },
+              });
+
+            return {
+              asset: mapAsset(createdAsset),
+              replacedAssets:
+                replacedRows.map(mapAsset),
+            };
+          },
+        ),
+    );
+  }
+
+  async markUploadIntentFailed(
+    uploadIntentId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.execute(
+      "mark storage upload intent failed",
+      async () => {
+        await this.prisma.storageUploadIntent.updateMany({
+          where: {
+            id: uploadIntentId,
+            status: PrismaUploadIntentStatus.CREATED,
+          },
+          data: {
+            status: PrismaUploadIntentStatus.FAILED,
+            failureReason: truncate(reason, 4_000),
+          },
+        });
+      },
+    );
+  }
+
+  async requestAssetDeletion(
+    assetId: string,
+  ): Promise<StorageAssetRecord> {
+    return this.execute(
+      "request storage asset deletion",
+      async () => {
+        return this.withSerializableTransaction(
+          async (transaction) => {
+            const currentAsset =
+              await transaction.storageAsset.findUnique({
+                where: {
+                  id: assetId,
+                },
+              });
+
+            if (!currentAsset) {
+              throw new StorageError({
+                code: StorageErrorCode.ASSET_NOT_FOUND,
+                statusCode: 404,
+                message: "Storage asset was not found.",
+              });
+            }
+
+            /*
+             * Deletion is idempotent. A worker can safely receive
+             * the same deletion job more than once.
+             */
+            if (
+              currentAsset.status ===
+                PrismaStorageAssetStatus
+                  .DELETION_PENDING ||
+              currentAsset.status ===
+                PrismaStorageAssetStatus.DELETED
+            ) {
+              return mapAsset(currentAsset);
+            }
+
+            const updatedAsset =
+              await transaction.storageAsset.update({
+                where: {
+                  id: assetId,
+                },
+                data: {
+                  status:
+                    PrismaStorageAssetStatus
+                      .DELETION_PENDING,
+
+                  activeSingletonKey: null,
+                  deletionRequestedAt: new Date(),
+                },
+              });
+
+            return mapAsset(updatedAsset);
+          },
+        );
+      },
+    );
+  }
+
+  async markAssetDeleted(assetId: string): Promise<void> {
+    await this.execute(
+      "mark storage asset deleted",
+      async () => {
+        /*
+         * updateMany makes the operation idempotent and does not
+         * throw when the record was already removed.
+         */
+        await this.prisma.storageAsset.updateMany({
+          where: {
+            id: assetId,
+            status: {
+              not: PrismaStorageAssetStatus.DELETED,
+            },
+          },
+          data: {
+            status: PrismaStorageAssetStatus.DELETED,
+            activeSingletonKey: null,
+            deletedAt: new Date(),
+          },
+        });
+      },
+    );
+  }
+
+  private async withSerializableTransaction<T>(
+    callback: (
+      transaction: Prisma.TransactionClient,
+    ) => Promise<T>,
+  ): Promise<T> {
+    let attempt = 0;
+
+    while (attempt < MAX_TRANSACTION_RETRIES) {
+      try {
+        return await this.prisma.$transaction(callback, {
+          isolationLevel:
+            Prisma.TransactionIsolationLevel.Serializable,
+
+          maxWait: 5_000,
+          timeout: 10_000,
+        });
+      } catch (error) {
+        attempt += 1;
+
+        if (
+          isPrismaWriteConflict(error) &&
+          attempt < MAX_TRANSACTION_RETRIES
+        ) {
+          await sleep(calculateRetryDelay(attempt));
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new StorageError({
+      code:
+        StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+      statusCode: 503,
+      message:
+        "Storage transaction could not be completed after retries.",
+    });
+  }
+
+  private async execute<T>(
+    operation: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await callback();
+    } catch (error) {
+      if (error instanceof StorageError) {
+        throw error;
+      }
+
+      throw new StorageError({
+        code:
+          StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+        statusCode: 500,
+        message: `Failed to ${operation}.`,
+        cause: error,
+      });
+    }
+  }
+}
+
+function validateCompletionInput(
+  intent: UploadIntentRow,
+  asset: StorageAssetRecord,
+): void {
+  const validationFailed =
+    intent.intendedAssetId !== asset.id ||
+    intent.targetKey !== asset.targetKey ||
+    intent.finalObjectKey !== asset.objectKey ||
+    intent.mimeType !== asset.mimeType ||
+    intent.actorId !== asset.createdById ||
+    intent.visibility !==
+      toPrismaVisibility(asset.visibility) ||
+    intent.cardinality !==
+      toPrismaCardinality(asset.cardinality);
+
+  if (validationFailed) {
+    throw new StorageError({
+      code:
+        StorageErrorCode.UPLOADED_OBJECT_INVALID,
+      statusCode: 422,
+      message:
+        "Storage asset does not match its upload intent.",
+    });
+  }
+}
+
+function mapUploadIntent(
+  row: UploadIntentRow,
+): StorageUploadIntentRecord {
+  return {
+    id: row.id,
+    assetId: row.intendedAssetId,
+    actorId: row.actorId,
+
+    target: parseTarget(row.target),
+    targetKey: row.targetKey,
+
+    fileClass: row.fileClass as StorageFileClass,
+
+    file: {
+      originalName: row.originalName,
+      mimeType: row.mimeType,
+      sizeBytes: bigIntToSafeNumber(
+        row.claimedSizeBytes,
+        "claimedSizeBytes",
+      ),
+    },
+
+    policy: {
+      visibility:
+        row.visibility as StorageVisibility,
+
+      cardinality:
+        row.cardinality as StorageCardinality,
+
+      allowedMimeTypes: parseStringArray(
+        row.allowedMimeTypes,
+        "allowedMimeTypes",
+      ),
+
+      maxSizeBytes: bigIntToSafeNumber(
+        row.maxSizeBytes,
+        "maxSizeBytes",
+      ),
+
+      uploadExpiresInSeconds:
+        row.uploadExpiresInSeconds,
+
+      cacheControl: row.cacheControl,
+    },
+
+    temporaryObjectKey: row.temporaryObjectKey,
+    finalObjectKey: row.finalObjectKey,
+
+    status:
+      row.status as StorageUploadIntentStatus,
+
+    expiresAt: row.expiresAt,
+    completedAt: row.completedAt,
+
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapAsset(row: AssetRow): StorageAssetRecord {
+  return {
+    id: row.id,
+
+    target: parseTarget(row.target),
+    targetKey: row.targetKey,
+
+    objectKey: row.objectKey,
+
+    visibility:
+      row.visibility as StorageVisibility,
+
+    cardinality:
+      row.cardinality as StorageCardinality,
+
+    originalName: row.originalName,
+    mimeType: row.mimeType,
+
+    sizeBytes: bigIntToSafeNumber(
+      row.sizeBytes,
+      "sizeBytes",
+    ),
+
+    etag: row.etag,
+    checksum: row.checksum,
+
+    status: row.status as StorageAssetStatus,
+
+    createdById: row.createdById,
+
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function serializeTarget(
+  target: StorageTarget,
+): Prisma.InputJsonValue {
+  return {
+    nodes: target.nodes.map((node) => ({
+      collection: node.collection,
+      id: node.id,
+    })),
+    slot: target.slot,
+  };
+}
+
+function parseTarget(
+  value: Prisma.JsonValue,
+): StorageTarget {
+  if (!isJsonObject(value)) {
+    throw invalidPersistedData("target");
+  }
+
+  const nodesValue = value.nodes;
+  const slotValue = value.slot;
+
+  if (
+    !Array.isArray(nodesValue) ||
+    typeof slotValue !== "string"
+  ) {
+    throw invalidPersistedData("target");
+  }
+
+  const nodes = nodesValue.map((node) => {
+    if (!isJsonObject(node)) {
+      throw invalidPersistedData("target.nodes");
+    }
+
+    if (
+      typeof node.collection !== "string" ||
+      typeof node.id !== "string"
+    ) {
+      throw invalidPersistedData("target.nodes");
+    }
+
+    return {
+      collection: node.collection,
+      id: node.id,
+    };
+  });
+
+  if (nodes.length === 0) {
+    throw invalidPersistedData("target.nodes");
+  }
+
+  return {
+    nodes,
+    slot: slotValue,
+  };
+}
+
+function parseStringArray(
+  value: Prisma.JsonValue,
+  fieldName: string,
+): string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string")
+  ) {
+    throw invalidPersistedData(fieldName);
+  }
+
+  return value;
+}
+
+function isJsonObject(
+  value: Prisma.JsonValue,
+): value is Prisma.JsonObject {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function bigIntToSafeNumber(
+  value: bigint,
+  fieldName: string,
+): number {
+  const numberValue = Number(value);
+
+  if (!Number.isSafeInteger(numberValue)) {
+    throw invalidPersistedData(fieldName);
+  }
+
+  return numberValue;
+}
+
+function invalidPersistedData(
+  fieldName: string,
+): StorageError {
+  return new StorageError({
+    code:
+      StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+    statusCode: 500,
+    message:
+      `Stored storage data is invalid: ${fieldName}.`,
+  });
+}
+
+function toPrismaVisibility(
+  value: StorageVisibility,
+): PrismaStorageVisibility {
+  return value as PrismaStorageVisibility;
+}
+
+function toPrismaCardinality(
+  value: StorageCardinality,
+): PrismaStorageCardinality {
+  return value as PrismaStorageCardinality;
+}
+
+function toPrismaFileClass(
+  value: StorageFileClass,
+): PrismaStorageFileClass {
+  return value as PrismaStorageFileClass;
+}
+
+function toPrismaUploadStatus(
+  value: StorageUploadIntentStatus,
+): PrismaUploadIntentStatus {
+  return value as PrismaUploadIntentStatus;
+}
+
+function isPrismaWriteConflict(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof
+      Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  );
+}
+
+function calculateRetryDelay(attempt: number): number {
+  const exponentialDelay = 25 * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * 25);
+
+  return exponentialDelay + jitter;
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function truncate(
+  value: string,
+  maximumLength: number,
+): string {
+  if (value.length <= maximumLength) {
+    return value;
+  }
+
+  return value.slice(0, maximumLength);
+}
+
+###  ###
+import { randomUUID } from "node:crypto";
+
+import {
+  CompleteUploadInput,
+  CompletedStorageAsset,
+  CreateUploadIntentInput,
+  DeleteStorageAssetInput,
+  ResolvedStorageAsset,
+  ResolveTargetUrlsInput,
+  StoragePrivateAccess,
+  StorageVisibility,
+  UploadIntentResult,
+} from "../public/storage.contracts";
+import { StorageService } from "../public/StorageService";
+
+import { ObjectKeyBuilder } from "../domain/ObjectKeyBuilder";
+import {
+  StorageAssetRecord,
+  StorageAssetStatus,
+  StorageUploadIntentRecord,
+  StorageUploadIntentStatus,
+} from "../domain/storage.records";
+import {
+  StorageError,
+  StorageErrorCode,
+} from "../domain/StorageError";
+
+import { ObjectStorageProvider } from "../ports/ObjectStorageProvider";
+import {
+  StorageCleanupScheduler,
+  StorageDeletionReason,
+} from "../ports/StorageCleanupScheduler";
+import { StoragePersistence } from "../ports/StoragePersistence";
+import { StoragePolicyResolver } from "./StoragePolicyResolver";
+
+interface DefaultStorageServiceConfig {
+  cdnBaseUrl: string;
+  defaultPrivateUrlExpiresInSeconds: number;
+}
+
+export class DefaultStorageService implements StorageService {
+  constructor(
+    private readonly persistence: StoragePersistence,
+    private readonly objectStorage: ObjectStorageProvider,
+    private readonly cleanupScheduler: StorageCleanupScheduler,
+    private readonly keyBuilder: ObjectKeyBuilder,
+    private readonly policyResolver: StoragePolicyResolver,
+    private readonly config: DefaultStorageServiceConfig,
+  ) {}
+
+  async createUploadIntent(
+    input: CreateUploadIntentInput,
+  ): Promise<UploadIntentResult> {
+    this.validateActorId(input.actorId);
+    this.keyBuilder.validateTarget(input.target);
+
+    const policy = this.policyResolver.resolve(
+      input.fileClass,
+      input.policy,
+    );
+
+    const normalizedMimeType =
+      this.normalizeMimeType(input.file.mimeType);
+
+    this.validateFile({
+      sizeBytes: input.file.sizeBytes,
+      mimeType: normalizedMimeType,
+      maxSizeBytes: policy.maxSizeBytes,
+      allowedMimeTypes: policy.allowedMimeTypes,
+    });
+
+    const uploadId = `upl_${randomUUID()}`;
+    const assetId = `ast_${randomUUID()}`;
+
+    const targetKey = this.keyBuilder.buildTargetKey(input.target);
+
+    const temporaryObjectKey =
+      this.keyBuilder.buildTemporaryObjectKey({
+        uploadId,
+        assetId,
+        mimeType: normalizedMimeType,
+      });
+
+    const finalObjectKey =
+      this.keyBuilder.buildFinalObjectKey({
+        visibility: policy.visibility,
+        target: input.target,
+        assetId,
+        mimeType: normalizedMimeType,
+      });
+
+    const now = new Date();
+
+    const expiresAt = new Date(
+      now.getTime() + policy.uploadExpiresInSeconds * 1000,
+    );
+
+    const uploadIntent: StorageUploadIntentRecord = {
+      id: uploadId,
+      assetId,
+      actorId: input.actorId,
+
+      target: input.target,
+      targetKey,
+
+      fileClass: input.fileClass,
+
+      file: {
+        ...input.file,
+        mimeType: normalizedMimeType,
+      },
+
+      policy,
+
+      temporaryObjectKey,
+      finalObjectKey,
+
+      status: StorageUploadIntentStatus.CREATED,
+      expiresAt,
+      completedAt: null,
+
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.persistence.createUploadIntent(uploadIntent);
+
+    try {
+      const presignedUpload =
+        await this.objectStorage.createPresignedPost({
+          objectKey: temporaryObjectKey,
+          contentType: normalizedMimeType,
+
+          minimumSizeBytes: 1,
+          maximumSizeBytes: policy.maxSizeBytes,
+
+          expiresInSeconds: policy.uploadExpiresInSeconds,
+          cacheControl: "private, no-store",
+
+          metadata: {
+            "upload-id": uploadId,
+            "asset-id": assetId,
+            "actor-id": input.actorId,
+          },
+        });
+
+      return {
+        uploadId,
+        upload: {
+          method: "POST",
+          url: presignedUpload.url,
+          fields: presignedUpload.fields,
+          expiresAt,
+        },
+      };
+    } catch (error) {
+      await this.persistence.markUploadIntentFailed(
+        uploadId,
+        "Failed to create presigned upload.",
+      );
+
+      throw new StorageError({
+        code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
+        statusCode: 502,
+        message: "Failed to create the upload request.",
+        cause: error,
+      });
+    }
+  }
+
+  async completeUpload(
+    input: CompleteUploadInput,
+  ): Promise<CompletedStorageAsset> {
+    this.validateActorId(input.actorId);
+
+    const intent =
+      await this.persistence.findUploadIntentById(input.uploadId);
+
+    if (!intent) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOAD_INTENT_NOT_FOUND,
+        statusCode: 404,
+        message: "Upload intent was not found.",
+      });
+    }
+
+    if (intent.actorId !== input.actorId) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOAD_INTENT_FORBIDDEN,
+        statusCode: 403,
+        message:
+          "You are not permitted to complete this upload.",
+      });
+    }
+
+    if (intent.status === StorageUploadIntentStatus.COMPLETED) {
+      const completedAsset =
+        await this.persistence.findAssetById(intent.assetId);
+
+      if (!completedAsset) {
+        throw new StorageError({
+          code: StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+          statusCode: 500,
+          message:
+            "Completed upload does not have an associated asset.",
+        });
+      }
+
+      return this.toCompletedAsset(completedAsset);
+    }
+
+    if (intent.status === StorageUploadIntentStatus.FAILED) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOAD_INTENT_FAILED,
+        statusCode: 409,
+        message: "The upload intent has failed.",
+      });
+    }
+
+    if (intent.expiresAt.getTime() <= Date.now()) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOAD_INTENT_EXPIRED,
+        statusCode: 410,
+        message: "The upload intent has expired.",
+      });
+    }
+
+    let uploadedObject;
+
+    try {
+      uploadedObject = await this.objectStorage.headObject(
+        intent.temporaryObjectKey,
+      );
+    } catch (error) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOADED_OBJECT_NOT_FOUND,
+        statusCode: 404,
+        message:
+          "The uploaded object could not be found in temporary storage.",
+        cause: error,
+      });
+    }
+
+    this.validateUploadedObject({
+      intent,
+      contentType: uploadedObject.contentType,
+      contentLength: uploadedObject.contentLength,
+      metadata: uploadedObject.metadata,
+    });
+
+    try {
+      await this.objectStorage.copyObject({
+        sourceObjectKey: intent.temporaryObjectKey,
+        destinationObjectKey: intent.finalObjectKey,
+
+        contentType: intent.file.mimeType,
+        cacheControl: intent.policy.cacheControl,
+
+        metadata: {
+          "upload-id": intent.id,
+          "asset-id": intent.assetId,
+          "created-by": intent.actorId,
+        },
+      });
+    } catch (error) {
+      throw new StorageError({
+        code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
+        statusCode: 502,
+        message:
+          "Failed to move the uploaded object into permanent storage.",
+        cause: error,
+      });
+    }
+
+    const now = new Date();
+
+    const asset: StorageAssetRecord = {
+      id: intent.assetId,
+
+      target: intent.target,
+      targetKey: intent.targetKey,
+
+      objectKey: intent.finalObjectKey,
+      visibility: intent.policy.visibility,
+      cardinality: intent.policy.cardinality,
+
+      originalName: intent.file.originalName,
+      mimeType: intent.file.mimeType,
+      sizeBytes: uploadedObject.contentLength ?? intent.file.sizeBytes,
+
+      etag: uploadedObject.etag,
+      checksum: uploadedObject.checksum,
+
+      status: StorageAssetStatus.ACTIVE,
+      createdById: intent.actorId,
+
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    let completionResult;
+
+    try {
+      completionResult = await this.persistence.completeUpload({
+        uploadIntentId: intent.id,
+        asset,
+      });
+    } catch (error) {
+      await this.cleanupScheduler.scheduleObjectDeletion({
+        objectKey: intent.finalObjectKey,
+        reason: StorageDeletionReason.ROLLBACK_AFTER_FAILURE,
+      });
+
+      throw new StorageError({
+        code: StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+        statusCode: 500,
+        message:
+          "Uploaded file was stored, but its database record could not be completed.",
+        cause: error,
+      });
+    }
+
+    await this.cleanupScheduler.scheduleObjectDeletion({
+      objectKey: intent.temporaryObjectKey,
+      reason:
+        StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+    });
+
+    for (const replacedAsset of completionResult.replacedAssets) {
+      await this.cleanupScheduler.scheduleObjectDeletion({
+        objectKey: replacedAsset.objectKey,
+        assetId: replacedAsset.id,
+        reason: StorageDeletionReason.REPLACED_BY_NEW_ASSET,
+      });
+    }
+
+    return this.toCompletedAsset(completionResult.asset);
+  }
+
+  async resolveTargetUrls(
+    input: ResolveTargetUrlsInput,
+  ): Promise<ResolvedStorageAsset[]> {
+    const targetKey = this.keyBuilder.buildTargetKey(input.target);
+
+    const assets =
+      await this.persistence.findActiveAssetsByTarget(targetKey);
+
+    const resolvedAssets: ResolvedStorageAsset[] = [];
+
+    for (const asset of assets) {
+      if (asset.visibility === StorageVisibility.PUBLIC) {
+        resolvedAssets.push({
+          id: asset.id,
+          url: this.buildCdnUrl(asset.objectKey),
+          visibility: asset.visibility,
+          mimeType: asset.mimeType,
+          sizeBytes: asset.sizeBytes,
+        });
+
+        continue;
+      }
+
+      if (
+        input.privateAccess !==
+        StoragePrivateAccess.AUTHORIZED_PRIVATE
+      ) {
+        continue;
+      }
+
+      const url =
+        await this.objectStorage.createPresignedDownloadUrl({
+          objectKey: asset.objectKey,
+          expiresInSeconds:
+            input.privateUrlExpiresInSeconds ??
+            this.config.defaultPrivateUrlExpiresInSeconds,
+          downloadFileName: asset.originalName,
+        });
+
+      resolvedAssets.push({
+        id: asset.id,
+        url,
+        visibility: asset.visibility,
+        mimeType: asset.mimeType,
+        sizeBytes: asset.sizeBytes,
+      });
+    }
+
+    return resolvedAssets;
+  }
+
+  async deleteAsset(
+    input: DeleteStorageAssetInput,
+  ): Promise<void> {
+    this.validateActorId(input.actorId);
+
+    /**
+     * Authorization belongs to the domain calling this service.
+     *
+     * For example:
+     * - User module checks user owns avatar
+     * - Workspace module checks workspace:update
+     * - Project module checks project:update
+     */
+    const asset =
+      await this.persistence.requestAssetDeletion(input.assetId);
+
+    await this.cleanupScheduler.scheduleObjectDeletion({
+      objectKey: asset.objectKey,
+      assetId: asset.id,
+      reason: StorageDeletionReason.USER_REQUESTED_DELETION,
+    });
+  }
+
+  private validateFile(input: {
+    sizeBytes: number;
+    mimeType: string;
+    maxSizeBytes: number;
+    allowedMimeTypes: readonly string[];
+  }): void {
+    if (
+      !Number.isSafeInteger(input.sizeBytes) ||
+      input.sizeBytes <= 0
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 400,
+        message: "File size must be a positive integer.",
+      });
+    }
+
+    if (input.sizeBytes > input.maxSizeBytes) {
+      throw new StorageError({
+        code: StorageErrorCode.FILE_TOO_LARGE,
+        statusCode: 413,
+        message: `File exceeds the maximum size of ${input.maxSizeBytes} bytes.`,
+        details: {
+          receivedSizeBytes: input.sizeBytes,
+          maximumSizeBytes: input.maxSizeBytes,
+        },
+      });
+    }
+
+    if (!input.allowedMimeTypes.includes(input.mimeType)) {
+      throw new StorageError({
+        code: StorageErrorCode.MIME_TYPE_NOT_ALLOWED,
+        statusCode: 415,
+        message: `MIME type ${input.mimeType} is not permitted.`,
+      });
+    }
+  }
+
+  private validateUploadedObject(input: {
+    intent: StorageUploadIntentRecord;
+    contentType: string | null;
+    contentLength: number | null;
+    metadata: Record<string, string>;
+  }): void {
+    const contentType = input.contentType
+      ? this.normalizeMimeType(input.contentType)
+      : null;
+
+    if (!contentType || contentType !== input.intent.file.mimeType) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
+        statusCode: 422,
+        message:
+          "Uploaded object MIME type does not match the upload intent.",
+      });
+    }
+
+    if (
+      input.contentLength === null ||
+      input.contentLength <= 0 ||
+      input.contentLength >
+        input.intent.policy.maxSizeBytes
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
+        statusCode: 422,
+        message: "Uploaded object has an invalid size.",
+      });
+    }
+
+    const uploadId = input.metadata["upload-id"];
+    const assetId = input.metadata["asset-id"];
+    const actorId = input.metadata["actor-id"];
+
+    if (
+      uploadId !== input.intent.id ||
+      assetId !== input.intent.assetId ||
+      actorId !== input.intent.actorId
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
+        statusCode: 422,
+        message:
+          "Uploaded object metadata does not match the upload intent.",
+      });
+    }
+  }
+
+  private normalizeMimeType(mimeType: string): string {
+    return mimeType
+      .trim()
+      .toLowerCase()
+      .split(";")[0]!;
+  }
+
+  private validateActorId(actorId: string): void {
+    if (!actorId?.trim()) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 400,
+        message: "Actor ID is required.",
+      });
+    }
+  }
+
+  private buildCdnUrl(objectKey: string): string {
+    const baseUrl = this.config.cdnBaseUrl.replace(/\/+$/, "");
+    const normalizedObjectKey = objectKey.replace(/^\/+/, "");
+
+    return `${baseUrl}/${normalizedObjectKey}`;
+  }
+
+  private toCompletedAsset(
+    asset: StorageAssetRecord,
+  ): CompletedStorageAsset {
+    return {
+      id: asset.id,
+      targetKey: asset.targetKey,
+      visibility: asset.visibility,
+      mimeType: asset.mimeType,
+      sizeBytes: asset.sizeBytes,
+      createdAt: asset.createdAt,
+    };
+  }
+}
+
+###  ###
+import {
+  StorageCardinality,
+  StorageFileClass,
+  StoragePolicyOverrides,
+  StorageVisibility,
+} from "../public/storage.contracts";
+import { ResolvedStoragePolicy } from "../domain/storage.records";
+import {
+  StorageError,
+  StorageErrorCode,
+} from "../domain/StorageError";
+
+const FIVE_MB = 5 * 1024 * 1024;
+const TEN_MB = 10 * 1024 * 1024;
+const TWENTY_MB = 20 * 1024 * 1024;
+
+const DEFAULT_POLICIES: Readonly<
+  Record<StorageFileClass, ResolvedStoragePolicy>
+> = {
+  [StorageFileClass.IMAGE]: {
+    visibility: StorageVisibility.PRIVATE,
+    cardinality: StorageCardinality.MULTIPLE,
+
+    allowedMimeTypes: [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ],
+
+    maxSizeBytes: FIVE_MB,
+    uploadExpiresInSeconds: 10 * 60,
+    cacheControl: "private, no-store",
+  },
+
+  [StorageFileClass.DOCUMENT]: {
+    visibility: StorageVisibility.PRIVATE,
+    cardinality: StorageCardinality.MULTIPLE,
+
+    allowedMimeTypes: [
+      "application/pdf",
+      "text/plain",
+      "text/csv",
+      "application/json",
+    ],
+
+    maxSizeBytes: TEN_MB,
+    uploadExpiresInSeconds: 10 * 60,
+    cacheControl: "private, no-store",
+  },
+
+  [StorageFileClass.BINARY]: {
+    visibility: StorageVisibility.PRIVATE,
+    cardinality: StorageCardinality.MULTIPLE,
+
+    allowedMimeTypes: [
+      "application/octet-stream",
+      "application/zip",
+    ],
+
+    maxSizeBytes: TWENTY_MB,
+    uploadExpiresInSeconds: 10 * 60,
+    cacheControl: "private, no-store",
+  },
+};
+
+export class StoragePolicyResolver {
+  resolve(
+    fileClass: StorageFileClass,
+    overrides?: StoragePolicyOverrides,
+  ): ResolvedStoragePolicy {
+    const defaultPolicy = DEFAULT_POLICIES[fileClass];
+
+    if (!defaultPolicy) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 400,
+        message: `Unsupported storage file class: ${fileClass}`,
+      });
+    }
+
+    const visibility =
+      overrides?.visibility ?? defaultPolicy.visibility;
+
+    const resolvedPolicy: ResolvedStoragePolicy = {
+      ...defaultPolicy,
+      ...overrides,
+
+      visibility,
+
+      allowedMimeTypes: (
+        overrides?.allowedMimeTypes ??
+        defaultPolicy.allowedMimeTypes
+      ).map((mimeType) => mimeType.trim().toLowerCase()),
+
+      cacheControl:
+        overrides?.cacheControl ??
+        this.defaultCacheControl(visibility),
+    };
+
+    this.validatePolicy(resolvedPolicy);
+
+    return resolvedPolicy;
+  }
+
+  private defaultCacheControl(
+    visibility: StorageVisibility,
+  ): string {
+    if (visibility === StorageVisibility.PUBLIC) {
+      return "public, max-age=31536000, immutable";
+    }
+
+    return "private, no-store";
+  }
+
+  private validatePolicy(policy: ResolvedStoragePolicy): void {
+    if (!policy.allowedMimeTypes.length) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 500,
+        message: "Storage policy must allow at least one MIME type.",
+      });
+    }
+
+    if (
+      !Number.isSafeInteger(policy.maxSizeBytes) ||
+      policy.maxSizeBytes <= 0
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 500,
+        message: "Storage policy has an invalid maximum file size.",
+      });
+    }
+
+    if (
+      !Number.isSafeInteger(policy.uploadExpiresInSeconds) ||
+      policy.uploadExpiresInSeconds < 60 ||
+      policy.uploadExpiresInSeconds > 3600
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 500,
+        message:
+          "Upload expiry must be between 60 and 3600 seconds.",
+      });
+    }
+  }
+}
+
+###  ###
+
+
+###  ###
+import {
+  StorageCardinality,
+  StorageFileClass,
+  StorageFileDescriptor,
+  StorageTarget,
+  StorageVisibility,
+} from "../public/storage.contracts";
+
+export enum StorageUploadIntentStatus {
+  CREATED = "CREATED",
+  COMPLETED = "COMPLETED",
+  EXPIRED = "EXPIRED",
+  FAILED = "FAILED",
+}
+
+export enum StorageAssetStatus {
+  ACTIVE = "ACTIVE",
+  DELETION_PENDING = "DELETION_PENDING",
+  DELETED = "DELETED",
+}
+
+export interface ResolvedStoragePolicy {
+  visibility: StorageVisibility;
+  cardinality: StorageCardinality;
+  allowedMimeTypes: readonly string[];
+  maxSizeBytes: number;
+  uploadExpiresInSeconds: number;
+  cacheControl: string;
+}
+
+export interface StorageUploadIntentRecord {
+  id: string;
+  assetId: string;
+  actorId: string;
+
+  target: StorageTarget;
+  targetKey: string;
+
+  fileClass: StorageFileClass;
+  file: StorageFileDescriptor;
+  policy: ResolvedStoragePolicy;
+
+  temporaryObjectKey: string;
+  finalObjectKey: string;
+
+  status: StorageUploadIntentStatus;
+  expiresAt: Date;
+  completedAt: Date | null;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StorageAssetRecord {
+  id: string;
+
+  target: StorageTarget;
+  targetKey: string;
+
+  objectKey: string;
+  visibility: StorageVisibility;
+  cardinality: StorageCardinality;
+
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+
+  etag: string | null;
+  checksum: string | null;
+
+  status: StorageAssetStatus;
+  createdById: string;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CompleteUploadTransactionInput {
+  uploadIntentId: string;
+  asset: StorageAssetRecord;
+}
+
+export interface CompleteUploadTransactionResult {
+  asset: StorageAssetRecord;
+
+  /**
+   * For SINGLE targets, previous active assets are moved to
+   * DELETION_PENDING and returned here.
+   */
+  replacedAssets: StorageAssetRecord[];
+}
+
+###  ###
+import { StorageTarget, StorageVisibility } from "../public/storage.contracts";
+import { StorageError, StorageErrorCode } from "./StorageError";
+
+const MAX_STORAGE_KEY_BYTES = 512;
+
+const MIME_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+
+  "application/pdf": "pdf",
+  "application/json": "json",
+  "application/zip": "zip",
+
+  "text/plain": "txt",
+  "text/csv": "csv",
+
+  "application/octet-stream": "bin",
+};
+
+export class ObjectKeyBuilder {
+  private ensureKeyLength(value: string, fieldName: string): string {
+    const lengthBytes = Buffer.byteLength(value, "utf8");
+
+    if (lengthBytes > MAX_STORAGE_KEY_BYTES) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message:
+          `Generated ${fieldName} exceeds ` + `${MAX_STORAGE_KEY_BYTES} bytes.`,
+        details: {
+          fieldName,
+          lengthBytes,
+          maximumBytes: MAX_STORAGE_KEY_BYTES,
+        },
+      });
+    }
+
+    return value;
+  }
+  buildTargetKey(target: StorageTarget): string {
+    this.validateTarget(target);
+
+    const hierarchy = target.nodes
+      .map((node) => {
+        const collection = this.sanitizeSegment(node.collection);
+        const id = this.sanitizeSegment(node.id);
+
+        return `${collection}:${id}`;
+      })
+      .join("/");
+
+    const slot = this.sanitizeSegment(target.slot);
+
+    return this.ensureKeyLength(`${hierarchy}#${slot}`, "target key");
+  }
+
+  buildTemporaryObjectKey(input: {
+    uploadId: string;
+    assetId: string;
+    mimeType: string;
+  }): string {
+    const uploadId = this.sanitizeSegment(input.uploadId);
+    const assetId = this.sanitizeSegment(input.assetId);
+    const extension = this.resolveExtension(input.mimeType);
+
+    return this.ensureKeyLength(
+      ["temporary", "uploads", uploadId, `${assetId}.${extension}`].join("/"),
+      "temporary object key",
+    );
+  }
+
+  buildFinalObjectKey(input: {
+    visibility: StorageVisibility;
+    target: StorageTarget;
+    assetId: string;
+    mimeType: string;
+  }): string {
+    this.validateTarget(input.target);
+
+    const visibility = input.visibility.toLowerCase();
+    const assetId = this.sanitizeSegment(input.assetId);
+    const extension = this.resolveExtension(input.mimeType);
+
+    const targetSegments = input.target.nodes.flatMap((node) => [
+      this.sanitizeSegment(node.collection),
+      this.sanitizeSegment(node.id),
+    ]);
+
+    return this.ensureKeyLength(
+      [
+        visibility,
+        ...targetSegments,
+        this.sanitizeSegment(input.target.slot),
+        `${assetId}.${extension}`,
+      ].join("/"),
+      "final object key",
+    );
+  }
+
+  validateTarget(target: StorageTarget): void {
+    if (!target.nodes.length) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message: "Storage target must contain at least one path node.",
+      });
+    }
+
+    for (const node of target.nodes) {
+      this.sanitizeSegment(node.collection);
+      this.sanitizeSegment(node.id);
+    }
+
+    this.sanitizeSegment(target.slot);
+  }
+
+  private resolveExtension(mimeType: string): string {
+    const normalizedMimeType = mimeType.trim().toLowerCase().split(";")[0];
+
+    const extension = MIME_TYPE_EXTENSIONS[normalizedMimeType!];
+
+    if (!extension) {
+      throw new StorageError({
+        code: StorageErrorCode.MIME_EXTENSION_NOT_SUPPORTED,
+        statusCode: 400,
+        message: `No safe extension mapping exists for MIME type: ${normalizedMimeType}`,
+      });
+    }
+
+    return extension;
+  }
+
+  private sanitizeSegment(value: string): string {
+    const normalized = value.trim().toLowerCase();
+
+    if (!normalized) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message: "Storage path segment cannot be empty.",
+      });
+    }
+
+    if (
+      normalized === "." ||
+      normalized === ".." ||
+      normalized.includes("/") ||
+      normalized.includes("\\")
+    ) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message: `Invalid storage path segment: ${value}`,
+      });
+    }
+
+    const sanitized = normalized.replace(/[^a-z0-9._-]/g, "-");
+
+    if (!sanitized || sanitized.length > 128) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message: `Invalid storage path segment: ${value}`,
+      });
+    }
+
+    return sanitized;
+  }
+}
+
+
+###  ###
+import { AppError } from "../../../errors";
+
+export enum StorageErrorCode {
+  INVALID_TARGET = "INVALID_TARGET",
+  INVALID_FILE = "INVALID_FILE",
+  MIME_TYPE_NOT_ALLOWED = "MIME_TYPE_NOT_ALLOWED",
+  FILE_TOO_LARGE = "FILE_TOO_LARGE",
+  MIME_EXTENSION_NOT_SUPPORTED = "MIME_EXTENSION_NOT_SUPPORTED",
+
+  UPLOAD_INTENT_NOT_FOUND = "UPLOAD_INTENT_NOT_FOUND",
+  UPLOAD_INTENT_EXPIRED = "UPLOAD_INTENT_EXPIRED",
+  UPLOAD_INTENT_ALREADY_COMPLETED = "UPLOAD_INTENT_ALREADY_COMPLETED",
+  UPLOAD_INTENT_FAILED = "UPLOAD_INTENT_FAILED",
+  UPLOAD_INTENT_FORBIDDEN = "UPLOAD_INTENT_FORBIDDEN",
+
+  UPLOADED_OBJECT_NOT_FOUND = "UPLOADED_OBJECT_NOT_FOUND",
+  UPLOADED_OBJECT_INVALID = "UPLOADED_OBJECT_INVALID",
+
+  ASSET_NOT_FOUND = "ASSET_NOT_FOUND",
+  PRIVATE_ASSET_ACCESS_DENIED = "PRIVATE_ASSET_ACCESS_DENIED",
+
+  STORAGE_PROVIDER_ERROR = "STORAGE_PROVIDER_ERROR",
+  STORAGE_PERSISTENCE_ERROR = "STORAGE_PERSISTENCE_ERROR",
+}
+
+interface StorageErrorOptions {
+  code: StorageErrorCode;
+  message: string;
+  statusCode: number;
+  cause?: unknown;
+  details?: Record<string, unknown>;
+}
+
+export class StorageError extends AppError {
+  readonly code: StorageErrorCode;
+  readonly statusCode: number;
+  readonly cause?: unknown;
+  readonly details?: Record<string, unknown>;
+
+  constructor(options: StorageErrorOptions) {
+    super(options.message, options.statusCode, options.code, options.details);
+
+    this.name = "StorageError";
+    this.code = options.code;
+    this.statusCode = options.statusCode;
+    this.cause = options.cause;
+    this.details = options.details!;
+
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+////

@@ -22,6 +22,11 @@ export interface StoragePersistence {
     targetKey: string,
   ): Promise<StorageAssetRecord[]>;
 
+  findExpiredUploadIntents(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
+  findUploadIntentsRequiringTemporaryCleanup(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
+  markUploadIntentExpired(uploadIntentId: string): Promise<boolean>;
+  findDeletionPendingAssets(limit: number): Promise<StorageAssetRecord[]>;
+
   /**
    * Must run in one database transaction:
    *
@@ -45,6 +50,8 @@ export interface StoragePersistence {
    */
   requestAssetDeletion(
     assetId: string,
+    expectedTargetKey: string,
+    deletedById: string,
   ): Promise<StorageAssetRecord>;
 
   markAssetDeleted(assetId: string): Promise<void>;

@@ -125,4 +125,5 @@ export interface ResolvedStorageAsset {
 export interface DeleteStorageAssetInput {
   actorId: string;
   assetId: string;
+  target: StorageTarget;
 }

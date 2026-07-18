@@ -99,6 +99,19 @@ Complete project folder organization:
 
 ## 🛠️ Development
 
+### [STORAGE_SERVICE.md](STORAGE_SERVICE.md) - Object Storage & Uploads
+
+Intent-based storage service documentation:
+- ✅ Direct browser uploads using presigned POSTs
+- ✅ Public CDN and authorized private URL resolution
+- ✅ Single and multiple asset targets
+- ✅ Safe replacement, deletion, retries, and reconciliation
+- ✅ MinIO, NGINX, Redis, Prisma, and worker setup
+- ✅ Domain-service and browser integration examples
+- ✅ Failure cases, security rules, and production checklist
+
+**When to read:** Adding avatars, logos, covers, attachments, or any new file-backed domain feature.
+
 ### [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) - Development Workflow (7.8 KB)
 
 Developer setup and workflow:

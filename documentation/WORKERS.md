@@ -6,15 +6,22 @@ This document describes how BullMQ workers are used in the EasyStack backend.
 
 ## Overview
 
-The backend uses **BullMQ** with **Redis** for asynchronous email sending:
+The backend uses **BullMQ** with **Redis** for asynchronous email sending and storage cleanup:
 
 - `email-otp-queue` – sends email OTP codes for email verification.
 - `password-reset-queue` – sends password reset emails with secure links.
 - `welcome-email-queue` – sends welcome emails after successful verification.
+- `storage-cleanup` – deletes objects, marks assets deleted, and performs hourly reconciliation.
 
 All of these queues are processed by a **unified worker entrypoint**:
 
 - `src/workers/index.worker.ts`
+
+Storage uses its own worker entrypoint:
+
+- `src/services/storage/infrastructure/queue/runStorageWorkers.ts`
+- Start with `npm run worker:storage`.
+- See [STORAGE_SERVICE.md](STORAGE_SERVICE.md) for cleanup and reconciliation behavior.
 
 ---
 

@@ -817,6 +817,148 @@ model Invoice {
 }
 
 //////////////////////////////////////////////////////////////
+// STORAGE
+//////////////////////////////////////////////////////////////
+enum StorageVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum StorageCardinality {
+  SINGLE
+  MULTIPLE
+}
+
+enum StorageFileClass {
+  IMAGE
+  DOCUMENT
+  BINARY
+}
+
+enum StorageUploadIntentStatus {
+  CREATED
+  COMPLETED
+  EXPIRED
+  FAILED
+}
+
+enum StorageAssetStatus {
+  ACTIVE
+  DELETION_PENDING
+  DELETED
+}
+
+model StorageUploadIntent {
+  id              String @id @db.VarChar(64)
+  intendedAssetId String @unique @db.VarChar(64)
+
+  /**
+   * Canonical ID of the user/service that initiated the upload.
+   * Kept as a string intentionally so the storage module is not
+   * directly coupled to the User model or its primary-key type.
+   */
+  actorId String @db.VarChar(128)
+
+  /**
+   * Stable logical identifier generated from StorageTarget.
+   * Example:
+   * workspaces:wrk_123/projects:prj_456#cover
+   */
+  targetKey String @db.VarChar(512)
+
+  /**
+   * JSON representation of:
+   * {
+   * nodes: [
+   * { collection: "workspaces", id: "wrk_123" }
+   * ],
+   * slot: "logo"
+   * }
+   */
+  target Json
+
+  fileClass StorageFileClass
+
+  originalName     String @db.VarChar(255)
+  mimeType         String @db.VarChar(128)
+  claimedSizeBytes BigInt
+
+  visibility  StorageVisibility
+  cardinality StorageCardinality
+
+  allowedMimeTypes       Json
+  maxSizeBytes           BigInt
+  uploadExpiresInSeconds Int
+  cacheControl           String @db.VarChar(255)
+
+  temporaryObjectKey String @unique @db.VarChar(512)
+  finalObjectKey     String @unique @db.VarChar(512)
+
+  status        StorageUploadIntentStatus @default(CREATED)
+  failureReason String?                   @db.Text
+
+  expiresAt   DateTime
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  asset StorageAsset?
+
+  @@index([actorId, status])
+  @@index([targetKey, createdAt])
+  @@index([status, expiresAt])
+  @@map("storage_upload_intents")
+}
+
+model StorageAsset {
+  id String @id @db.VarChar(64)
+
+  uploadIntentId String              @unique @db.VarChar(64)
+  uploadIntent   StorageUploadIntent @relation(fields: [uploadIntentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  targetKey String @db.VarChar(512)
+  target    Json
+
+  objectKey String @unique @db.VarChar(512)
+
+  visibility  StorageVisibility
+  cardinality StorageCardinality
+
+  originalName String @db.VarChar(255)
+  mimeType     String @db.VarChar(128)
+  sizeBytes    BigInt
+
+  etag     String? @db.VarChar(255)
+  checksum String? @db.VarChar(512)
+
+  status StorageAssetStatus @default(ACTIVE)
+
+  /**
+   * For an active SINGLE asset, this contains targetKey.
+   * For MULTIPLE, DELETION_PENDING, and DELETED assets,
+   * this remains null.
+   * The unique constraint prevents two active SINGLE assets
+   * from occupying the same logical target.
+   */
+  activeSingletonKey String? @unique @db.VarChar(512)
+
+  createdById String  @db.VarChar(128)
+  deletedById String? @db.VarChar(128)
+
+  deletionRequestedAt DateTime?
+  deletedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetKey, status])
+  @@index([createdById, createdAt])
+  @@index([status, deletionRequestedAt])
+  @@map("storage_assets")
+}
+
+//////////////////////////////////////////////////////////////
 // ENUMS
 //////////////////////////////////////////////////////////////
 

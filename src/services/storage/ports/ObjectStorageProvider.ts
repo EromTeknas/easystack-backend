@@ -34,10 +34,16 @@ export interface CopyStoredObjectInput {
   metadata: Readonly<Record<string, string>>;
 }
 
+export enum StorageContentDisposition {
+  INLINE = "INLINE",
+  ATTACHMENT = "ATTACHMENT",
+}
+
 export interface CreatePresignedDownloadInput {
   objectKey: string;
   expiresInSeconds: number;
-  downloadFileName?: string;
+  disposition?: StorageContentDisposition;
+  fileName?: string;
 }
 
 export interface ObjectStorageProvider {

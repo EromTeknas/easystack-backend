@@ -1,11 +1,7 @@
-import {
-  StorageTarget,
-  StorageVisibility,
-} from "../public/storage.contracts";
-import {
-  StorageError,
-  StorageErrorCode,
-} from "./StorageError";
+import { StorageTarget, StorageVisibility } from "../public/storage.contracts";
+import { StorageError, StorageErrorCode } from "./StorageError";
+
+const MAX_STORAGE_KEY_BYTES = 512;
 
 const MIME_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg",
@@ -25,6 +21,25 @@ const MIME_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
 };
 
 export class ObjectKeyBuilder {
+  private ensureKeyLength(value: string, fieldName: string): string {
+    const lengthBytes = Buffer.byteLength(value, "utf8");
+
+    if (lengthBytes > MAX_STORAGE_KEY_BYTES) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_TARGET,
+        statusCode: 400,
+        message:
+          `Generated ${fieldName} exceeds ` + `${MAX_STORAGE_KEY_BYTES} bytes.`,
+        details: {
+          fieldName,
+          lengthBytes,
+          maximumBytes: MAX_STORAGE_KEY_BYTES,
+        },
+      });
+    }
+
+    return value;
+  }
   buildTargetKey(target: StorageTarget): string {
     this.validateTarget(target);
 
@@ -39,7 +54,7 @@ export class ObjectKeyBuilder {
 
     const slot = this.sanitizeSegment(target.slot);
 
-    return `${hierarchy}#${slot}`;
+    return this.ensureKeyLength(`${hierarchy}#${slot}`, "target key");
   }
 
   buildTemporaryObjectKey(input: {
@@ -51,12 +66,10 @@ export class ObjectKeyBuilder {
     const assetId = this.sanitizeSegment(input.assetId);
     const extension = this.resolveExtension(input.mimeType);
 
-    return [
-      "temporary",
-      "uploads",
-      uploadId,
-      `${assetId}.${extension}`,
-    ].join("/");
+    return this.ensureKeyLength(
+      ["temporary", "uploads", uploadId, `${assetId}.${extension}`].join("/"),
+      "temporary object key",
+    );
   }
 
   buildFinalObjectKey(input: {
@@ -76,12 +89,15 @@ export class ObjectKeyBuilder {
       this.sanitizeSegment(node.id),
     ]);
 
-    return [
-      visibility,
-      ...targetSegments,
-      this.sanitizeSegment(input.target.slot),
-      `${assetId}.${extension}`,
-    ].join("/");
+    return this.ensureKeyLength(
+      [
+        visibility,
+        ...targetSegments,
+        this.sanitizeSegment(input.target.slot),
+        `${assetId}.${extension}`,
+      ].join("/"),
+      "final object key",
+    );
   }
 
   validateTarget(target: StorageTarget): void {
@@ -102,10 +118,7 @@ export class ObjectKeyBuilder {
   }
 
   private resolveExtension(mimeType: string): string {
-    const normalizedMimeType = mimeType
-      .trim()
-      .toLowerCase()
-      .split(";")[0];
+    const normalizedMimeType = mimeType.trim().toLowerCase().split(";")[0];
 
     const extension = MIME_TYPE_EXTENSIONS[normalizedMimeType!];
 
