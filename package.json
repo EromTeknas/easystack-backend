@@ -5,24 +5,19 @@
   "main": "index.js",
   "scripts": {
     "dev": "npm run db:seed:users && concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/workers --exec ts-node src/workers/index.worker.ts\"",
-    
     "build": "tsc",
     "start": "node dist/server.js",
-    
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:reset": "prisma migrate reset --force",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:status": "prisma migrate status",
-    
     "db:seed": "ts-node prisma/seed.ts",
     "db:seed:users": "ts-node prisma/seed.ts --users",
-    
     "worker": "ts-node src/workers/index.worker.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
     "billing:assign-free": "ts-node src/cli/assign-free-plans.ts",
     "test:billing": "node -r ts-node/register --test tests/**/*.test.ts",
-
     "cron:reset": "ts-node src/services/billing/jobs/quota-reset.job.ts"
   },
   "keywords": [],
@@ -30,6 +25,7 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.991.0",
+    "@aws-sdk/s3-presigned-post": "^3.1090.0",
     "@aws-sdk/s3-request-presigner": "^3.995.0",
     "@prisma/client": "^6.2.1",
     "bcrypt": "^6.0.0",
