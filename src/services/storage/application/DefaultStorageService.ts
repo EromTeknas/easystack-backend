@@ -9,6 +9,8 @@ import {
   ResolveTargetUrlsInput,
   StoragePrivateAccess,
   StorageVisibility,
+  StorageAssetAccess,
+  StorageUploadStrategy,
   UploadIntentResult,
 } from "../public/storage.contracts";
 import { StorageService } from "../public/StorageService";
@@ -83,6 +85,10 @@ export class DefaultStorageService implements StorageService {
       mimeType: normalizedMimeType,
     });
 
+    const uploadObjectKey = policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
+      ? temporaryObjectKey
+      : finalObjectKey;
+
     const now = new Date();
 
     const expiresAt = new Date(
@@ -121,14 +127,16 @@ export class DefaultStorageService implements StorageService {
 
     try {
       const presignedUpload = await this.objectStorage.createPresignedPost({
-        objectKey: temporaryObjectKey,
+        objectKey: uploadObjectKey,
         contentType: normalizedMimeType,
 
         minimumSizeBytes: 1,
         maximumSizeBytes: policy.maxSizeBytes,
 
         expiresInSeconds: policy.uploadExpiresInSeconds,
-        cacheControl: "private, no-store",
+        cacheControl: policy.uploadStrategy === StorageUploadStrategy.DIRECT
+          ? policy.cacheControl
+          : "private, no-store",
 
         metadata: {
           "upload-id": uploadId,
@@ -220,7 +228,7 @@ export class DefaultStorageService implements StorageService {
 
     try {
       uploadedObject = await this.objectStorage.headObject(
-        intent.temporaryObjectKey,
+        this.getUploadObjectKey(intent),
       );
     } catch (error) {
       if (
@@ -230,7 +238,7 @@ export class DefaultStorageService implements StorageService {
         throw new StorageError({
           code: StorageErrorCode.UPLOADED_OBJECT_NOT_FOUND,
           statusCode: 404,
-          message: "The uploaded object could not be found in temporary storage.",
+        message: "The uploaded object could not be found in object storage.",
           cause: error,
         });
       }
@@ -238,7 +246,7 @@ export class DefaultStorageService implements StorageService {
       throw new StorageError({
         code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
         statusCode: 502,
-        message: "Temporary object storage could not be verified.",
+        message: "Uploaded object storage could not be verified.",
         cause: error,
       });
     }
@@ -250,8 +258,9 @@ export class DefaultStorageService implements StorageService {
       metadata: uploadedObject.metadata,
     });
 
-    try {
-      await this.objectStorage.copyObject({
+    if (intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE) {
+      try {
+        await this.objectStorage.copyObject({
         sourceObjectKey: intent.temporaryObjectKey,
         destinationObjectKey: intent.finalObjectKey,
 
@@ -263,14 +272,15 @@ export class DefaultStorageService implements StorageService {
           "asset-id": intent.assetId,
           "created-by": intent.actorId,
         },
-      });
-    } catch (error) {
-      throw new StorageError({
-        code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
-        statusCode: 502,
-        message: "Failed to move the uploaded object into permanent storage.",
-        cause: error,
-      });
+        });
+      } catch (error) {
+        throw new StorageError({
+          code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
+          statusCode: 502,
+          message: "Failed to move the uploaded object into permanent storage.",
+          cause: error,
+        });
+      }
     }
 
     const now = new Date();
@@ -320,10 +330,12 @@ export class DefaultStorageService implements StorageService {
         existingAsset.objectKey === intent.finalObjectKey &&
         existingAsset.status === StorageAssetStatus.ACTIVE
       ) {
-        await this.scheduleDeletionSafely({
-          objectKey: intent.temporaryObjectKey,
-          reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
-        });
+        if (intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE) {
+          await this.scheduleDeletionSafely({
+            objectKey: intent.temporaryObjectKey,
+            reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+          });
+        }
 
         return this.toCompletedAsset(existingAsset);
       }
@@ -343,10 +355,12 @@ export class DefaultStorageService implements StorageService {
     }
 
     await Promise.all([
-      this.scheduleDeletionSafely({
-        objectKey: intent.temporaryObjectKey,
-        reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
-      }),
+      ...(intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
+        ? [this.scheduleDeletionSafely({
+            objectKey: intent.temporaryObjectKey,
+            reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+          })]
+        : []),
       ...completionResult.replacedAssets.map((replacedAsset) =>
         this.scheduleDeletionSafely({
           objectKey: replacedAsset.objectKey,
@@ -568,7 +582,7 @@ export class DefaultStorageService implements StorageService {
     return `${baseUrl}/${normalizedObjectKey}`;
   }
 
-  private toCompletedAsset(asset: StorageAssetRecord): CompletedStorageAsset {
+  private async toCompletedAsset(asset: StorageAssetRecord): Promise<CompletedStorageAsset> {
     return {
       id: asset.id,
       targetKey: asset.targetKey,
@@ -576,6 +590,40 @@ export class DefaultStorageService implements StorageService {
       mimeType: asset.mimeType,
       sizeBytes: asset.sizeBytes,
       createdAt: asset.createdAt,
+      access: await this.resolveAssetAccessSafely(asset),
     };
+  }
+
+  private getUploadObjectKey(intent: StorageUploadIntentRecord): string {
+    return intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
+      ? intent.temporaryObjectKey
+      : intent.finalObjectKey;
+  }
+
+  private async resolveAssetAccessSafely(
+    asset: StorageAssetRecord,
+  ): Promise<StorageAssetAccess | null> {
+    if (asset.visibility === StorageVisibility.PUBLIC) {
+      return { url: this.buildCdnUrl(asset.objectKey), expiresAt: null };
+    }
+
+    const expiresInSeconds = this.config.defaultPrivateUrlExpiresInSeconds;
+    try {
+      const url = await this.objectStorage.createPresignedDownloadUrl({
+        objectKey: asset.objectKey,
+        expiresInSeconds,
+        disposition: StorageContentDisposition.INLINE,
+      });
+      return {
+        url,
+        expiresAt: new Date(Date.now() + expiresInSeconds * 1000),
+      };
+    } catch (error) {
+      console.error("Failed to resolve access for a committed storage asset", {
+        assetId: asset.id,
+        error,
+      });
+      return null;
+    }
   }
 }

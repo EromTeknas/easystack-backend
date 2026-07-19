@@ -11,6 +11,7 @@ export {
   StorageFileClass,
   StoragePrivateAccess,
   StorageVisibility,
+  StorageUploadStrategy,
 } from "./public/storage.contracts";
 
 export type {
@@ -22,6 +23,7 @@ export type {
   ResolvedStorageAsset,
   ResolveTargetUrlsInput,
   StorageFileDescriptor,
+  StorageAssetAccess,
   StoragePathNode,
   StoragePolicyOverrides,
   StorageTarget,

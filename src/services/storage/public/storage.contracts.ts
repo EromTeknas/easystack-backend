@@ -19,6 +19,11 @@ export enum StoragePrivateAccess {
   AUTHORIZED_PRIVATE = "AUTHORIZED_PRIVATE",
 }
 
+export enum StorageUploadStrategy {
+  DIRECT = "DIRECT",
+  QUARANTINE = "QUARANTINE",
+}
+
 /**
  * A trusted backend path component.
  *
@@ -61,6 +66,7 @@ export interface StoragePolicyOverrides {
   allowedMimeTypes?: readonly string[];
   uploadExpiresInSeconds?: number;
   cacheControl?: string;
+  uploadStrategy?: StorageUploadStrategy;
 }
 
 export interface CreateUploadIntentInput {
@@ -93,6 +99,11 @@ export interface CompleteUploadInput {
   uploadId: string;
 }
 
+export interface StorageAssetAccess {
+  url: string;
+  expiresAt: Date | null;
+}
+
 export interface CompletedStorageAsset {
   id: string;
   targetKey: string;
@@ -100,6 +111,8 @@ export interface CompletedStorageAsset {
   mimeType: string;
   sizeBytes: number;
   createdAt: Date;
+  /** Null only when post-commit private URL signing temporarily fails. */
+  access: StorageAssetAccess | null;
 }
 
 export interface ResolveTargetUrlsInput {

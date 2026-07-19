@@ -213,7 +213,16 @@ export const completeStorageDemoUpload = asyncHandler(
         mimeType: asset.mimeType,
         sizeBytes: asset.sizeBytes,
         createdAt: asset.createdAt.toISOString(),
+        accessAvailable: asset.access !== null,
+        accessKind: asset.access === null
+          ? "UNAVAILABLE"
+          : asset.visibility === StorageVisibility.PUBLIC
+            ? "PUBLIC_CDN_URL"
+            : "PRIVATE_PRESIGNED_INLINE_URL",
+        accessHost: asset.access ? safeUrlHost(asset.access.url) : null,
+        accessExpiresAt: asset.access?.expiresAt?.toISOString() ?? null,
         durationMs: Date.now() - startedAt,
+        note: "The full access URL is returned in the response but intentionally not logged",
       });
       return ok(res, { asset });
     } catch (error) {

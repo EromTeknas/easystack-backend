@@ -1,5 +1,6 @@
 import { StorageCleanupScheduler, StorageDeletionReason } from "../ports/StorageCleanupScheduler";
 import { StoragePersistence } from "../ports/StoragePersistence";
+import { StorageUploadStrategy } from "../public/storage.contracts";
 
 export class StorageReconciliationService {
   constructor(
@@ -13,7 +14,9 @@ export class StorageReconciliationService {
     for (const intent of expired) {
       if (await this.persistence.markUploadIntentExpired(intent.id)) {
         await this.cleanupScheduler.scheduleObjectDeletion({
-          objectKey: intent.temporaryObjectKey,
+          objectKey: intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
+            ? intent.temporaryObjectKey
+            : intent.finalObjectKey,
           reason: StorageDeletionReason.EXPIRED_UPLOAD,
         });
       }
@@ -27,7 +30,11 @@ export class StorageReconciliationService {
 
     await Promise.all([
       ...cleanupIntents.map((intent) => this.cleanupScheduler.scheduleObjectDeletion({
-        objectKey: intent.temporaryObjectKey,
+        objectKey: intent.status === "EXPIRED"
+          ? intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
+            ? intent.temporaryObjectKey
+            : intent.finalObjectKey
+          : intent.temporaryObjectKey,
         reason: intent.status === "EXPIRED"
           ? StorageDeletionReason.EXPIRED_UPLOAD
           : StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,

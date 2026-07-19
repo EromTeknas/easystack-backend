@@ -82,11 +82,11 @@ For `SINGLE`, the database `activeSingletonKey` unique constraint prevents two a
 
 ### File classes and defaults
 
-| Class      | Allowed MIME types   | Maximum size | Default visibility/cardinality |
-| ---------- | -------------------- | -----------: | ------------------------------ |
-| `IMAGE`    | JPEG, PNG, WebP      |         5 MB | Private / Multiple             |
-| `DOCUMENT` | PDF, text, CSV, JSON |        10 MB | Private / Multiple             |
-| `BINARY`   | Octet stream, ZIP    |        20 MB | Private / Multiple             |
+| Class      | Allowed MIME types   | Maximum size | Default visibility/cardinality | Upload strategy                |
+| ---------- | -------------------- | -----------: | ------------------------------ | ------------------------------ |
+| `IMAGE`    | JPEG, PNG, WebP      |         5 MB | Private / Multiple             | Direct to unique final key     |
+| `DOCUMENT` | PDF, text, CSV, JSON |        10 MB | Private / Multiple             | Direct to unique final key     |
+| `BINARY`   | Octet stream, ZIP    |        20 MB | Private / Multiple             | Quarantine, verify and promote |
 
 Default upload intents expire after 10 minutes. Trusted backend code can override policy fields for a specific domain use case.
 
@@ -188,7 +188,7 @@ The upload protocol has three stages:
 
 1. The backend authorizes the domain action and creates an upload intent.
 2. The browser sends the file directly to object storage using the returned presigned POST.
-3. The backend completes the intent, verifies the object, promotes it to its final key, and commits the asset record.
+3. The backend completes the intent, verifies the object, promotes it when quarantine is required, commits the asset record, and returns immediately usable access information.
 
 ### Runnable demo APIs
 
@@ -275,6 +275,25 @@ const completionResponse = await fetch(
 const completion = await completionResponse.json();
 console.log(completion.data.asset);
 ```
+
+The completed asset includes non-persisted access information:
+
+```json
+{
+  "id": "ast_...",
+  "targetKey": "users:1#demo-private-image",
+  "visibility": "PRIVATE",
+  "mimeType": "image/jpeg",
+  "sizeBytes": 4313396,
+  "createdAt": "2026-07-19T17:00:00.000Z",
+  "access": {
+    "url": "http://localhost:9000/easystack/private/...?X-Amz-Signature=...",
+    "expiresAt": "2026-07-19T17:05:00.000Z"
+  }
+}
+```
+
+Public completion returns a CDN URL with `expiresAt: null`. Private completion returns a presigned inline URL and expiry. The URL is generated after the asset transaction and is never stored. If private signing temporarily fails, completion still succeeds with `access: null`; the caller can hydrate the target again later.
 
 #### Hydrate URLs
 
@@ -428,9 +447,11 @@ Completion verifies:
 - The temporary object exists.
 - MIME type and size match the policy.
 - Upload, asset, and actor metadata match the intent.
-- The final object can be created and the database transaction can complete.
+- Quarantined files can be promoted, when required, and the database transaction can complete.
 
 Completion is idempotent. Repeating it returns the existing active asset. Concurrent completion does not delete the valid final object created by another request.
+
+Images and documents normally upload directly to their unpredictable, unique final object key. They remain invisible to application reads until completion activates their database asset. Binaries use quarantine by default and are copied to the final key only after verification. Trusted domain policy may override `uploadStrategy` when scanning, moderation, resizing, or transcoding requires quarantine.
 
 ---
 
@@ -502,16 +523,17 @@ The target check limits damage if domain authorization or resource-to-asset mapp
 
 - Intent: `CREATED` → `COMPLETED`.
 - Asset: created as `ACTIVE`.
-- Temporary object: queued for deletion.
+- Direct strategy: the uploaded unique final object is activated without an S3 copy.
+- Quarantine strategy: the temporary object is promoted and queued for deletion.
 - Replaced `SINGLE` asset: `ACTIVE` → `DELETION_PENDING` → `DELETED`.
 
 ### Browser never uploads or never completes
 
 - The intent expires.
 - Hourly reconciliation changes old `CREATED` intents to `EXPIRED`.
-- The temporary key is queued for deletion.
+- The strategy-specific upload key is queued for deletion.
 
-### Temporary object is missing
+### Uploaded object is missing
 
 `completeUpload` throws `UPLOADED_OBJECT_NOT_FOUND` with HTTP 404.
 
@@ -550,7 +572,7 @@ BullMQ retries with exponential backoff. S3 deletion is idempotent, and database
 | `UPLOAD_INTENT_FORBIDDEN`      |                 403 | Intent belongs to another actor                             |
 | `UPLOAD_INTENT_EXPIRED`        |                 410 | Intent has expired                                          |
 | `UPLOAD_INTENT_FAILED`         |                 409 | Intent was previously marked failed                         |
-| `UPLOADED_OBJECT_NOT_FOUND`    |                 404 | Temporary object does not exist                             |
+| `UPLOADED_OBJECT_NOT_FOUND`    |                 404 | Uploaded object does not exist                              |
 | `UPLOADED_OBJECT_INVALID`      |                 422 | Uploaded MIME, size, or metadata is invalid                 |
 | `ASSET_NOT_FOUND`              |                 404 | Asset ID and expected target did not match an asset         |
 | `STORAGE_PROVIDER_ERROR`       |                 502 | Object-storage operation failed                             |

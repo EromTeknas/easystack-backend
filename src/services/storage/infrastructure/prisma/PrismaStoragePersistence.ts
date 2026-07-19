@@ -5,6 +5,7 @@ import {
   StorageCardinality as PrismaStorageCardinality,
   StorageFileClass as PrismaStorageFileClass,
   StorageUploadIntentStatus as PrismaUploadIntentStatus,
+  StorageUploadStrategy as PrismaUploadStrategy,
   StorageVisibility as PrismaStorageVisibility,
 } from "@prisma/client";
 
@@ -13,6 +14,7 @@ import {
   StorageFileClass,
   StorageTarget,
   StorageVisibility,
+  StorageUploadStrategy,
 } from "../../public/storage.contracts";
 
 import {
@@ -85,6 +87,7 @@ export class PrismaStoragePersistence
               intent.policy.uploadExpiresInSeconds,
 
             cacheControl: intent.policy.cacheControl,
+            uploadStrategy: toPrismaUploadStrategy(intent.policy.uploadStrategy),
 
             temporaryObjectKey: intent.temporaryObjectKey,
             finalObjectKey: intent.finalObjectKey,
@@ -184,7 +187,13 @@ export class PrismaStoragePersistence
     return this.execute("find upload intents requiring temporary cleanup", async () => {
       const rows = await this.prisma.storageUploadIntent.findMany({
         where: {
-          status: { in: [PrismaUploadIntentStatus.COMPLETED, PrismaUploadIntentStatus.EXPIRED] },
+          OR: [
+            { status: PrismaUploadIntentStatus.EXPIRED },
+            {
+              status: PrismaUploadIntentStatus.COMPLETED,
+              uploadStrategy: PrismaUploadStrategy.QUARANTINE,
+            },
+          ],
           updatedAt: { lte: before },
         },
         orderBy: { updatedAt: "asc" },
@@ -682,6 +691,7 @@ function mapUploadIntent(
         row.uploadExpiresInSeconds,
 
       cacheControl: row.cacheControl,
+      uploadStrategy: row.uploadStrategy as StorageUploadStrategy,
     },
 
     temporaryObjectKey: row.temporaryObjectKey,
@@ -861,6 +871,10 @@ function toPrismaUploadStatus(
   value: StorageUploadIntentStatus,
 ): PrismaUploadIntentStatus {
   return value as PrismaUploadIntentStatus;
+}
+
+function toPrismaUploadStrategy(value: StorageUploadStrategy): PrismaUploadStrategy {
+  return value as PrismaUploadStrategy;
 }
 
 function isPrismaWriteConflict(

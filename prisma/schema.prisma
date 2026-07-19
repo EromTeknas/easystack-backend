@@ -848,6 +848,11 @@ enum StorageAssetStatus {
   DELETED
 }
 
+enum StorageUploadStrategy {
+  DIRECT
+  QUARANTINE
+}
+
 model StorageUploadIntent {
   id              String @id @db.VarChar(64)
   intendedAssetId String @unique @db.VarChar(64)
@@ -889,7 +894,8 @@ model StorageUploadIntent {
   allowedMimeTypes       Json
   maxSizeBytes           BigInt
   uploadExpiresInSeconds Int
-  cacheControl           String @db.VarChar(255)
+  cacheControl           String                @db.VarChar(255)
+  uploadStrategy         StorageUploadStrategy @default(QUARANTINE)
 
   temporaryObjectKey String @unique @db.VarChar(512)
   finalObjectKey     String @unique @db.VarChar(512)

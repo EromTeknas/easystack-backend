@@ -4,6 +4,7 @@ import {
   StorageFileDescriptor,
   StorageTarget,
   StorageVisibility,
+  StorageUploadStrategy,
 } from "../public/storage.contracts";
 
 export enum StorageUploadIntentStatus {
@@ -26,6 +27,7 @@ export interface ResolvedStoragePolicy {
   maxSizeBytes: number;
   uploadExpiresInSeconds: number;
   cacheControl: string;
+  uploadStrategy: StorageUploadStrategy;
 }
 
 export interface StorageUploadIntentRecord {

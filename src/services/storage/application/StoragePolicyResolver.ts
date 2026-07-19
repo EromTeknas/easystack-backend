@@ -3,6 +3,7 @@ import {
   StorageFileClass,
   StoragePolicyOverrides,
   StorageVisibility,
+  StorageUploadStrategy,
 } from "../public/storage.contracts";
 import { ResolvedStoragePolicy } from "../domain/storage.records";
 import {
@@ -30,6 +31,7 @@ const DEFAULT_POLICIES: Readonly<
     maxSizeBytes: FIVE_MB,
     uploadExpiresInSeconds: 10 * 60,
     cacheControl: "private, no-store",
+    uploadStrategy: StorageUploadStrategy.DIRECT,
   },
 
   [StorageFileClass.DOCUMENT]: {
@@ -46,6 +48,7 @@ const DEFAULT_POLICIES: Readonly<
     maxSizeBytes: TEN_MB,
     uploadExpiresInSeconds: 10 * 60,
     cacheControl: "private, no-store",
+    uploadStrategy: StorageUploadStrategy.DIRECT,
   },
 
   [StorageFileClass.BINARY]: {
@@ -60,6 +63,7 @@ const DEFAULT_POLICIES: Readonly<
     maxSizeBytes: TWENTY_MB,
     uploadExpiresInSeconds: 10 * 60,
     cacheControl: "private, no-store",
+    uploadStrategy: StorageUploadStrategy.QUARANTINE,
   },
 };
 
