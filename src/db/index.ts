@@ -14,3 +14,4 @@ export async function initDatabases() {
 export * from './mysql';
 export * from './mongo';
 export * from './prisma';
+export { redisClient } from './redis';

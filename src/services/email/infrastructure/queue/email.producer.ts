@@ -1,4 +1,4 @@
-import { enqueue } from "../core/queue";
+import { queueClient } from "../../../../infrastructure/queue";
 import {
   SendOtpEmailJobData,
   SendPasswordResetEmailJobData,
@@ -6,14 +6,14 @@ import {
   sendOtpEmailJob,
   sendPasswordResetEmailJob,
   sendWelcomeEmailJob,
-} from "../jobs/email.jobs";
+} from "./email.jobs";
 
 export const enqueueSendOtpEmailJob = (data: SendOtpEmailJobData): Promise<void> =>
-  enqueue(sendOtpEmailJob, data);
+  queueClient.enqueue(sendOtpEmailJob, data);
 
 export const enqueueSendPasswordResetEmailJob = (
   data: SendPasswordResetEmailJobData,
-): Promise<void> => enqueue(sendPasswordResetEmailJob, data);
+): Promise<void> => queueClient.enqueue(sendPasswordResetEmailJob, data);
 
 export const enqueueSendWelcomeEmailJob = (data: SendWelcomeEmailJobData): Promise<void> =>
-  enqueue(sendWelcomeEmailJob, data);
+  queueClient.enqueue(sendWelcomeEmailJob, data);

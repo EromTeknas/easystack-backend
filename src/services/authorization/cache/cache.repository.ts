@@ -1,4 +1,4 @@
-import redis from "../../../config/redis";
+import redis from "../../../db/redis";
 
 import { AuthorizationCache } from "../types/authorization.type";
 import { AuthorizationCacheKeys } from "./cahce.keys";

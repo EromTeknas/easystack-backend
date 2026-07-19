@@ -1,4 +1,4 @@
-import redis from "../../../config/redis";
+import redis from "../../../db/redis";
 
 export class UsageCache {
   private key(workspaceId: number, quotaKey: string) {

@@ -149,15 +149,21 @@ Redis must also be available because deletion and reconciliation use BullMQ.
 
 ### Worker
 
-Run the storage cleanup worker in a separate process:
+Run the centralized storage worker group in a separate process:
 
 ```bash
 npm run worker:storage
 ```
 
-`npm run dev` starts it automatically alongside the API and existing workers.
+Register the hourly reconciliation schedule once during deployment:
 
-The worker deletes queued objects, marks associated database assets as `DELETED`, and runs reconciliation hourly. Deletion jobs use exponential backoff, at least five attempts, stable object-based job IDs, and completed/failed retention.
+```bash
+npm run queues:register-schedules
+```
+
+`npm run dev` starts it automatically alongside the API and the separate email worker group. See [WORKERS.md](WORKERS.md) for the centralized queue architecture.
+
+The worker deletes queued objects, marks associated database assets as `DELETED`, and processes scheduled reconciliation jobs. Schedule registration is separate so every storage replica does not register it again. Deletion jobs use exponential backoff, at least five attempts, stable object-based job IDs, and completed/failed retention.
 
 ---
 
@@ -604,6 +610,7 @@ Handle `StorageError` through the application's standard error middleware. Do no
 - Configure bucket CORS for the actual frontend origins.
 - Allow public reads only for `public/*`; keep `private/*` and `temporary/*` private.
 - Start at least one `worker:storage` process.
+- Run `queues:register-schedules` during deployment.
 - Run Redis with persistence and monitoring appropriate to the environment.
 - Monitor failed `storage-cleanup` jobs and reconciliation errors.
 - Configure CDN caching only for immutable `public/*` objects.

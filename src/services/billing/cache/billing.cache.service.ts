@@ -1,4 +1,4 @@
-import redis from "../../../config/redis";
+import redis from "../../../db/redis";
 import { BillingCache } from "../types/billing-cache.type";
 import { BILLING_CACHE_KEYS } from "./cache.keys";
 

@@ -20,12 +20,12 @@ All runtime environment access is centralized in `src/config`.
 | `auth.ts` | JWT, cookies, OTP, password reset, and auth limits |
 | `mysql.ts` | Runtime MySQL connection |
 | `mongo.ts` | MongoDB connection |
-| `redis.ts` | Redis/BullMQ connection settings and shared client |
+| `redis.ts` | Redis/BullMQ connection settings; the shared application client lives in `src/db/redis.ts` |
 | `storage.ts` | Canonical object-storage and CDN configuration |
 | `email.ts` | Brevo and sender configuration |
 | `google-auth.ts` | Google OAuth client configuration |
 | `billing.ts` | Billing job configuration |
-| `workers.ts` | Worker queue selection |
+| `workers.ts` | Standalone worker group selection (`email`, `storage`, or `all`) |
 
 Prefer importing from the barrel:
 

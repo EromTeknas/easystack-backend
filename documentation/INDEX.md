@@ -137,13 +137,13 @@ Developer setup and workflow:
 
 ### [WORKERS.md](WORKERS.md) - Background Jobs & Queues
 
-BullMQ-based background processing:
-- ✅ Email OTP sending via `email-otp-queue`
-- ✅ Password reset emails via `password-reset-queue`
-- ✅ Welcome emails via `welcome-email-queue`
-- ✅ Unified worker entrypoint (`src/workers/index.worker.ts`)
-- ✅ `WORKER_QUEUES` configuration examples
-- ✅ Scaling patterns (one or many workers per queue)
+Centralized standalone BullMQ processing:
+- ✅ Shared mechanics under `src/infrastructure/queue`
+- ✅ Service-owned contracts, producers, and processors
+- ✅ Independently runnable email and storage worker groups
+- ✅ Shared queue and worker lifecycle abstractions
+- ✅ Graceful shutdown, logging, retries, and retention
+- ✅ Deployment and independent scaling patterns
 
 **When to read:** Configuring and operating background workers, scaling email/OTP throughput.
 

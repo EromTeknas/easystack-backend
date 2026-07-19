@@ -1,131 +1,147 @@
-# Workers & Background Jobs
+# Queue Workers
 
-This document describes how BullMQ workers are used in the EasyStack backend.
+The queue architecture uses three boundaries:
 
----
+1. Shared BullMQ infrastructure provides queue caching, enqueue behavior, worker lifecycle logging, Redis configuration, and shutdown.
+2. Each service owns its job contracts, queue names, producers, processors, retry policies, and worker composition.
+3. A standalone worker application selects service-owned worker groups through a lazy registry.
 
-## Overview
+## Structure
 
-The backend uses **BullMQ** with **Redis** for asynchronous email sending and storage cleanup:
+```text
+src/
+├── infrastructure/queue/
+│   ├── QueueDescriptor.ts
+│   ├── QueueClient.ts
+│   ├── QueueWorkerFactory.ts
+│   ├── closeQueues.ts
+│   └── index.ts
+│
+├── services/email/infrastructure/queue/
+│   ├── email.jobs.ts
+│   ├── email.producer.ts
+│   ├── email.processor.ts
+│   └── createEmailWorkers.ts
+│
+├── services/storage/infrastructure/queue/
+│   ├── storage.jobs.ts
+│   ├── storage.producer.ts
+│   ├── storage.processor.ts
+│   ├── createStorageWorkers.ts
+│   └── BullMqStorageCleanupScheduler.ts
+│
+└── workers/
+    ├── registry.ts
+    ├── main.ts
+    └── register-schedules.ts
+```
 
-- `email-otp-queue` – sends email OTP codes for email verification.
-- `password-reset-queue` – sends password reset emails with secure links.
-- `welcome-email-queue` – sends welcome emails after successful verification.
-- `storage-cleanup` – deletes objects, marks assets deleted, and performs hourly reconciliation.
+Generic BullMQ mechanics are centralized, but job semantics remain with their owning service. The worker bootstrap never assembles storage or email dependencies itself; it asks the module registry to create a group.
 
-All of these queues are processed by a **unified worker entrypoint**:
-
-- `src/workers/index.worker.ts`
-
-Storage uses its own worker entrypoint:
-
-- `src/services/storage/infrastructure/queue/runStorageWorkers.ts`
-- Start with `npm run worker:storage`.
-- See [STORAGE_SERVICE.md](STORAGE_SERVICE.md) for cleanup and reconciliation behavior.
-
----
-
-## Unified Worker Entry
-
-The unified worker can process **one or many queues** in a single process, controlled by configuration.
-
-### Script
+## Running workers
 
 ```bash
+# Email only
+npm run worker:email
+
+# Storage only
+npm run worker:storage
+
+# Both groups in one process
+npm run worker:all
+
+# Alias for worker:all
 npm run worker
 ```
 
-This runs:
+The raw entrypoint accepts `email`, `storage`, or `all`:
 
 ```bash
-ts-node src/workers/index.worker.ts
+ts-node src/workers/main.ts email
 ```
 
-### Selecting Queues via `WORKER_QUEUES`
+Without a CLI argument, `WORKER_GROUP` is used and defaults to `all`.
 
-By default, the worker will process **all known queues**. You can restrict which queues a process handles using the `WORKER_QUEUES` environment variable:
+## Registering schedules
+
+Repeatable schedule registration is separate from job processing:
 
 ```bash
-# Single process handling all queues
-WORKER_QUEUES=email-otp,password-reset,welcome-email npm run worker
-
-# Process 1: OTP + reset
-WORKER_QUEUES=email-otp,password-reset npm run worker
-
-# Process 2: OTP only
-WORKER_QUEUES=email-otp npm run worker
-
-# Process 3: Password reset only
-WORKER_QUEUES=password-reset npm run worker
-
-# Process 4: Welcome emails only
-WORKER_QUEUES=welcome-email npm run worker
+npm run queues:register-schedules
 ```
 
-`WORKER_QUEUES` is a comma-separated list of **queue ids**:
+Run this once during deployment or application provisioning. It registers hourly storage reconciliation and closes its producer connection. Multiple storage worker replicas only process jobs; they do not each attempt to register schedules.
 
-- `email-otp`
-- `password-reset`
-- `welcome-email`
+Local `npm run dev` registers schedules before starting the API and separate email/storage worker processes.
 
-These are mapped to the actual BullMQ queue names:
+## Queues and jobs
 
-- `email-otp` → `email-otp-queue`
-- `password-reset` → `password-reset-queue`
-- `welcome-email` → `welcome-email-queue`
+| Queue | Jobs | Owner |
+|---|---|---|
+| `email` | `SEND_OTP_EMAIL`, `SEND_PASSWORD_RESET_EMAIL`, `SEND_WELCOME_EMAIL` | Email service |
+| `storage-cleanup` | `delete-object`, `reconcile-storage` | Storage service |
 
----
+Transactional emails share one queue because they use the same provider and have the same retry, retention, and scaling characteristics. Create a separate queue only when workloads require different concurrency, rate limiting, priority, pause/resume, or independent scaling.
 
-## Queue Definitions
+Storage cleanup and reconciliation share one queue for V1. They can later move to `storage-cleanup` and `storage-maintenance` if reconciliation starts delaying deletions.
 
-- `src/queues/email-otp.queue.ts`
-- `src/queues/password-reset.queue.ts`
-- `src/queues/welcome-email.queue.ts`
+> The previous three email queue names are no longer consumed. Drain or remove old `email-otp-queue`, `password-reset-queue`, and `welcome-email-queue` jobs before deploying this queue-name change in an environment with pending jobs.
 
-Each file defines:
+## API and worker separation
 
-- The queue name (e.g. `email-otp-queue`).
-- The job payload type (e.g. `SendOtpEmailJobData`).
-- A helper to enqueue jobs (e.g. `enqueueSendOtpEmailJob`).
+API-side code imports only a service-owned producer. For example, authentication's BullMQ notifier imports the email producer; it never imports a worker processor.
 
----
+Deployment can use one image with different commands:
 
-## Worker Implementation
+```text
+API               npm start
+Email workers     npm run worker:email
+Storage workers   npm run worker:storage
+Schedule setup    npm run queues:register-schedules
+```
 
-The unified worker (`src/workers/index.worker.ts`) registers handlers for each queue:
+The lazy registry ensures an email-only worker does not load Prisma or storage infrastructure. Storage shutdown is registered by the storage group and owns its Prisma disconnection.
 
-- `email-otp` → calls `sendOtpEmail`.
-- `password-reset` → calls `sendPasswordResetEmail`.
-- `welcome-email` → calls `sendWelcomeEmail`.
+## Processors
 
-It also logs:
+Processors are standalone classes, separate from BullMQ worker construction:
 
-- Job start (`Processing ... job`).
-- Job completion.
-- Job failures with error details.
+- `EmailJobProcessor` dispatches by email job name.
+- `StorageJobProcessor` handles deletion and reconciliation.
 
----
+This makes processing logic testable with mock `Job` objects and mock dependencies without Redis or live BullMQ workers. Worker factory functions contain only dependency composition and worker wiring.
 
-## Scaling Patterns
+## Shared infrastructure behavior
 
-You can scale workers horizontally by starting multiple processes with different `WORKER_QUEUES` values:
+`QueueClient` provides:
 
-- High OTP volume:
-  - Several processes with `WORKER_QUEUES=email-otp`.
-- High password reset volume:
-  - Extra processes with `WORKER_QUEUES=password-reset`.
-- Mixed workloads:
-  - Some processes handle multiple queues, e.g. `WORKER_QUEUES=email-otp,password-reset`.
+- One cached producer `Queue` instance per queue name and process.
+- Central enqueue start/success logging.
+- Descriptor defaults merged with per-job options.
+- Central producer queue shutdown.
 
-This design lets you:
+`createQueueWorker` provides:
 
-- Start **one worker** that handles everything in development.
-- Split into **specialized workers** per queue in production if needed.
+- Shared Redis options.
+- Configurable concurrency.
+- Ready, active, completed, failed, stalled, and worker-error logs.
+- Consistent worker identity and group metadata.
 
----
+## Adding jobs
+
+1. Add the payload, descriptor, retry policy, and safe log projection inside the owning service's `infrastructure/queue` folder.
+2. Add or update the module-local producer.
+3. Add processing behavior to a testable module-local processor.
+4. Wire the processor in the module's `create...Workers` factory.
+5. Add a new registry group only when it needs independent process scaling.
+6. Register repeatable schedules through `register-schedules.ts`, never during worker creation.
+
+Do not log OTPs, reset tokens, credentials, presigned URLs, signatures, or complete sensitive payloads.
 
 ## Operations
 
-- Ensure Redis is running and reachable (`REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`).
-- Start at least one worker process (`npm run worker`).
-- Monitor logs for job failures and tune retry/backoff settings in the queue definitions if necessary.
+- BullMQ 5 recommends Redis 6.2 or newer.
+- Monitor failed and stalled jobs.
+- Deploy worker support before producers begin emitting a new job name.
+- Run schedule registration during deployment.
+- Terminate with `SIGINT` or `SIGTERM`; workers, producer queues, and group-owned dependencies close gracefully.

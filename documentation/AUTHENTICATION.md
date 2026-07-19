@@ -71,13 +71,11 @@ flowchart TD
   end
 
   subgraph Queues[BullMQ Queues]
-    QOTP[email-otp-queue]
-    QPR[password-reset-queue]
-    QW[welcome-email-queue]
+    QE[email]
   end
 
   subgraph Worker[Worker Process]
-    W[Unified BullMQ Worker\n(WORKER_QUEUES)]
+    W[Email Worker Group\n(worker:email)]
   end
 
   subgraph DB[MySQL]
@@ -90,17 +88,16 @@ flowchart TD
   FE --> REG
   REG -->|create or update\nPENDING_VERIFICATION user| U
   REG -->|store hashed OTP| OTP
-  REG -->|enqueue SEND_OTP_EMAIL| QOTP
+  REG -->|enqueue SEND_OTP_EMAIL| QE
 
-  QOTP --> W -->|send OTP email| FE
+  QE --> W -->|send transactional email| FE
 
   FE --> VER
   VER -->|lookup & verify OTP| OTP
   VER -->|mark email_verified=TRUE,\nstatus=ACTIVE| U
   VER -->|ensure default workspace\n& OWNER membership| WS
   VER -->|insert refresh token hash| RT
-  VER -->|enqueue SEND_WELCOME_EMAIL| QW
-  QW --> W -->|send welcome email| FE
+  VER -->|enqueue SEND_WELCOME_EMAIL| QE
 
   FE --> LOGIN
   LOGIN -->|validate credentials, status=ACTIVE,\nemail_verified=TRUE| U
@@ -109,9 +106,7 @@ flowchart TD
   FE --> FP
   FP -->|if unverified: regenerate OTP,\nstore in Redis, enqueue OTP email| OTP
   FP -->|if verified: create reset token,\nstore hashed in Redis, enqueue reset email| PR
-  FP --> QOTP
-  FP --> QPR
-  QPR --> W -->|send reset link email| FE
+  FP --> QE
 
   FE --> RP
   RP -->|verify & consume reset token| PR

@@ -1,0 +1,419 @@
+###  ###
+export {
+  enqueueSendOtpEmailJob,
+  enqueueSendPasswordResetEmailJob,
+  enqueueSendWelcomeEmailJob,
+} from "./producers/email.producer";
+export { enqueueStorageObjectDeletion } from "./producers/storage.producer";
+
+
+###  ###
+import { Job, Worker } from "bullmq";
+import { prisma } from "../../db/prisma";
+import { storageConfig } from "../../config/storage";
+import { StorageReconciliationService } from "../../services/storage/application/StorageReconciliationService";
+import { PrismaStoragePersistence } from "../../services/storage/infrastructure/prisma/PrismaStoragePersistence";
+import { S3ObjectStorageProvider } from "../../services/storage/infrastructure/s3/S3ObjectStorageProvider";
+import { BullMqStorageCleanupScheduler } from "../../services/storage/infrastructure/queue/BullMqStorageCleanupScheduler";
+import { createQueueWorker } from "../core/worker";
+import {
+  deleteStorageObjectJob,
+  reconcileStorageJob,
+  StorageCleanupJobData,
+} from "../jobs/storage.jobs";
+import { scheduleHourlyStorageReconciliation } from "../producers/storage.producer";
+
+export async function createStorageWorkers(): Promise<Worker[]> {
+  const persistence = new PrismaStoragePersistence(prisma);
+  const objectStorage = new S3ObjectStorageProvider(storageConfig.s3);
+  const scheduler = new BullMqStorageCleanupScheduler();
+  const reconciliation = new StorageReconciliationService(persistence, scheduler);
+
+  await scheduleHourlyStorageReconciliation();
+
+  return [createQueueWorker<StorageCleanupJobData>({
+    id: "storage-cleanup",
+    group: "storage",
+    queueName: deleteStorageObjectJob.queueName,
+    processor: async (job: Job<StorageCleanupJobData>) => {
+      if (job.name === reconcileStorageJob.jobName) {
+        await reconciliation.reconcile();
+        return;
+      }
+      if (job.name !== deleteStorageObjectJob.jobName || !("objectKey" in job.data)) {
+        throw new Error(`Unsupported storage cleanup job: ${job.name}`);
+      }
+      await objectStorage.deleteObject(job.data.objectKey);
+      if (job.data.assetId) await persistence.markAssetDeleted(job.data.assetId);
+    },
+  })];
+}
+
+
+###  ###
+import { Job, Worker } from "bullmq";
+import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail } from "../../services/email.service";
+import { createQueueWorker } from "../core/worker";
+import {
+  SendOtpEmailJobData,
+  SendPasswordResetEmailJobData,
+  SendWelcomeEmailJobData,
+  sendOtpEmailJob,
+  sendPasswordResetEmailJob,
+  sendWelcomeEmailJob,
+} from "../jobs/email.jobs";
+
+export function createEmailWorkers(): Worker[] {
+  return [
+    createQueueWorker<SendOtpEmailJobData>({
+      id: "email-otp",
+      group: "email",
+      queueName: sendOtpEmailJob.queueName,
+      processor: async (job: Job<SendOtpEmailJobData>) => {
+        const { email, firstName, otpCode } = job.data;
+        if (!(await sendOtpEmail(email, firstName, otpCode))) {
+          throw new Error("Failed to send OTP email");
+        }
+      },
+    }),
+    createQueueWorker<SendPasswordResetEmailJobData>({
+      id: "password-reset-email",
+      group: "email",
+      queueName: sendPasswordResetEmailJob.queueName,
+      processor: async (job: Job<SendPasswordResetEmailJobData>) => {
+        const { email, firstName, token } = job.data;
+        if (!(await sendPasswordResetEmail(email, firstName, token))) {
+          throw new Error("Failed to send password reset email");
+        }
+      },
+    }),
+    createQueueWorker<SendWelcomeEmailJobData>({
+      id: "welcome-email",
+      group: "email",
+      queueName: sendWelcomeEmailJob.queueName,
+      processor: async (job: Job<SendWelcomeEmailJobData>) => {
+        const { email, firstName } = job.data;
+        if (!(await sendWelcomeEmail(email, firstName))) {
+          throw new Error("Failed to send welcome email");
+        }
+      },
+    }),
+  ];
+}
+
+
+###  ###
+import { enqueue } from "../core/queue";
+import {
+  SendOtpEmailJobData,
+  SendPasswordResetEmailJobData,
+  SendWelcomeEmailJobData,
+  sendOtpEmailJob,
+  sendPasswordResetEmailJob,
+  sendWelcomeEmailJob,
+} from "../jobs/email.jobs";
+
+export const enqueueSendOtpEmailJob = (data: SendOtpEmailJobData): Promise<void> =>
+  enqueue(sendOtpEmailJob, data);
+
+export const enqueueSendPasswordResetEmailJob = (
+  data: SendPasswordResetEmailJobData,
+): Promise<void> => enqueue(sendPasswordResetEmailJob, data);
+
+export const enqueueSendWelcomeEmailJob = (data: SendWelcomeEmailJobData): Promise<void> =>
+  enqueue(sendWelcomeEmailJob, data);
+
+
+###  ###
+import { createHash } from "node:crypto";
+import { getQueue, enqueue } from "../core/queue";
+import {
+  deleteStorageObjectJob,
+  reconcileStorageJob,
+  StorageCleanupJobData,
+} from "../jobs/storage.jobs";
+import type { ScheduleObjectDeletionInput } from "../../services/storage/ports/StorageCleanupScheduler";
+
+export function enqueueStorageObjectDeletion(input: ScheduleObjectDeletionInput): Promise<void> {
+  return enqueue(deleteStorageObjectJob, input, {
+    jobId: `storage-delete-${createHash("sha256").update(input.objectKey).digest("hex")}`,
+  });
+}
+
+export async function scheduleHourlyStorageReconciliation(): Promise<void> {
+  const queue = getQueue<StorageCleanupJobData>(reconcileStorageJob.queueName);
+  await queue.add(reconcileStorageJob.jobName, { reconcile: true }, {
+    ...reconcileStorageJob.defaultJobOptions,
+    jobId: "storage-reconciliation-hourly",
+    repeat: { every: 60 * 60 * 1_000 },
+  });
+}
+
+
+###  ###
+import type { QueueDescriptor } from "../core/queue";
+
+const EMAIL_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 1_000 },
+  removeOnComplete: 100,
+  removeOnFail: 500,
+};
+
+export interface SendOtpEmailJobData {
+  email: string;
+  firstName: string;
+  otpCode: string;
+}
+
+export interface SendPasswordResetEmailJobData {
+  email: string;
+  firstName: string;
+  token: string;
+}
+
+export interface SendWelcomeEmailJobData {
+  email: string;
+  firstName: string;
+}
+
+export const sendOtpEmailJob: QueueDescriptor<SendOtpEmailJobData> = {
+  queueName: "email-otp-queue",
+  jobName: "SEND_OTP_EMAIL",
+  defaultJobOptions: EMAIL_JOB_OPTIONS,
+  describe: ({ email }) => ({ email }),
+};
+
+export const sendPasswordResetEmailJob: QueueDescriptor<SendPasswordResetEmailJobData> = {
+  queueName: "password-reset-queue",
+  jobName: "SEND_PASSWORD_RESET_EMAIL",
+  defaultJobOptions: EMAIL_JOB_OPTIONS,
+  describe: ({ email }) => ({ email }),
+};
+
+export const sendWelcomeEmailJob: QueueDescriptor<SendWelcomeEmailJobData> = {
+  queueName: "welcome-email-queue",
+  jobName: "SEND_WELCOME_EMAIL",
+  defaultJobOptions: EMAIL_JOB_OPTIONS,
+  describe: ({ email }) => ({ email }),
+};
+
+
+###  ###
+import type { ScheduleObjectDeletionInput } from "../../services/storage/ports/StorageCleanupScheduler";
+import type { QueueDescriptor } from "../core/queue";
+
+export interface ReconcileStorageJobData {
+  reconcile: true;
+}
+
+export type StorageCleanupJobData = ScheduleObjectDeletionInput | ReconcileStorageJobData;
+
+export const deleteStorageObjectJob: QueueDescriptor<ScheduleObjectDeletionInput> = {
+  queueName: "storage-cleanup",
+  jobName: "delete-object",
+  defaultJobOptions: {
+    attempts: 5,
+    backoff: { type: "exponential", delay: 1_000 },
+    removeOnComplete: 1_000,
+    removeOnFail: 5_000,
+  },
+  describe: ({ objectKey, assetId, reason }) => ({ objectKey, assetId, reason }),
+};
+
+export const reconcileStorageJob: QueueDescriptor<ReconcileStorageJobData> = {
+  queueName: "storage-cleanup",
+  jobName: "reconcile-storage",
+  defaultJobOptions: {
+    removeOnComplete: 100,
+    removeOnFail: 500,
+  },
+  describe: () => ({}),
+};
+
+
+###  ###
+import { Worker } from "bullmq";
+import { workersConfig } from "../config/workers";
+import logger from "../utils/logger";
+import { closeProducerQueues } from "./core/queue";
+import { WorkerGroup } from "./core/worker";
+import { createEmailWorkers } from "./workers/email.workers";
+
+type WorkerSelection = WorkerGroup | "all";
+const selections: readonly WorkerSelection[] = ["email", "storage", "all"];
+
+function parseSelection(): WorkerSelection {
+  const raw = process.argv[2] ?? workersConfig.group ?? "all";
+  if (selections.includes(raw as WorkerSelection)) return raw as WorkerSelection;
+  throw new Error(`Invalid worker group '${raw}'. Expected: ${selections.join(", ")}`);
+}
+
+async function main(): Promise<void> {
+  const selection = parseSelection();
+  const workers: Worker[] = [];
+
+  if (selection === "email" || selection === "all") {
+    workers.push(...createEmailWorkers());
+  }
+  if (selection === "storage" || selection === "all") {
+    const { createStorageWorkers } = await import("./workers/storage.worker");
+    workers.push(...await createStorageWorkers());
+  }
+
+  logger.info("Standalone queue worker process started", {
+    selection,
+    workerCount: workers.length,
+    processId: process.pid,
+  });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("Standalone queue worker process stopping", { signal, workerCount: workers.length });
+    await Promise.all(workers.map((worker) => worker.close()));
+    await closeProducerQueues();
+    if (selection === "storage" || selection === "all") {
+      const { disconnectPrisma } = await import("../db/prisma");
+      await disconnectPrisma();
+    }
+    logger.info("Standalone queue worker process stopped", { signal });
+  };
+
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+void main().catch((error: unknown) => {
+  logger.error("Standalone queue worker process failed to start", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+  process.exitCode = 1;
+});
+
+
+###  ###
+
+
+###  ###
+import { Job, Processor, Worker } from "bullmq";
+import { redisConnectionOptions } from "../../config/redis";
+import logger from "../../utils/logger";
+
+export type WorkerGroup = "email" | "storage";
+
+export interface WorkerDescriptor<TData = unknown> {
+  id: string;
+  group: WorkerGroup;
+  queueName: string;
+  processor: Processor<TData>;
+  concurrency?: number;
+}
+
+export function createQueueWorker<TData>(descriptor: WorkerDescriptor<TData>): Worker<TData> {
+  const worker = new Worker<TData>(descriptor.queueName, descriptor.processor, {
+    connection: redisConnectionOptions,
+    ...(descriptor.concurrency ? { concurrency: descriptor.concurrency } : {}),
+  });
+
+  const context = {
+    workerId: descriptor.id,
+    workerGroup: descriptor.group,
+    queueName: descriptor.queueName,
+  };
+
+  worker.on("ready", () => logger.info("Queue worker ready", context));
+  worker.on("active", (job: Job<TData>) => logger.info("Queue job active", {
+    ...context,
+    jobId: job.id,
+    jobName: job.name,
+    attempt: job.attemptsMade + 1,
+  }));
+  worker.on("completed", (job: Job<TData>) => logger.info("Queue job completed", {
+    ...context,
+    jobId: job.id,
+    jobName: job.name,
+  }));
+  worker.on("failed", (job: Job<TData> | undefined, error: Error) => logger.error("Queue job failed", {
+    ...context,
+    jobId: job?.id,
+    jobName: job?.name,
+    attempt: job ? job.attemptsMade + 1 : undefined,
+    error: error.message,
+    stack: error.stack,
+  }));
+  worker.on("stalled", (jobId: string) => logger.warn("Queue job stalled", {
+    ...context,
+    jobId,
+  }));
+  worker.on("error", (error: Error) => logger.error("Queue worker error", {
+    ...context,
+    error: error.message,
+    stack: error.stack,
+  }));
+
+  logger.info("Queue worker initialized", context);
+  return worker;
+}
+
+
+###  ###
+import { JobsOptions, Queue } from "bullmq";
+import { redisConnectionOptions } from "../../config/redis";
+import logger from "../../utils/logger";
+
+export interface QueueDescriptor<TData> {
+  queueName: string;
+  jobName: string;
+  defaultJobOptions: JobsOptions;
+  describe(data: TData): Record<string, unknown>;
+}
+
+type ApplicationQueue<TData> = Queue<TData, unknown, string, TData, unknown, string>;
+const queues = new Map<string, ApplicationQueue<unknown>>();
+
+export function getQueue<TData>(queueName: string): ApplicationQueue<TData> {
+  const existing = queues.get(queueName);
+  if (existing) return existing as ApplicationQueue<TData>;
+
+  const queue = new Queue<TData, unknown, string, TData, unknown, string>(
+    queueName,
+    { connection: redisConnectionOptions },
+  );
+  queues.set(queueName, queue as ApplicationQueue<unknown>);
+  return queue;
+}
+
+export async function enqueue<TData>(
+  descriptor: QueueDescriptor<TData>,
+  data: TData,
+  options: JobsOptions = {},
+): Promise<void> {
+  const queue = getQueue<TData>(descriptor.queueName);
+  const jobOptions = { ...descriptor.defaultJobOptions, ...options };
+  const context = descriptor.describe(data);
+
+  logger.info("Queue job enqueue started", {
+    queueName: descriptor.queueName,
+    jobName: descriptor.jobName,
+    ...context,
+  });
+
+  const job = await queue.add(descriptor.jobName, data, jobOptions);
+
+  logger.info("Queue job enqueued", {
+    queueName: descriptor.queueName,
+    jobName: descriptor.jobName,
+    jobId: job.id,
+    ...context,
+  });
+}
+
+export async function closeProducerQueues(): Promise<void> {
+  await Promise.all([...queues.values()].map((queue) => queue.close()));
+  queues.clear();
+}
+
+

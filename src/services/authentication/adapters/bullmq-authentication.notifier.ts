@@ -1,6 +1,8 @@
-import { enqueueSendOtpEmailJob } from "../../../queues/email-otp.queue";
-import { enqueueSendPasswordResetEmailJob } from "../../../queues/password-reset.queue";
-import { enqueueSendWelcomeEmailJob } from "../../../queues/welcome-email.queue";
+import {
+  enqueueSendOtpEmailJob,
+  enqueueSendPasswordResetEmailJob,
+  enqueueSendWelcomeEmailJob,
+} from "../../email/infrastructure/queue/email.producer";
 import logger from "../../../utils/logger";
 import type { AuthenticationNotifier } from "./authentication-notifier";
 

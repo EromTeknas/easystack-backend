@@ -105,7 +105,7 @@ const EnvironmentSchema = z.object({
   S3_SECRET_ACCESS_KEY: optionalString,
   S3_SESSION_TOKEN: optionalString,
 
-  WORKER_QUEUES: optionalString,
+  WORKER_GROUP: optionalString,
   BILLING_RESET_TEST_MODE: booleanString(false),
 });
 

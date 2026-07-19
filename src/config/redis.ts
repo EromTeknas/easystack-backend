@@ -1,4 +1,4 @@
-import { Redis, RedisOptions } from 'ioredis';
+import type { RedisOptions } from 'ioredis';
 import { env } from "./env";
 
 const redisOptions: RedisOptions = {
@@ -8,8 +8,5 @@ const redisOptions: RedisOptions = {
   db: env.REDIS_DB
 };
 
-export const redisClient = new Redis(redisOptions);
-
 export const redisConnectionOptions: RedisOptions = redisOptions;
-
-export default redisClient;
+export default redisConnectionOptions;

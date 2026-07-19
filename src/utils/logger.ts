@@ -3,7 +3,7 @@ import path from 'path';
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import { getRequestId } from './request-context';
-import { logLevel, logDir, logIdentifier, environment } from '../config/index';
+import { logLevel, logDir, logIdentifier, environment } from '../config/app';
 
 const { combine, timestamp, printf, colorize } = winston.format;
 

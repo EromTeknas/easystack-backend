@@ -19,7 +19,7 @@ Redis is a required dependency for the authentication flows:
   - High-entropy, hashed reset tokens are stored in Redis.
   - Keys: `password_reset:<token>` (token maps to a userId stored in the hash).
 - **BullMQ queues**
-  - All queues (`email-otp-queue`, `password-reset-queue`, `welcome-email-queue`) use Redis for job storage.
+  - The transactional `email` queue and `storage-cleanup` queue use Redis for job storage.
 
 No OTPs or reset tokens are stored in MySQL.
 
@@ -63,7 +63,7 @@ These are consumed by `src/config/redis.ts` to create a shared `redisClient` and
 
 - OTP Redis service (`src/services/otp-redis.service.ts`).
 - Password reset Redis service (`src/services/password-reset-redis.service.ts`).
-- BullMQ queues under `src/queues/`.
+- Shared BullMQ mechanics under `src/infrastructure/queue/`, with jobs and processors owned by each service.
 
 ---
 

@@ -1,4 +1,6 @@
-import type { QueueDescriptor } from "../core/queue";
+import type { QueueDescriptor } from "../../../../infrastructure/queue";
+
+export const EMAIL_QUEUE_NAME = "email";
 
 const EMAIL_JOB_OPTIONS = {
   attempts: 3,
@@ -24,22 +26,27 @@ export interface SendWelcomeEmailJobData {
   firstName: string;
 }
 
+export type EmailJobData =
+  | SendOtpEmailJobData
+  | SendPasswordResetEmailJobData
+  | SendWelcomeEmailJobData;
+
 export const sendOtpEmailJob: QueueDescriptor<SendOtpEmailJobData> = {
-  queueName: "email-otp-queue",
+  queueName: EMAIL_QUEUE_NAME,
   jobName: "SEND_OTP_EMAIL",
   defaultJobOptions: EMAIL_JOB_OPTIONS,
   describe: ({ email }) => ({ email }),
 };
 
 export const sendPasswordResetEmailJob: QueueDescriptor<SendPasswordResetEmailJobData> = {
-  queueName: "password-reset-queue",
+  queueName: EMAIL_QUEUE_NAME,
   jobName: "SEND_PASSWORD_RESET_EMAIL",
   defaultJobOptions: EMAIL_JOB_OPTIONS,
   describe: ({ email }) => ({ email }),
 };
 
 export const sendWelcomeEmailJob: QueueDescriptor<SendWelcomeEmailJobData> = {
-  queueName: "welcome-email-queue",
+  queueName: EMAIL_QUEUE_NAME,
   jobName: "SEND_WELCOME_EMAIL",
   defaultJobOptions: EMAIL_JOB_OPTIONS,
   describe: ({ email }) => ({ email }),

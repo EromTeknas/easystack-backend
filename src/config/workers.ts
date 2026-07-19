@@ -1,5 +1,5 @@
 import { env } from "./env";
 
 export const workersConfig = {
-  enabledQueues: env.WORKER_QUEUES,
+  group: env.WORKER_GROUP,
 } as const;

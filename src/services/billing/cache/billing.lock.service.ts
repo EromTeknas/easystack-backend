@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import redis from "../../../config/redis";
+import redis from "../../../db/redis";
 
 const BILLING_LOCK_PREFIX = "billing:v1:lock:workspace";
 const BILLING_LOCK_TTL_SECONDS = 15;

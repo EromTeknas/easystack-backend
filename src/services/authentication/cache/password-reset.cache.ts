@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { redisClient } from "../../../config/redis";
+import { redisClient } from "../../../db/redis";
 import { auth } from "../../../config/auth";
 import { authenticationConfig } from "../config/authentication.config";
 import type { PasswordResetRecord } from "../types/cache.types";

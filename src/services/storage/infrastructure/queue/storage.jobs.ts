@@ -1,14 +1,16 @@
-import type { ScheduleObjectDeletionInput } from "../../services/storage/ports/StorageCleanupScheduler";
-import type { QueueDescriptor } from "../core/queue";
+import type { QueueDescriptor } from "../../../../infrastructure/queue";
+import type { ScheduleObjectDeletionInput } from "../../ports/StorageCleanupScheduler";
+
+export const STORAGE_QUEUE_NAME = "storage-cleanup";
 
 export interface ReconcileStorageJobData {
   reconcile: true;
 }
 
-export type StorageCleanupJobData = ScheduleObjectDeletionInput | ReconcileStorageJobData;
+export type StorageJobData = ScheduleObjectDeletionInput | ReconcileStorageJobData;
 
 export const deleteStorageObjectJob: QueueDescriptor<ScheduleObjectDeletionInput> = {
-  queueName: "storage-cleanup",
+  queueName: STORAGE_QUEUE_NAME,
   jobName: "delete-object",
   defaultJobOptions: {
     attempts: 5,
@@ -20,11 +22,8 @@ export const deleteStorageObjectJob: QueueDescriptor<ScheduleObjectDeletionInput
 };
 
 export const reconcileStorageJob: QueueDescriptor<ReconcileStorageJobData> = {
-  queueName: "storage-cleanup",
+  queueName: STORAGE_QUEUE_NAME,
   jobName: "reconcile-storage",
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 500,
-  },
+  defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 },
   describe: () => ({}),
 };
