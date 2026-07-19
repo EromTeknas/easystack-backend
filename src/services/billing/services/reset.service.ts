@@ -2,11 +2,12 @@ import { QuotaResetPolicy } from "@prisma/client";
 import { prisma } from "../../../db";
 import { UsageService } from "./usage.service.ts";
 import { BillingContextService } from "../cache/billing.context.service.ts";
+import { billingConfig } from "../../../config";
 
 export class ResetService {
   static async resetDueUsage(currentDate: Date = new Date()) {
     const results = [];
-    const resetTestMode = process.env.BILLING_RESET_TEST_MODE === "true";
+    const resetTestMode = billingConfig.resetTestMode;
     const policiesToReset: QuotaResetPolicy[] = [QuotaResetPolicy.DAILY];
 
     if (resetTestMode || currentDate.getUTCDay() === 1) {

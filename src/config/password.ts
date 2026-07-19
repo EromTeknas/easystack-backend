@@ -1,3 +1,5 @@
+import { env } from "./env";
+
 /**
  * Password Configuration
  * Centralized password hashing and validation settings
@@ -5,7 +7,7 @@
 
 export const password = {
   // Bcrypt rounds for hashing
-  bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
+  bcryptRounds: env.BCRYPT_ROUNDS,
   
   // Password validation rules
   validation: {

@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import { EMAIL_OTP_QUEUE_NAME, SendOtpEmailJobData } from '../queues/email-otp.queue';
 import { redisConnectionOptions } from '../config/redis';

@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { prisma } from "../../../../db/prisma";
 import { storageConfig } from "../../../../config/storage";
 import { StorageReconciliationService } from "../../application/StorageReconciliationService";

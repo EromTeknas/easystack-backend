@@ -3,6 +3,7 @@ import logger from '../utils/logger';
 import { AppError } from '../errors';
 import { GENERAL_ERROR_CODES } from '../constants/errorCodes';
 import { ApiErrorBody } from '../utils/response';
+import { environment, logLevel } from '../config';
 
 /**
  * Global Error Handling Middleware
@@ -53,7 +54,7 @@ export const errorHandlerMiddleware = (
   }
 
   // For unhandled errors, send generic 500 response (don't leak details in production)
-  const isProduction = process.env.ENVIRONMENT === 'prod';
+  const isProduction = environment === 'prod';
   const statusCode = 500;
   const errorCode = GENERAL_ERROR_CODES.INTERNAL_SERVER_ERROR;
 
@@ -65,7 +66,7 @@ export const errorHandlerMiddleware = (
       code: errorCode,
       statusCode,
       requestId,
-      ...(process.env.LOG_LEVEL === 'debug' && !isProduction && { stack: err.stack as any }),
+      ...(logLevel === 'debug' && !isProduction && { stack: err.stack as any }),
     },
   };
 

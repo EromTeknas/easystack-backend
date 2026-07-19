@@ -1,0 +1,19 @@
+
+> easystack-backend@1.0.0 cron:reset
+> ts-node src/services/billing/jobs/quota-reset.job.ts
+
+/home/eteknas/Projects/easystack-backend/node_modules/typescript/lib/typescript.js:2387
+  for (let i = startIndex ?? 0; i < array.length; i++) {
+                           ^
+
+SyntaxError: Unexpected token '?'
+    at wrapSafe (internal/modules/cjs/loader.js:915:16)
+    at Module._compile (internal/modules/cjs/loader.js:963:27)
+    at Object.Module._extensions..js (internal/modules/cjs/loader.js:1027:10)
+    at Module.load (internal/modules/cjs/loader.js:863:32)
+    at Function.Module._load (internal/modules/cjs/loader.js:708:14)
+    at Module.require (internal/modules/cjs/loader.js:887:19)
+    at require (internal/modules/cjs/helpers.js:85:18)
+    at attemptRequireWithV8CompileCache (/home/eteknas/Projects/easystack-backend/node_modules/ts-node/dist/util.js:104:16)
+    at loadCompiler (/home/eteknas/Projects/easystack-backend/node_modules/ts-node/dist/configuration.js:237:56)
+    at resolveAndLoadCompiler (/home/eteknas/Projects/easystack-backend/node_modules/ts-node/dist/configuration.js:226:16)

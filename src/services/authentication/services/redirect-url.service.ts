@@ -1,4 +1,5 @@
 import { BadRequestError } from "../../../errors";
+import { applicationOrigins } from "../../../config";
 
 const DEFAULT_REDIRECT_URL = "/dashboard";
 
@@ -76,10 +77,4 @@ export class RedirectUrlService {
   }
 }
 
-const configuredOrigins = [
-  process.env.CORS_ORIGIN,
-  process.env.FRONTEND_URL,
-  process.env.APP_FRONTEND_URL,
-].flatMap((value) => (value ? value.split(",") : []));
-
-export const redirectUrlService = new RedirectUrlService(configuredOrigins);
+export const redirectUrlService = new RedirectUrlService(applicationOrigins);

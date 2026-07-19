@@ -1,3 +1,5 @@
+import { env } from "./env";
+
 /**
  * Email Configuration
  * Centralized email service settings
@@ -6,11 +8,11 @@
 export const email = {
   // Brevo API settings
   brevo: {
-    apiKey: process.env.BREVO_API_KEY,
+    apiKey: env.BREVO_API_KEY,
     apiUrl: 'https://api.brevo.com/v3/smtp/email',
     sender: {
-      email: process.env.BREVO_SENDER_EMAIL || 'team@eromstudio.in',
-      name: process.env.BREVO_SENDER_NAME || 'EasyStack by Erom Studio'
+      email: env.BREVO_SENDER_EMAIL,
+      name: env.BREVO_SENDER_NAME
     }
   },
   

@@ -23,6 +23,11 @@ export interface StoragePersistence {
     targetKey: string,
   ): Promise<StorageAssetRecord[]>;
 
+  findExpiredUploadIntents(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
+  findUploadIntentsRequiringTemporaryCleanup(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
+  markUploadIntentExpired(uploadIntentId: string): Promise<boolean>;
+  findDeletionPendingAssets(limit: number): Promise<StorageAssetRecord[]>;
+
   /**
    * Must run in one database transaction:
    *
@@ -46,16 +51,52 @@ export interface StoragePersistence {
    */
   requestAssetDeletion(
     assetId: string,
+    expectedTargetKey: string,
+    deletedById: string,
   ): Promise<StorageAssetRecord>;
 
   markAssetDeleted(assetId: string): Promise<void>;
 }
 
+
 ###  ###
-import {
-  ObjectStorageProviderError,
-  ObjectStorageProviderErrorCode,
-} from "../infrastructure/s3/ObjectStorageProviderError";
+import { AppError } from "../../../errors";
+
+export enum ObjectStorageProviderErrorCode {
+  OBJECT_NOT_FOUND = "OBJECT_NOT_FOUND",
+  ACCESS_DENIED = "ACCESS_DENIED",
+  INVALID_REQUEST = "INVALID_REQUEST",
+  TEMPORARY_FAILURE = "TEMPORARY_FAILURE",
+  UNKNOWN = "UNKNOWN",
+}
+
+interface ObjectStorageProviderErrorOptions {
+  code: ObjectStorageProviderErrorCode;
+  message: string;
+  cause?: unknown;
+  retryable?: boolean | undefined;
+  statusCode?: number | undefined;
+}
+
+export class ObjectStorageProviderError extends AppError {
+  readonly code: ObjectStorageProviderErrorCode;
+  readonly cause?: unknown;
+  readonly retryable: boolean;
+
+  constructor(
+    options: ObjectStorageProviderErrorOptions,
+  ) {
+    super(options.message, options.statusCode ?? 500, options.code);
+
+    this.name = "ObjectStorageProviderError";
+    this.code = options.code;
+    this.cause = options.cause;
+    this.retryable = options.retryable ?? false;
+
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 
 ###  ###
 export enum StorageDeletionReason {
@@ -115,10 +156,16 @@ export interface CopyStoredObjectInput {
   metadata: Readonly<Record<string, string>>;
 }
 
+export enum StorageContentDisposition {
+  INLINE = "INLINE",
+  ATTACHMENT = "ATTACHMENT",
+}
+
 export interface CreatePresignedDownloadInput {
   objectKey: string;
   expiresInSeconds: number;
-  downloadFileName?: string;
+  disposition?: StorageContentDisposition;
+  fileName?: string;
 }
 
 export interface ObjectStorageProvider {
@@ -136,6 +183,7 @@ export interface ObjectStorageProvider {
     input: CreatePresignedDownloadInput,
   ): Promise<string>;
 }
+
 
 ###  ###
 /**
@@ -346,7 +394,9 @@ export interface ResolvedStorageAsset {
 export interface DeleteStorageAssetInput {
   actorId: string;
   assetId: string;
+  target: StorageTarget;
 }
+
 
 ###  ###
 export interface S3ObjectStorageConfig {
@@ -362,7 +412,7 @@ export interface S3ObjectStorageConfig {
    * AWS:
    * undefined
    */
-  internalEndpoint?: string;
+  internalEndpoint?: string | undefined;
 
   /**
    * Used when creating browser-facing signed URLs.
@@ -373,7 +423,7 @@ export interface S3ObjectStorageConfig {
    * AWS:
    * undefined
    */
-  publicEndpoint?: string;
+  publicEndpoint?: string | undefined;
 
   /**
    * Required for MinIO and most local S3-compatible services.
@@ -384,54 +434,18 @@ export interface S3ObjectStorageConfig {
    * Leave credentials undefined in production when using an
    * IAM role or another default AWS credential provider.
    */
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  sessionToken?: string;
+  accessKeyId?: string | undefined;
+  secretAccessKey?: string | undefined;
+  sessionToken?: string | undefined;
 
   serverSideEncryption?:
     | "AES256"
-    | "aws:kms";
+    | "aws:kms"
+    | undefined;
 
-  kmsKeyId?: string;
+  kmsKeyId?: string | undefined;
 }
 
-###  ###
-import { AppError } from "../../../../errors";
-
-export enum ObjectStorageProviderErrorCode {
-  OBJECT_NOT_FOUND = "OBJECT_NOT_FOUND",
-  ACCESS_DENIED = "ACCESS_DENIED",
-  INVALID_REQUEST = "INVALID_REQUEST",
-  TEMPORARY_FAILURE = "TEMPORARY_FAILURE",
-  UNKNOWN = "UNKNOWN",
-}
-
-interface ObjectStorageProviderErrorOptions {
-  code: ObjectStorageProviderErrorCode;
-  message: string;
-  cause?: unknown;
-  retryable?: boolean;
-  statusCode?: number;
-}
-
-export class ObjectStorageProviderError extends AppError {
-  readonly code: ObjectStorageProviderErrorCode;
-  readonly cause?: unknown;
-  readonly retryable: boolean;
-
-  constructor(
-    options: ObjectStorageProviderErrorOptions,
-  ) {
-    super(options.message, options.statusCode ?? 500, options.code);
-
-    this.name = "ObjectStorageProviderError";
-    this.code = options.code;
-    this.cause = options.cause;
-    this.retryable = options.retryable ?? false;
-
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
 
 ###  ###
 import {
@@ -439,7 +453,6 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  S3,
   S3Client,
   S3ClientConfig,
   S3ServiceException,
@@ -458,12 +471,13 @@ import {
   ObjectMetadata,
   ObjectStorageProvider,
   PresignedPostResult,
+  StorageContentDisposition,
 } from "../../ports/ObjectStorageProvider";
 
 import {
   ObjectStorageProviderError,
   ObjectStorageProviderErrorCode,
-} from "./ObjectStorageProviderError";
+} from "../../ports/ObjectStorageProviderError";
 
 import { S3ObjectStorageConfig } from "./s3.types";
 
@@ -603,7 +617,7 @@ export class S3ObjectStorageProvider
         ];
 
         const result = await createPresignedPost(
-          this.presignClient,
+          this.presignClient as unknown as Parameters<typeof createPresignedPost>[0],
           {
             Bucket: this.config.bucket,
             Key: input.objectKey,
@@ -750,11 +764,11 @@ export class S3ObjectStorageProvider
         );
 
         const responseContentDisposition =
-          input.downloadFileName
-            ? buildContentDisposition(
-                input.downloadFileName,
-              )
-            : undefined;
+          input.disposition === StorageContentDisposition.ATTACHMENT
+            ? buildContentDisposition("attachment", input.fileName)
+            : input.disposition === StorageContentDisposition.INLINE
+              ? buildContentDisposition("inline", input.fileName)
+              : undefined;
 
         const command = new GetObjectCommand({
           Bucket: this.config.bucket,
@@ -765,7 +779,7 @@ export class S3ObjectStorageProvider
         });
 
         return getSignedUrl(
-          this.presignClient,
+          this.presignClient as unknown as Parameters<typeof getSignedUrl>[0],
           command,
           {
             expiresIn: input.expiresInSeconds,
@@ -1086,10 +1100,19 @@ function normalizeReturnedMetadata(
 function normalizeMimeType(
   mimeType: string,
 ): string {
-  return mimeType
+  const normalized = mimeType
     .trim()
     .toLowerCase()
-    .split(";")[0];
+    .split(";", 1)[0];
+
+  if (!normalized) {
+    throw new ObjectStorageProviderError({
+      code: ObjectStorageProviderErrorCode.INVALID_REQUEST,
+      message: "MIME type cannot be empty.",
+    });
+  }
+
+  return normalized;
 }
 
 function normalizeEtag(
@@ -1120,8 +1143,12 @@ function encodeCopySource(
 }
 
 function buildContentDisposition(
-  originalName: string,
+  disposition: "inline" | "attachment",
+  originalName?: string,
 ): string {
+  if (!originalName) {
+    return disposition;
+  }
   const cleanName = originalName
     .replace(/[\r\n]/g, "")
     .trim()
@@ -1144,7 +1171,7 @@ function buildContentDisposition(
       });
 
   return (
-    `attachment; filename="${asciiFallback}"; ` +
+    `${disposition}; filename="${asciiFallback}"; ` +
     `filename*=UTF-8''${encodedUtf8}`
   );
 }
@@ -1251,6 +1278,125 @@ function mapS3Error(
     retryable: false,
   });
 }
+
+
+###  ###
+import { Queue } from "bullmq";
+import { redisConnectionOptions } from "../../../../config/redis";
+import { ScheduleObjectDeletionInput } from "../../ports/StorageCleanupScheduler";
+
+export const STORAGE_CLEANUP_QUEUE_NAME = "storage-cleanup";
+export const STORAGE_DELETE_JOB_NAME = "delete-object";
+export const STORAGE_RECONCILE_JOB_NAME = "reconcile-storage";
+
+export type StorageCleanupJobData = ScheduleObjectDeletionInput | { reconcile: true };
+
+export const storageCleanupQueue = new Queue<StorageCleanupJobData>(STORAGE_CLEANUP_QUEUE_NAME, {
+  connection: redisConnectionOptions,
+});
+
+export async function scheduleHourlyStorageReconciliation(): Promise<void> {
+  await storageCleanupQueue.add(
+    STORAGE_RECONCILE_JOB_NAME,
+    { reconcile: true },
+    {
+      jobId: "storage-reconciliation-hourly",
+      repeat: { every: 60 * 60 * 1000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  );
+}
+
+
+###  ###
+import { Job, Worker } from "bullmq";
+import { redisConnectionOptions } from "../../../../config/redis";
+import { StorageReconciliationService } from "../../application/StorageReconciliationService";
+import { ObjectStorageProvider } from "../../ports/ObjectStorageProvider";
+import { StoragePersistence } from "../../ports/StoragePersistence";
+import {
+  STORAGE_CLEANUP_QUEUE_NAME,
+  STORAGE_DELETE_JOB_NAME,
+  STORAGE_RECONCILE_JOB_NAME,
+  StorageCleanupJobData,
+} from "./storageCleanup.queue";
+
+export function createStorageCleanupWorker(
+  objectStorage: ObjectStorageProvider,
+  persistence: StoragePersistence,
+  reconciliation: StorageReconciliationService,
+): Worker<StorageCleanupJobData> {
+  return new Worker<StorageCleanupJobData>(
+    STORAGE_CLEANUP_QUEUE_NAME,
+    async (job: Job<StorageCleanupJobData>) => {
+      if (job.name === STORAGE_RECONCILE_JOB_NAME) {
+        await reconciliation.reconcile();
+        return;
+      }
+      if (job.name !== STORAGE_DELETE_JOB_NAME || !("objectKey" in job.data)) {
+        throw new Error(`Unsupported storage cleanup job: ${job.name}`);
+      }
+      await objectStorage.deleteObject(job.data.objectKey);
+      if (job.data.assetId) {
+        await persistence.markAssetDeleted(job.data.assetId);
+      }
+    },
+    { connection: redisConnectionOptions },
+  );
+}
+
+
+###  ###
+import { StorageCleanupScheduler, ScheduleObjectDeletionInput } from "../../ports/StorageCleanupScheduler";
+import { storageCleanupQueue, STORAGE_DELETE_JOB_NAME } from "./storageCleanup.queue";
+
+export class BullMqStorageCleanupScheduler implements StorageCleanupScheduler {
+  async scheduleObjectDeletion(input: ScheduleObjectDeletionInput): Promise<void> {
+    await storageCleanupQueue.add(STORAGE_DELETE_JOB_NAME, input, {
+      jobId: `storage-delete:${input.objectKey.replace(/[^a-zA-Z0-9_-]/g, ":")}`,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 1_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+    });
+  }
+}
+
+
+###  ###
+import "dotenv/config";
+import { prisma } from "../../../../db/prisma";
+import { storageConfig } from "../../../../config/storage";
+import { StorageReconciliationService } from "../../application/StorageReconciliationService";
+import { PrismaStoragePersistence } from "../prisma/PrismaStoragePersistence";
+import { S3ObjectStorageProvider } from "../s3/S3ObjectStorageProvider";
+import { BullMqStorageCleanupScheduler } from "./BullMqStorageCleanupScheduler";
+import { scheduleHourlyStorageReconciliation } from "./storageCleanup.queue";
+import { createStorageCleanupWorker } from "./storageCleanup.worker";
+
+async function main(): Promise<void> {
+  const persistence = new PrismaStoragePersistence(prisma);
+  const objectStorage = new S3ObjectStorageProvider(storageConfig.s3);
+  const scheduler = new BullMqStorageCleanupScheduler();
+  const reconciliation = new StorageReconciliationService(persistence, scheduler);
+
+  const worker = createStorageCleanupWorker(objectStorage, persistence, reconciliation);
+  await scheduleHourlyStorageReconciliation();
+
+  const shutdown = async (): Promise<void> => {
+    await worker.close();
+    await prisma.$disconnect();
+  };
+  process.once("SIGINT", () => void shutdown());
+  process.once("SIGTERM", () => void shutdown());
+}
+
+void main().catch((error: unknown) => {
+  console.error("Failed to start storage workers", error);
+  process.exitCode = 1;
+});
+
 
 ###  ###
 import {
@@ -1416,6 +1562,62 @@ export class PrismaStoragePersistence
         return rows.map(mapAsset);
       },
     );
+  }
+
+  async findExpiredUploadIntents(
+    before: Date,
+    limit: number,
+  ): Promise<StorageUploadIntentRecord[]> {
+    return this.execute("find expired storage upload intents", async () => {
+      const rows = await this.prisma.storageUploadIntent.findMany({
+        where: { status: PrismaUploadIntentStatus.CREATED, expiresAt: { lte: before } },
+        orderBy: { expiresAt: "asc" },
+        take: validateLimit(limit),
+      });
+      return rows.map(mapUploadIntent);
+    });
+  }
+
+  async findUploadIntentsRequiringTemporaryCleanup(
+    before: Date,
+    limit: number,
+  ): Promise<StorageUploadIntentRecord[]> {
+    return this.execute("find upload intents requiring temporary cleanup", async () => {
+      const rows = await this.prisma.storageUploadIntent.findMany({
+        where: {
+          status: { in: [PrismaUploadIntentStatus.COMPLETED, PrismaUploadIntentStatus.EXPIRED] },
+          updatedAt: { lte: before },
+        },
+        orderBy: { updatedAt: "asc" },
+        take: validateLimit(limit),
+      });
+      return rows.map(mapUploadIntent);
+    });
+  }
+
+  async markUploadIntentExpired(uploadIntentId: string): Promise<boolean> {
+    return this.execute("mark storage upload intent expired", async () => {
+      const result = await this.prisma.storageUploadIntent.updateMany({
+        where: {
+          id: uploadIntentId,
+          status: PrismaUploadIntentStatus.CREATED,
+          expiresAt: { lte: new Date() },
+        },
+        data: { status: PrismaUploadIntentStatus.EXPIRED },
+      });
+      return result.count === 1;
+    });
+  }
+
+  async findDeletionPendingAssets(limit: number): Promise<StorageAssetRecord[]> {
+    return this.execute("find deletion-pending storage assets", async () => {
+      const rows = await this.prisma.storageAsset.findMany({
+        where: { status: PrismaStorageAssetStatus.DELETION_PENDING },
+        orderBy: { deletionRequestedAt: "asc" },
+        take: validateLimit(limit),
+      });
+      return rows.map(mapAsset);
+    });
   }
 
   async completeUpload(
@@ -1664,6 +1866,8 @@ export class PrismaStoragePersistence
 
   async requestAssetDeletion(
     assetId: string,
+    expectedTargetKey: string,
+    deletedById: string,
   ): Promise<StorageAssetRecord> {
     return this.execute(
       "request storage asset deletion",
@@ -1671,9 +1875,10 @@ export class PrismaStoragePersistence
         return this.withSerializableTransaction(
           async (transaction) => {
             const currentAsset =
-              await transaction.storageAsset.findUnique({
+              await transaction.storageAsset.findFirst({
                 where: {
                   id: assetId,
+                  targetKey: expectedTargetKey,
                 },
               });
 
@@ -1711,6 +1916,7 @@ export class PrismaStoragePersistence
 
                   activeSingletonKey: null,
                   deletionRequestedAt: new Date(),
+                  deletedById,
                 },
               });
 
@@ -2075,6 +2281,17 @@ function calculateRetryDelay(attempt: number): number {
   return exponentialDelay + jitter;
 }
 
+function validateLimit(limit: number): number {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+    throw new StorageError({
+      code: StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
+      statusCode: 500,
+      message: "Storage query limit must be between 1 and 1000.",
+    });
+  }
+  return limit;
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
@@ -2091,6 +2308,78 @@ function truncate(
 
   return value.slice(0, maximumLength);
 }
+
+
+###  ###
+import { PrismaClient } from "@prisma/client";
+import { storageConfig } from "../../../config/storage";
+import { DefaultStorageService } from "../application/DefaultStorageService";
+import { StoragePolicyResolver } from "../application/StoragePolicyResolver";
+import { ObjectKeyBuilder } from "../domain/ObjectKeyBuilder";
+import { StorageService } from "../public/StorageService";
+import { PrismaStoragePersistence } from "./prisma/PrismaStoragePersistence";
+import { BullMqStorageCleanupScheduler } from "./queue/BullMqStorageCleanupScheduler";
+import { S3ObjectStorageProvider } from "./s3/S3ObjectStorageProvider";
+
+export function createStorageModule(prisma: PrismaClient): StorageService {
+  return new DefaultStorageService(
+    new PrismaStoragePersistence(prisma),
+    new S3ObjectStorageProvider(storageConfig.s3),
+    new BullMqStorageCleanupScheduler(),
+    new ObjectKeyBuilder(),
+    new StoragePolicyResolver(),
+    {
+      cdnBaseUrl: storageConfig.cdnBaseUrl,
+      defaultPrivateUrlExpiresInSeconds: storageConfig.privateUrlExpiresInSeconds,
+    },
+  );
+}
+
+
+###  ###
+import { StorageCleanupScheduler, StorageDeletionReason } from "../ports/StorageCleanupScheduler";
+import { StoragePersistence } from "../ports/StoragePersistence";
+
+export class StorageReconciliationService {
+  constructor(
+    private readonly persistence: StoragePersistence,
+    private readonly cleanupScheduler: StorageCleanupScheduler,
+    private readonly batchSize = 100,
+  ) {}
+
+  async reconcile(now = new Date()): Promise<void> {
+    const expired = await this.persistence.findExpiredUploadIntents(now, this.batchSize);
+    for (const intent of expired) {
+      if (await this.persistence.markUploadIntentExpired(intent.id)) {
+        await this.cleanupScheduler.scheduleObjectDeletion({
+          objectKey: intent.temporaryObjectKey,
+          reason: StorageDeletionReason.EXPIRED_UPLOAD,
+        });
+      }
+    }
+
+    const cleanupIntents = await this.persistence.findUploadIntentsRequiringTemporaryCleanup(
+      new Date(now.getTime() - 60 * 60 * 1000),
+      this.batchSize,
+    );
+    const pendingAssets = await this.persistence.findDeletionPendingAssets(this.batchSize);
+
+    await Promise.all([
+      ...cleanupIntents.map((intent) => this.cleanupScheduler.scheduleObjectDeletion({
+        objectKey: intent.temporaryObjectKey,
+        reason: intent.status === "EXPIRED"
+          ? StorageDeletionReason.EXPIRED_UPLOAD
+          : StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+      })),
+      ...pendingAssets.map((asset) => this.cleanupScheduler.scheduleObjectDeletion({
+        objectKey: asset.objectKey,
+        assetId: asset.id,
+        reason: StorageDeletionReason.USER_REQUESTED_DELETION,
+      })),
+    ]);
+  }
+}
+
 
 ###  ###
 import { randomUUID } from "node:crypto";
@@ -2115,13 +2404,12 @@ import {
   StorageUploadIntentRecord,
   StorageUploadIntentStatus,
 } from "../domain/storage.records";
-import {
-  StorageError,
-  StorageErrorCode,
-} from "../domain/StorageError";
+import { StorageError, StorageErrorCode } from "../domain/StorageError";
 
-import { ObjectStorageProvider } from "../ports/ObjectStorageProvider";
+import { ObjectStorageProvider, StorageContentDisposition } from "../ports/ObjectStorageProvider";
+import { ObjectStorageProviderError, ObjectStorageProviderErrorCode } from "../ports/ObjectStorageProviderError";
 import {
+  ScheduleObjectDeletionInput,
   StorageCleanupScheduler,
   StorageDeletionReason,
 } from "../ports/StorageCleanupScheduler";
@@ -2148,14 +2436,11 @@ export class DefaultStorageService implements StorageService {
   ): Promise<UploadIntentResult> {
     this.validateActorId(input.actorId);
     this.keyBuilder.validateTarget(input.target);
+    this.validateOriginalName(input.file.originalName);
 
-    const policy = this.policyResolver.resolve(
-      input.fileClass,
-      input.policy,
-    );
+    const policy = this.policyResolver.resolve(input.fileClass, input.policy);
 
-    const normalizedMimeType =
-      this.normalizeMimeType(input.file.mimeType);
+    const normalizedMimeType = this.normalizeMimeType(input.file.mimeType);
 
     this.validateFile({
       sizeBytes: input.file.sizeBytes,
@@ -2169,20 +2454,18 @@ export class DefaultStorageService implements StorageService {
 
     const targetKey = this.keyBuilder.buildTargetKey(input.target);
 
-    const temporaryObjectKey =
-      this.keyBuilder.buildTemporaryObjectKey({
-        uploadId,
-        assetId,
-        mimeType: normalizedMimeType,
-      });
+    const temporaryObjectKey = this.keyBuilder.buildTemporaryObjectKey({
+      uploadId,
+      assetId,
+      mimeType: normalizedMimeType,
+    });
 
-    const finalObjectKey =
-      this.keyBuilder.buildFinalObjectKey({
-        visibility: policy.visibility,
-        target: input.target,
-        assetId,
-        mimeType: normalizedMimeType,
-      });
+    const finalObjectKey = this.keyBuilder.buildFinalObjectKey({
+      visibility: policy.visibility,
+      target: input.target,
+      assetId,
+      mimeType: normalizedMimeType,
+    });
 
     const now = new Date();
 
@@ -2221,23 +2504,22 @@ export class DefaultStorageService implements StorageService {
     await this.persistence.createUploadIntent(uploadIntent);
 
     try {
-      const presignedUpload =
-        await this.objectStorage.createPresignedPost({
-          objectKey: temporaryObjectKey,
-          contentType: normalizedMimeType,
+      const presignedUpload = await this.objectStorage.createPresignedPost({
+        objectKey: temporaryObjectKey,
+        contentType: normalizedMimeType,
 
-          minimumSizeBytes: 1,
-          maximumSizeBytes: policy.maxSizeBytes,
+        minimumSizeBytes: 1,
+        maximumSizeBytes: policy.maxSizeBytes,
 
-          expiresInSeconds: policy.uploadExpiresInSeconds,
-          cacheControl: "private, no-store",
+        expiresInSeconds: policy.uploadExpiresInSeconds,
+        cacheControl: "private, no-store",
 
-          metadata: {
-            "upload-id": uploadId,
-            "asset-id": assetId,
-            "actor-id": input.actorId,
-          },
-        });
+        metadata: {
+          "upload-id": uploadId,
+          "asset-id": assetId,
+          "actor-id": input.actorId,
+        },
+      });
 
       return {
         uploadId,
@@ -2268,8 +2550,7 @@ export class DefaultStorageService implements StorageService {
   ): Promise<CompletedStorageAsset> {
     this.validateActorId(input.actorId);
 
-    const intent =
-      await this.persistence.findUploadIntentById(input.uploadId);
+    const intent = await this.persistence.findUploadIntentById(input.uploadId);
 
     if (!intent) {
       throw new StorageError({
@@ -2283,21 +2564,20 @@ export class DefaultStorageService implements StorageService {
       throw new StorageError({
         code: StorageErrorCode.UPLOAD_INTENT_FORBIDDEN,
         statusCode: 403,
-        message:
-          "You are not permitted to complete this upload.",
+        message: "You are not permitted to complete this upload.",
       });
     }
 
     if (intent.status === StorageUploadIntentStatus.COMPLETED) {
-      const completedAsset =
-        await this.persistence.findAssetById(intent.assetId);
+      const completedAsset = await this.persistence.findAssetById(
+        intent.assetId,
+      );
 
       if (!completedAsset) {
         throw new StorageError({
           code: StorageErrorCode.STORAGE_PERSISTENCE_ERROR,
           statusCode: 500,
-          message:
-            "Completed upload does not have an associated asset.",
+          message: "Completed upload does not have an associated asset.",
         });
       }
 
@@ -2327,11 +2607,22 @@ export class DefaultStorageService implements StorageService {
         intent.temporaryObjectKey,
       );
     } catch (error) {
+      if (
+        error instanceof ObjectStorageProviderError &&
+        error.code === ObjectStorageProviderErrorCode.OBJECT_NOT_FOUND
+      ) {
+        throw new StorageError({
+          code: StorageErrorCode.UPLOADED_OBJECT_NOT_FOUND,
+          statusCode: 404,
+          message: "The uploaded object could not be found in temporary storage.",
+          cause: error,
+        });
+      }
+
       throw new StorageError({
-        code: StorageErrorCode.UPLOADED_OBJECT_NOT_FOUND,
-        statusCode: 404,
-        message:
-          "The uploaded object could not be found in temporary storage.",
+        code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
+        statusCode: 502,
+        message: "Temporary object storage could not be verified.",
         cause: error,
       });
     }
@@ -2361,8 +2652,7 @@ export class DefaultStorageService implements StorageService {
       throw new StorageError({
         code: StorageErrorCode.STORAGE_PROVIDER_ERROR,
         statusCode: 502,
-        message:
-          "Failed to move the uploaded object into permanent storage.",
+        message: "Failed to move the uploaded object into permanent storage.",
         cause: error,
       });
     }
@@ -2401,7 +2691,28 @@ export class DefaultStorageService implements StorageService {
         asset,
       });
     } catch (error) {
-      await this.cleanupScheduler.scheduleObjectDeletion({
+      /*
+       * Another request may have completed the same upload.
+       * Never delete the final object until this is ruled out.
+       */
+      const existingAsset = await this.persistence.findAssetById(
+        intent.assetId,
+      );
+
+      if (
+        existingAsset &&
+        existingAsset.objectKey === intent.finalObjectKey &&
+        existingAsset.status === StorageAssetStatus.ACTIVE
+      ) {
+        await this.scheduleDeletionSafely({
+          objectKey: intent.temporaryObjectKey,
+          reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+        });
+
+        return this.toCompletedAsset(existingAsset);
+      }
+
+      await this.scheduleDeletionSafely({
         objectKey: intent.finalObjectKey,
         reason: StorageDeletionReason.ROLLBACK_AFTER_FAILURE,
       });
@@ -2415,30 +2726,45 @@ export class DefaultStorageService implements StorageService {
       });
     }
 
-    await this.cleanupScheduler.scheduleObjectDeletion({
-      objectKey: intent.temporaryObjectKey,
-      reason:
-        StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
-    });
-
-    for (const replacedAsset of completionResult.replacedAssets) {
-      await this.cleanupScheduler.scheduleObjectDeletion({
-        objectKey: replacedAsset.objectKey,
-        assetId: replacedAsset.id,
-        reason: StorageDeletionReason.REPLACED_BY_NEW_ASSET,
-      });
-    }
+    await Promise.all([
+      this.scheduleDeletionSafely({
+        objectKey: intent.temporaryObjectKey,
+        reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+      }),
+      ...completionResult.replacedAssets.map((replacedAsset) =>
+        this.scheduleDeletionSafely({
+          objectKey: replacedAsset.objectKey,
+          assetId: replacedAsset.id,
+          reason: StorageDeletionReason.REPLACED_BY_NEW_ASSET,
+        }),
+      ),
+    ]);
 
     return this.toCompletedAsset(completionResult.asset);
   }
 
+  private async scheduleDeletionSafely(
+    input: ScheduleObjectDeletionInput,
+  ): Promise<void> {
+    try {
+      await this.cleanupScheduler.scheduleObjectDeletion(input);
+    } catch (error) {
+      /*
+       * Log the error. Do not fail an already committed upload.
+       * The reconciliation worker will enqueue it again.
+       */
+      console.error("Failed to schedule storage cleanup", {
+        input,
+        error,
+      });
+    }
+  }
   async resolveTargetUrls(
     input: ResolveTargetUrlsInput,
   ): Promise<ResolvedStorageAsset[]> {
     const targetKey = this.keyBuilder.buildTargetKey(input.target);
 
-    const assets =
-      await this.persistence.findActiveAssetsByTarget(targetKey);
+    const assets = await this.persistence.findActiveAssetsByTarget(targetKey);
 
     const resolvedAssets: ResolvedStorageAsset[] = [];
 
@@ -2455,21 +2781,17 @@ export class DefaultStorageService implements StorageService {
         continue;
       }
 
-      if (
-        input.privateAccess !==
-        StoragePrivateAccess.AUTHORIZED_PRIVATE
-      ) {
+      if (input.privateAccess !== StoragePrivateAccess.AUTHORIZED_PRIVATE) {
         continue;
       }
 
-      const url =
-        await this.objectStorage.createPresignedDownloadUrl({
-          objectKey: asset.objectKey,
-          expiresInSeconds:
-            input.privateUrlExpiresInSeconds ??
-            this.config.defaultPrivateUrlExpiresInSeconds,
-          downloadFileName: asset.originalName,
-        });
+      const url = await this.objectStorage.createPresignedDownloadUrl({
+        objectKey: asset.objectKey,
+        expiresInSeconds:
+          input.privateUrlExpiresInSeconds ??
+          this.config.defaultPrivateUrlExpiresInSeconds,
+        disposition: StorageContentDisposition.INLINE,
+      });
 
       resolvedAssets.push({
         id: asset.id,
@@ -2483,9 +2805,7 @@ export class DefaultStorageService implements StorageService {
     return resolvedAssets;
   }
 
-  async deleteAsset(
-    input: DeleteStorageAssetInput,
-  ): Promise<void> {
+  async deleteAsset(input: DeleteStorageAssetInput): Promise<void> {
     this.validateActorId(input.actorId);
 
     /**
@@ -2496,10 +2816,14 @@ export class DefaultStorageService implements StorageService {
      * - Workspace module checks workspace:update
      * - Project module checks project:update
      */
-    const asset =
-      await this.persistence.requestAssetDeletion(input.assetId);
+    this.keyBuilder.validateTarget(input.target);
+    const asset = await this.persistence.requestAssetDeletion(
+      input.assetId,
+      this.keyBuilder.buildTargetKey(input.target),
+      input.actorId,
+    );
 
-    await this.cleanupScheduler.scheduleObjectDeletion({
+    await this.scheduleDeletionSafely({
       objectKey: asset.objectKey,
       assetId: asset.id,
       reason: StorageDeletionReason.USER_REQUESTED_DELETION,
@@ -2512,10 +2836,7 @@ export class DefaultStorageService implements StorageService {
     maxSizeBytes: number;
     allowedMimeTypes: readonly string[];
   }): void {
-    if (
-      !Number.isSafeInteger(input.sizeBytes) ||
-      input.sizeBytes <= 0
-    ) {
+    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0) {
       throw new StorageError({
         code: StorageErrorCode.INVALID_FILE,
         statusCode: 400,
@@ -2558,16 +2879,14 @@ export class DefaultStorageService implements StorageService {
       throw new StorageError({
         code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
         statusCode: 422,
-        message:
-          "Uploaded object MIME type does not match the upload intent.",
+        message: "Uploaded object MIME type does not match the upload intent.",
       });
     }
 
     if (
       input.contentLength === null ||
       input.contentLength <= 0 ||
-      input.contentLength >
-        input.intent.policy.maxSizeBytes
+      input.contentLength > input.intent.policy.maxSizeBytes
     ) {
       throw new StorageError({
         code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
@@ -2588,17 +2907,32 @@ export class DefaultStorageService implements StorageService {
       throw new StorageError({
         code: StorageErrorCode.UPLOADED_OBJECT_INVALID,
         statusCode: 422,
-        message:
-          "Uploaded object metadata does not match the upload intent.",
+        message: "Uploaded object metadata does not match the upload intent.",
       });
     }
   }
 
   private normalizeMimeType(mimeType: string): string {
-    return mimeType
-      .trim()
-      .toLowerCase()
-      .split(";")[0]!;
+    const normalized = mimeType.trim().toLowerCase().split(";", 1)[0];
+    if (!normalized) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 400,
+        message: "MIME type cannot be empty.",
+      });
+    }
+    return normalized;
+  }
+
+  private validateOriginalName(originalName: string): void {
+    const normalized = originalName.trim();
+    if (!normalized || normalized.length > 255 || /[\r\n\0]/.test(normalized)) {
+      throw new StorageError({
+        code: StorageErrorCode.INVALID_FILE,
+        statusCode: 400,
+        message: "File name must be valid and contain between 1 and 255 characters.",
+      });
+    }
   }
 
   private validateActorId(actorId: string): void {
@@ -2618,9 +2952,7 @@ export class DefaultStorageService implements StorageService {
     return `${baseUrl}/${normalizedObjectKey}`;
   }
 
-  private toCompletedAsset(
-    asset: StorageAssetRecord,
-  ): CompletedStorageAsset {
+  private toCompletedAsset(asset: StorageAssetRecord): CompletedStorageAsset {
     return {
       id: asset.id,
       targetKey: asset.targetKey,
@@ -2631,6 +2963,7 @@ export class DefaultStorageService implements StorageService {
     };
   }
 }
+
 
 ###  ###
 import {
@@ -3106,4 +3439,3 @@ export class StorageError extends AppError {
   }
 }
 
-////

@@ -18,7 +18,7 @@ export async function scheduleHourlyStorageReconciliation(): Promise<void> {
     { reconcile: true },
     {
       jobId: "storage-reconciliation-hourly",
-      repeat: { every: 60 * 60 * 1000 },
+      repeat: { every: 1 * 60 * 1000 },
       removeOnComplete: 100,
       removeOnFail: 500,
     },

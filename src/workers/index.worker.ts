@@ -1,6 +1,6 @@
-import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import { redisConnectionOptions } from '../config/redis';
+import { workersConfig } from '../config';
 import logger from '../utils/logger';
 import { EMAIL_OTP_QUEUE_NAME, SendOtpEmailJobData } from '../queues/email-otp.queue';
 import { PASSWORD_RESET_QUEUE_NAME, SendPasswordResetEmailJobData } from '../queues/password-reset.queue';
@@ -119,11 +119,11 @@ const workerConfigs: WorkerConfig[] = [
 function parseEnabledQueues(): QueueId[] {
   // CLI arg takes precedence if provided: `ts-node ... email-otp,password-reset`
   const cliArg = process.argv[2];
-  const raw = cliArg || process.env.WORKER_QUEUES;
+  const raw = cliArg || workersConfig.enabledQueues;
 
   logger.info('Worker queue configuration received', {
     cliArg,
-    workerQueues: process.env.WORKER_QUEUES,
+    workerQueues: workersConfig.enabledQueues,
   });
 
   if (!raw || raw.trim() === '') {
@@ -146,7 +146,7 @@ function main() {
     logger.warn('No valid queues configured for worker. Exiting.', {
       validQueues: workerConfigs.map((config) => config.id),
       cliArg: process.argv[2],
-      workerQueues: process.env.WORKER_QUEUES,
+      workerQueues: workersConfig.enabledQueues,
     });
     process.exit(0);
   }

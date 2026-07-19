@@ -99,6 +99,12 @@ Complete project folder organization:
 
 ## 🛠️ Development
 
+### [CONFIGURATION.md](CONFIGURATION.md) - Environment & Runtime Configuration
+
+Centralized validated configuration, CORS, storage/S3 compatibility, and rules for adding new environment settings.
+
+**When to read:** Adding an environment variable, changing CORS, configuring storage, or removing direct `process.env` access.
+
 ### [STORAGE_SERVICE.md](STORAGE_SERVICE.md) - Object Storage & Uploads
 
 Intent-based storage service documentation:
