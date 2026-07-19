@@ -61,5 +61,11 @@ export interface StoragePersistence {
     cleanedAt: Date;
   }): Promise<void>;
 
-  deleteCleanedUploadIntents(before: Date, limit: number): Promise<number>;
+  purgeRetainedStorageRecords(
+    before: Date,
+    limit: number,
+  ): Promise<{
+    deletedAssets: number;
+    deletedUploadIntents: number;
+  }>;
 }

@@ -28,6 +28,13 @@ CREATED
    ↓ browser uploads file
    ↓ completeUpload verifies it
 COMPLETED
+   ↓ asset is later replaced or deleted
+DELETION_PENDING
+   ↓ delete-object removes the S3 object
+DELETED
+   ↓ retention period passes
+   ↓ purge-cleaned-upload-intents runs
+asset and its source intent are deleted from the database
 ```
 
 ```text
@@ -59,7 +66,7 @@ Older database records may have the legacy `EXPIRED` status. Reconciliation trea
 | `CLEANED` | Object deletion succeeded and cleanup was recorded in the database. |
 | `FAILED` | The upload intent could not be prepared, such as when presigning failed. |
 
-`COMPLETED` intent rows are retained as upload audit records. The retention job described below deletes only old `CLEANED` intents without related assets.
+`COMPLETED` intent rows are retained while their asset is active. If that asset is eventually deleted, the daily retention job permanently deletes both the old `DELETED` asset and its source intent after the retention period.
 
 ---
 
@@ -71,7 +78,7 @@ All storage cleanup jobs use the `storage-cleanup` BullMQ queue.
 |---|---|---|
 | `reconcile-storage` | Finds work that should be queued. | It does not delete S3 objects or intent rows. |
 | `delete-object` | Deletes one object from S3/MinIO, then records successful cleanup. | It does not hard-delete upload-intent rows. |
-| `purge-cleaned-upload-intents` | Permanently deletes old `CLEANED` intent rows after retention. | It does not delete S3 objects. Those were already deleted. |
+| `purge-cleaned-upload-intents` | Permanently deletes old `DELETED` assets and their source intents, plus old standalone `CLEANED` intents. | It does not delete S3 objects. Those were already deleted. |
 
 This separation is intentional. It prevents the database from forgetting an object before object-storage deletion succeeds.
 
@@ -164,9 +171,24 @@ S3 deletion is idempotent. If S3 deletion succeeds but the database transaction 
 
 ## Job 3: `purge-cleaned-upload-intents`
 
-This is the only storage job that permanently deletes upload-intent database rows.
+This is the storage database-retention job. Its existing queue name is kept for compatibility, but it now purges both asset and upload-intent records.
 
-It deletes intents only when all of these are true:
+It performs two cleanup operations in one database transaction.
+
+### Old deleted assets
+
+It selects assets only when all of these are true:
+
+- Status is `DELETED`.
+- `deletedAt` is older than the configured retention period.
+
+It deletes each selected asset first, then deletes that asset's source upload intent. This order is required because the database foreign key prevents an intent from being deleted while its asset still references it.
+
+The source intent is usually `COMPLETED`; it records the upload that originally created the asset.
+
+### Old standalone cleaned intents
+
+It also deletes intents only when all of these are true:
 
 - Status is `CLEANED`.
 - `cleanedAt` is older than the configured retention period.
@@ -185,7 +207,18 @@ Keeping cleaned intents for a while helps with:
 - Finding abuse or unusual upload patterns.
 - Measuring how many uploads are abandoned.
 
-The purge job deletes a limited batch at a time so one run does not create a large database operation.
+The purge job processes at most 500 old assets and 500 standalone cleaned intents per run so one run does not create an unbounded database operation. If more records remain, the next daily run processes the next batch.
+
+The retention job never deletes `ACTIVE`, `DELETION_PENDING`, `CREATED`, or `CLEANUP_PENDING` records. It also does not call S3/MinIO because physical object deletion already succeeded before an asset became `DELETED` or an intent became `CLEANED`.
+
+After every run, the worker logs counts:
+
+```text
+Storage retention completed
+retentionDays=30
+deletedAssets=...
+deletedUploadIntents=...
+```
 
 ---
 
@@ -278,4 +311,3 @@ The asset becomes `DELETION_PENDING`. A `delete-object` job carries its `assetId
 | Cleanup scheduler port | `src/services/storage/ports/StorageCleanupScheduler.ts` |
 | Storage worker registry | `src/workers/registry.ts` |
 | Schedule registration | `src/workers/register-schedules.ts` |
-

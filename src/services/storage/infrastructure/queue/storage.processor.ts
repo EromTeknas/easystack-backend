@@ -1,4 +1,5 @@
 import type { Job } from "bullmq";
+import logger from "../../../../utils/logger";
 import { StorageReconciliationService } from "../../application/StorageReconciliationService";
 import type { ObjectStorageProvider } from "../../ports/ObjectStorageProvider";
 import type { StoragePersistence } from "../../ports/StoragePersistence";
@@ -26,10 +27,15 @@ export class StorageJobProcessor {
         await this.processDeletion(job);
         return;
       case purgeCleanedUploadIntentsJob.jobName:
-        await this.persistence.deleteCleanedUploadIntents(
+        const result = await this.persistence.purgeRetainedStorageRecords(
           new Date(Date.now() - this.cleanedIntentRetentionDays * 24 * 60 * 60 * 1_000),
           500,
         );
+        logger.info("Storage retention completed", {
+          retentionDays: this.cleanedIntentRetentionDays,
+          deletedAssets: result.deletedAssets,
+          deletedUploadIntents: result.deletedUploadIntents,
+        });
         return;
       default:
         throw new Error(`Unsupported storage job: ${job.name}`);

@@ -72,7 +72,7 @@ Repeatable schedule registration is separate from job processing:
 npm run queues:register-schedules
 ```
 
-Run this once during deployment or application provisioning. It registers hourly storage reconciliation and daily cleaned-intent retention, then closes its producer connection. Multiple storage worker replicas only process jobs; they do not each attempt to register schedules.
+Run this once during deployment or application provisioning. It registers hourly storage reconciliation and daily storage-record retention, then closes its producer connection. The retention job permanently removes old `DELETED` assets with their source intents and old standalone `CLEANED` intents. Multiple storage worker replicas only process jobs; they do not each attempt to register schedules.
 
 Local `npm run dev` registers schedules before starting the API and separate email/storage worker processes.
 
@@ -81,7 +81,7 @@ Local `npm run dev` registers schedules before starting the API and separate ema
 | Queue | Jobs | Owner |
 |---|---|---|
 | `email` | `SEND_OTP_EMAIL`, `SEND_PASSWORD_RESET_EMAIL`, `SEND_WELCOME_EMAIL` | Email service |
-| `storage-cleanup` | `delete-object`, `reconcile-storage`, `purge-cleaned-upload-intents` | Storage service |
+| `storage-cleanup` | `delete-object`, `reconcile-storage`, `purge-cleaned-upload-intents` (asset and intent retention) | Storage service |
 
 Transactional emails share one queue because they use the same provider and have the same retry, retention, and scaling characteristics. Create a separate queue only when workloads require different concurrency, rate limiting, priority, pause/resume, or independent scaling.
 

@@ -156,7 +156,7 @@ Run the centralized storage worker group in a separate process:
 npm run worker:storage
 ```
 
-Register the hourly reconciliation schedule once during deployment:
+Register the reconciliation and daily retention schedules once during deployment:
 
 ```bash
 npm run queues:register-schedules
@@ -164,7 +164,7 @@ npm run queues:register-schedules
 
 `npm run dev` starts it automatically alongside the API and the separate email worker group. See [WORKERS.md](WORKERS.md) for the centralized queue architecture.
 
-The worker deletes queued objects, marks associated database assets as `DELETED`, and processes scheduled reconciliation jobs. Schedule registration is separate so every storage replica does not register it again. Deletion jobs use exponential backoff, at least five attempts, stable object-based job IDs, and completed/failed retention.
+The worker deletes queued objects, marks associated database assets as `DELETED`, processes reconciliation, and permanently purges eligible old database records. Schedule registration is separate so every storage replica does not register it again. Deletion jobs use exponential backoff, at least five attempts, short object-based deduplication, and completed/failed retention.
 
 ---
 
@@ -519,6 +519,7 @@ Deletion is asynchronous:
 2. The asset becomes `DELETION_PENDING`, is removed from active resolution, and records the deleting actor.
 3. BullMQ deletes the object.
 4. The worker marks the asset `DELETED` and records `deletedAt`.
+5. After the configured retention period, the daily retention job permanently deletes the asset and its source upload intent.
 
 The target check limits damage if domain authorization or resource-to-asset mapping contains a bug. Cleanup scheduling is failure-safe; reconciliation re-enqueues assets left in `DELETION_PENDING`.
 
@@ -541,7 +542,8 @@ For a focused, plain-language explanation of expired-intent cleanup and each que
 - Hourly reconciliation changes an expired `CREATED` or legacy `EXPIRED` intent to `CLEANUP_PENDING`.
 - A deletion job carries both its upload object key and `uploadIntentId`.
 - Only after S3 deletion succeeds does the worker transactionally mark the intent `CLEANED`.
-- Daily retention permanently removes `CLEANED` intents after the configured retention period (30 days by default).
+- Daily retention permanently removes standalone `CLEANED` intents after the configured retention period (30 days by default).
+- It also removes old `DELETED` assets and their associated source intents after the same retention period.
 
 If S3 deletion or the database completion transaction fails, BullMQ retries. Reconciliation continues to discover `CLEANUP_PENDING` intents, so cleanup state is not lost and the object does not become an untracked orphan.
 

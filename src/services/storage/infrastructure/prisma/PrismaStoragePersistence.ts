@@ -589,27 +589,81 @@ export class PrismaStoragePersistence
     });
   }
 
-  async deleteCleanedUploadIntents(before: Date, limit: number): Promise<number> {
-    return this.execute("delete retained cleaned upload intents", async () => {
-      const rows = await this.prisma.storageUploadIntent.findMany({
-        where: {
-          status: PrismaUploadIntentStatus.CLEANED,
-          cleanedAt: { lte: before },
-          asset: null,
-        },
-        select: { id: true },
-        orderBy: { cleanedAt: "asc" },
-        take: validateLimit(limit),
+  async purgeRetainedStorageRecords(
+    before: Date,
+    limit: number,
+  ): Promise<{ deletedAssets: number; deletedUploadIntents: number }> {
+    return this.execute("purge retained storage records", async () => {
+      const batchSize = validateLimit(limit);
+
+      return this.prisma.$transaction(async (transaction) => {
+        const expiredAssets = await transaction.storageAsset.findMany({
+          where: {
+            status: PrismaStorageAssetStatus.DELETED,
+            deletedAt: { lte: before },
+          },
+          select: { id: true, uploadIntentId: true },
+          orderBy: { deletedAt: "asc" },
+          take: batchSize,
+        });
+        const assetIds = expiredAssets.map(({ id }) => id);
+        const assetIntentIds = expiredAssets.map(({ uploadIntentId }) => uploadIntentId);
+
+        const deletedAssets = assetIds.length === 0
+          ? { count: 0 }
+          : await transaction.storageAsset.deleteMany({
+            where: {
+              id: { in: assetIds },
+              status: PrismaStorageAssetStatus.DELETED,
+              deletedAt: { lte: before },
+            },
+          });
+
+        /*
+         * StorageAsset.uploadIntent uses onDelete: Restrict, so assets must be
+         * removed before their source intents. The asset:null guard also makes
+         * this safe if a selected row changed before deletion.
+         */
+        const deletedAssetIntents = assetIntentIds.length === 0
+          ? { count: 0 }
+          : await transaction.storageUploadIntent.deleteMany({
+            where: {
+              id: { in: assetIntentIds },
+              asset: null,
+            },
+          });
+
+        const standaloneCleanedIntents = await transaction.storageUploadIntent.findMany({
+          where: {
+            status: PrismaUploadIntentStatus.CLEANED,
+            cleanedAt: { lte: before },
+            asset: null,
+            ...(assetIntentIds.length > 0
+              ? { id: { notIn: assetIntentIds } }
+              : {}),
+          },
+          select: { id: true },
+          orderBy: { cleanedAt: "asc" },
+          take: batchSize,
+        });
+        const cleanedIntentIds = standaloneCleanedIntents.map(({ id }) => id);
+        const deletedStandaloneIntents = cleanedIntentIds.length === 0
+          ? { count: 0 }
+          : await transaction.storageUploadIntent.deleteMany({
+            where: {
+              id: { in: cleanedIntentIds },
+              status: PrismaUploadIntentStatus.CLEANED,
+              cleanedAt: { lte: before },
+              asset: null,
+            },
+          });
+
+        return {
+          deletedAssets: deletedAssets.count,
+          deletedUploadIntents:
+            deletedAssetIntents.count + deletedStandaloneIntents.count,
+        };
       });
-      if (rows.length === 0) return 0;
-      const result = await this.prisma.storageUploadIntent.deleteMany({
-        where: {
-          id: { in: rows.map(({ id }) => id) },
-          status: PrismaUploadIntentStatus.CLEANED,
-          asset: null,
-        },
-      });
-      return result.count;
     });
   }
 
