@@ -99,6 +99,7 @@ Default upload intents expire after 10 minutes. Trusted backend code can overrid
 ```env
 STORAGE_CDN_BASE_URL=http://localhost:8081
 STORAGE_PRIVATE_URL_EXPIRY_SECONDS=300
+STORAGE_CLEANED_INTENT_RETENTION_DAYS=30
 
 STORAGE_S3_BUCKET=easystack
 STORAGE_S3_REGION=us-east-1
@@ -525,6 +526,8 @@ The target check limits damage if domain authorization or resource-to-asset mapp
 
 ## Lifecycle and Recovery Cases
 
+For a focused, plain-language explanation of expired-intent cleanup and each queue job, see [STORAGE_INTENT_LIFECYCLE.md](STORAGE_INTENT_LIFECYCLE.md).
+
 ### Successful upload
 
 - Intent: `CREATED` → `COMPLETED`.
@@ -535,9 +538,12 @@ The target check limits damage if domain authorization or resource-to-asset mapp
 
 ### Browser never uploads or never completes
 
-- The intent expires.
-- Hourly reconciliation changes old `CREATED` intents to `EXPIRED`.
-- The strategy-specific upload key is queued for deletion.
+- Hourly reconciliation changes an expired `CREATED` or legacy `EXPIRED` intent to `CLEANUP_PENDING`.
+- A deletion job carries both its upload object key and `uploadIntentId`.
+- Only after S3 deletion succeeds does the worker transactionally mark the intent `CLEANED`.
+- Daily retention permanently removes `CLEANED` intents after the configured retention period (30 days by default).
+
+If S3 deletion or the database completion transaction fails, BullMQ retries. Reconciliation continues to discover `CLEANUP_PENDING` intents, so cleanup state is not lost and the object does not become an untracked orphan.
 
 ### Uploaded object is missing
 

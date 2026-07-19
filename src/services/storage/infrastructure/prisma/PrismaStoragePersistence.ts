@@ -96,6 +96,7 @@ export class PrismaStoragePersistence
 
             expiresAt: intent.expiresAt,
             completedAt: intent.completedAt,
+            cleanedAt: intent.cleanedAt,
 
             createdAt: intent.createdAt,
           },
@@ -172,7 +173,16 @@ export class PrismaStoragePersistence
   ): Promise<StorageUploadIntentRecord[]> {
     return this.execute("find expired storage upload intents", async () => {
       const rows = await this.prisma.storageUploadIntent.findMany({
-        where: { status: PrismaUploadIntentStatus.CREATED, expiresAt: { lte: before } },
+        where: {
+          status: {
+            in: [
+              PrismaUploadIntentStatus.CREATED,
+              PrismaUploadIntentStatus.EXPIRED,
+              PrismaUploadIntentStatus.CLEANUP_PENDING,
+            ],
+          },
+          expiresAt: { lte: before },
+        },
         orderBy: { expiresAt: "asc" },
         take: validateLimit(limit),
       });
@@ -188,7 +198,6 @@ export class PrismaStoragePersistence
       const rows = await this.prisma.storageUploadIntent.findMany({
         where: {
           OR: [
-            { status: PrismaUploadIntentStatus.EXPIRED },
             {
               status: PrismaUploadIntentStatus.COMPLETED,
               uploadStrategy: PrismaUploadStrategy.QUARANTINE,
@@ -203,17 +212,24 @@ export class PrismaStoragePersistence
     });
   }
 
-  async markUploadIntentExpired(uploadIntentId: string): Promise<boolean> {
-    return this.execute("mark storage upload intent expired", async () => {
+  async markUploadIntentCleanupPending(uploadIntentId: string): Promise<boolean> {
+    return this.execute("mark storage upload intent cleanup pending", async () => {
       const result = await this.prisma.storageUploadIntent.updateMany({
         where: {
           id: uploadIntentId,
-          status: PrismaUploadIntentStatus.CREATED,
+          status: {
+            in: [PrismaUploadIntentStatus.CREATED, PrismaUploadIntentStatus.EXPIRED],
+          },
           expiresAt: { lte: new Date() },
         },
-        data: { status: PrismaUploadIntentStatus.EXPIRED },
+        data: { status: PrismaUploadIntentStatus.CLEANUP_PENDING },
       });
-      return result.count === 1;
+      if (result.count === 1) return true;
+      const existing = await this.prisma.storageUploadIntent.findUnique({
+        where: { id: uploadIntentId },
+        select: { status: true },
+      });
+      return existing?.status === PrismaUploadIntentStatus.CLEANUP_PENDING;
     });
   }
 
@@ -535,29 +551,66 @@ export class PrismaStoragePersistence
     );
   }
 
-  async markAssetDeleted(assetId: string): Promise<void> {
-    await this.execute(
-      "mark storage asset deleted",
-      async () => {
-        /*
-         * updateMany makes the operation idempotent and does not
-         * throw when the record was already removed.
-         */
-        await this.prisma.storageAsset.updateMany({
-          where: {
-            id: assetId,
-            status: {
-              not: PrismaStorageAssetStatus.DELETED,
+  async completeObjectCleanup(input: {
+    objectKey: string;
+    assetId?: string;
+    uploadIntentId?: string;
+    cleanedAt: Date;
+  }): Promise<void> {
+    await this.execute("complete storage object cleanup", async () => {
+      await this.prisma.$transaction(async (transaction) => {
+        if (input.assetId) {
+          await transaction.storageAsset.updateMany({
+            where: { id: input.assetId, objectKey: input.objectKey },
+            data: {
+              status: PrismaStorageAssetStatus.DELETED,
+              activeSingletonKey: null,
+              deletedAt: input.cleanedAt,
             },
-          },
-          data: {
-            status: PrismaStorageAssetStatus.DELETED,
-            activeSingletonKey: null,
-            deletedAt: new Date(),
-          },
-        });
-      },
-    );
+          });
+        }
+        if (input.uploadIntentId) {
+          await transaction.storageUploadIntent.updateMany({
+            where: {
+              id: input.uploadIntentId,
+              status: PrismaUploadIntentStatus.CLEANUP_PENDING,
+              OR: [
+                { temporaryObjectKey: input.objectKey },
+                { finalObjectKey: input.objectKey },
+              ],
+            },
+            data: {
+              status: PrismaUploadIntentStatus.CLEANED,
+              cleanedAt: input.cleanedAt,
+            },
+          });
+        }
+      });
+    });
+  }
+
+  async deleteCleanedUploadIntents(before: Date, limit: number): Promise<number> {
+    return this.execute("delete retained cleaned upload intents", async () => {
+      const rows = await this.prisma.storageUploadIntent.findMany({
+        where: {
+          status: PrismaUploadIntentStatus.CLEANED,
+          cleanedAt: { lte: before },
+          asset: null,
+        },
+        select: { id: true },
+        orderBy: { cleanedAt: "asc" },
+        take: validateLimit(limit),
+      });
+      if (rows.length === 0) return 0;
+      const result = await this.prisma.storageUploadIntent.deleteMany({
+        where: {
+          id: { in: rows.map(({ id }) => id) },
+          status: PrismaUploadIntentStatus.CLEANED,
+          asset: null,
+        },
+      });
+      return result.count;
+    });
   }
 
   private async withSerializableTransaction<T>(
@@ -702,6 +755,7 @@ function mapUploadIntent(
 
     expiresAt: row.expiresAt,
     completedAt: row.completedAt,
+    cleanedAt: row.cleanedAt,
 
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

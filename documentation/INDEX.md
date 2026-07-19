@@ -118,6 +118,12 @@ Intent-based storage service documentation:
 
 **When to read:** Adding avatars, logos, covers, attachments, or any new file-backed domain feature.
 
+### [STORAGE_INTENT_LIFECYCLE.md](STORAGE_INTENT_LIFECYCLE.md) - Upload Intent Cleanup
+
+Simple guide to upload-intent states and the reconciliation, object-deletion, and retention jobs.
+
+**When to read:** Understanding expired uploads, investigating cleanup jobs, or operating storage workers.
+
 ### [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) - Development Workflow (7.8 KB)
 
 Developer setup and workflow:
@@ -146,6 +152,12 @@ Centralized standalone BullMQ processing:
 - ✅ Deployment and independent scaling patterns
 
 **When to read:** Configuring and operating background workers, scaling email/OTP throughput.
+
+### [QUEUE_AND_WORKER_USAGE.md](QUEUE_AND_WORKER_USAGE.md) - Practical Queue Usage
+
+Simple examples showing which producers to import, required parameters, processor creation, worker registration, schedules, and common mistakes.
+
+**When to read:** Enqueueing an existing job or adding a new background job and worker group.
 
 ---
 

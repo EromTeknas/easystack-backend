@@ -14,7 +14,12 @@ export function createStorageWorkers(): Worker[] {
   const objectStorage = new S3ObjectStorageProvider(storageConfig.s3);
   const scheduler = new BullMqStorageCleanupScheduler();
   const reconciliation = new StorageReconciliationService(persistence, scheduler);
-  const processor = new StorageJobProcessor(persistence, objectStorage, reconciliation);
+  const processor = new StorageJobProcessor(
+    persistence,
+    objectStorage,
+    reconciliation,
+    storageConfig.cleanedIntentRetentionDays,
+  );
 
   return [createQueueWorker<StorageJobData>({
     id: "storage-cleanup",

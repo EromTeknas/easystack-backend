@@ -14,6 +14,7 @@ const sessionToken = env.STORAGE_S3_SESSION_TOKEN ?? env.S3_SESSION_TOKEN;
 export const storageConfig = {
   cdnBaseUrl: env.STORAGE_CDN_BASE_URL,
   privateUrlExpiresInSeconds: env.STORAGE_PRIVATE_URL_EXPIRY_SECONDS,
+  cleanedIntentRetentionDays: env.STORAGE_CLEANED_INTENT_RETENTION_DAYS,
   s3: {
     bucket,
     region,

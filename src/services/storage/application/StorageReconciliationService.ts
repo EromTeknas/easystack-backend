@@ -12,11 +12,12 @@ export class StorageReconciliationService {
   async reconcile(now = new Date()): Promise<void> {
     const expired = await this.persistence.findExpiredUploadIntents(now, this.batchSize);
     for (const intent of expired) {
-      if (await this.persistence.markUploadIntentExpired(intent.id)) {
+      if (await this.persistence.markUploadIntentCleanupPending(intent.id)) {
         await this.cleanupScheduler.scheduleObjectDeletion({
           objectKey: intent.policy.uploadStrategy === StorageUploadStrategy.QUARANTINE
             ? intent.temporaryObjectKey
             : intent.finalObjectKey,
+          uploadIntentId: intent.id,
           reason: StorageDeletionReason.EXPIRED_UPLOAD,
         });
       }
@@ -35,9 +36,7 @@ export class StorageReconciliationService {
             ? intent.temporaryObjectKey
             : intent.finalObjectKey
           : intent.temporaryObjectKey,
-        reason: intent.status === "EXPIRED"
-          ? StorageDeletionReason.EXPIRED_UPLOAD
-          : StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
+        reason: StorageDeletionReason.TEMPORARY_UPLOAD_COMPLETED,
       })),
       ...pendingAssets.map((asset) => this.cleanupScheduler.scheduleObjectDeletion({
         objectKey: asset.objectKey,

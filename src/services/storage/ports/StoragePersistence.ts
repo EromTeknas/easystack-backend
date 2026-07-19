@@ -24,7 +24,7 @@ export interface StoragePersistence {
 
   findExpiredUploadIntents(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
   findUploadIntentsRequiringTemporaryCleanup(before: Date, limit: number): Promise<StorageUploadIntentRecord[]>;
-  markUploadIntentExpired(uploadIntentId: string): Promise<boolean>;
+  markUploadIntentCleanupPending(uploadIntentId: string): Promise<boolean>;
   findDeletionPendingAssets(limit: number): Promise<StorageAssetRecord[]>;
 
   /**
@@ -54,5 +54,12 @@ export interface StoragePersistence {
     deletedById: string,
   ): Promise<StorageAssetRecord>;
 
-  markAssetDeleted(assetId: string): Promise<void>;
+  completeObjectCleanup(input: {
+    objectKey: string;
+    assetId?: string;
+    uploadIntentId?: string;
+    cleanedAt: Date;
+  }): Promise<void>;
+
+  deleteCleanedUploadIntents(before: Date, limit: number): Promise<number>;
 }

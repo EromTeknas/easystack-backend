@@ -11,6 +11,8 @@ export enum StorageUploadIntentStatus {
   CREATED = "CREATED",
   COMPLETED = "COMPLETED",
   EXPIRED = "EXPIRED",
+  CLEANUP_PENDING = "CLEANUP_PENDING",
+  CLEANED = "CLEANED",
   FAILED = "FAILED",
 }
 
@@ -48,6 +50,7 @@ export interface StorageUploadIntentRecord {
   status: StorageUploadIntentStatus;
   expiresAt: Date;
   completedAt: Date | null;
+  cleanedAt: Date | null;
 
   createdAt: Date;
   updatedAt: Date;

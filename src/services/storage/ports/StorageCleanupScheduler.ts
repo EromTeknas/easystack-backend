@@ -9,6 +9,7 @@ export enum StorageDeletionReason {
 export interface ScheduleObjectDeletionInput {
   objectKey: string;
   assetId?: string;
+  uploadIntentId?: string;
   reason: StorageDeletionReason;
 }
 

@@ -63,6 +63,7 @@ The same origin list is reused to validate authentication redirect URLs.
 ```env
 STORAGE_CDN_BASE_URL=http://localhost:8081
 STORAGE_PRIVATE_URL_EXPIRY_SECONDS=300
+STORAGE_CLEANED_INTENT_RETENTION_DAYS=30
 STORAGE_S3_BUCKET=easystack
 STORAGE_S3_REGION=us-east-1
 STORAGE_S3_INTERNAL_ENDPOINT=http://localhost:9000

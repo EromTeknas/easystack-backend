@@ -839,6 +839,8 @@ enum StorageUploadIntentStatus {
   CREATED
   COMPLETED
   EXPIRED
+  CLEANUP_PENDING
+  CLEANED
   FAILED
 }
 
@@ -905,6 +907,7 @@ model StorageUploadIntent {
 
   expiresAt   DateTime
   completedAt DateTime?
+  cleanedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -914,6 +917,7 @@ model StorageUploadIntent {
   @@index([actorId, status])
   @@index([targetKey, createdAt])
   @@index([status, expiresAt])
+  @@index([status, cleanedAt])
   @@map("storage_upload_intents")
 }
 

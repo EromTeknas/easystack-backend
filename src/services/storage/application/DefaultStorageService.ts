@@ -118,6 +118,7 @@ export class DefaultStorageService implements StorageService {
       status: StorageUploadIntentStatus.CREATED,
       expiresAt,
       completedAt: null,
+      cleanedAt: null,
 
       createdAt: now,
       updatedAt: now,

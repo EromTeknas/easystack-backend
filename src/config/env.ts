@@ -87,6 +87,7 @@ const EnvironmentSchema = z.object({
 
   STORAGE_CDN_BASE_URL: z.string().url().default("http://localhost:8081"),
   STORAGE_PRIVATE_URL_EXPIRY_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
+  STORAGE_CLEANED_INTENT_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
   STORAGE_S3_BUCKET: optionalString,
   STORAGE_S3_REGION: optionalString,
   STORAGE_S3_INTERNAL_ENDPOINT: optionalUrl,

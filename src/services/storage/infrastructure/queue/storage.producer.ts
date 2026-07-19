@@ -1,16 +1,32 @@
-import { createHash } from "node:crypto";
 import { queueClient } from "../../../../infrastructure/queue";
 import type { ScheduleObjectDeletionInput } from "../../ports/StorageCleanupScheduler";
 import {
   deleteStorageObjectJob,
   reconcileStorageJob,
+  purgeCleanedUploadIntentsJob,
   StorageJobData,
 } from "./storage.jobs";
 
 export function enqueueStorageObjectDeletion(input: ScheduleObjectDeletionInput): Promise<void> {
   return queueClient.enqueue(deleteStorageObjectJob, input, {
-    jobId: `storage-delete-${createHash("sha256").update(input.objectKey).digest("hex")}`,
+    deduplication: {
+      id: `storage-delete:${input.objectKey}`,
+      ttl: 5 * 60 * 1_000,
+    },
   });
+}
+
+export async function scheduleDailyCleanedIntentRetention(): Promise<void> {
+  const queue = queueClient.getQueue<StorageJobData>(purgeCleanedUploadIntentsJob.queueName);
+  await queue.add(
+    purgeCleanedUploadIntentsJob.jobName,
+    { purgeCleanedUploadIntents: true },
+    {
+      ...purgeCleanedUploadIntentsJob.defaultJobOptions,
+      jobId: "storage-cleaned-intent-retention-daily",
+      repeat: { every: 24 * 60 * 60 * 1_000 },
+    },
+  );
 }
 
 export async function scheduleHourlyStorageReconciliation(): Promise<void> {
