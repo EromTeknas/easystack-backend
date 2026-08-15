@@ -1,10 +1,20 @@
-import { Response, Request } from 'express';
+import { Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../../errors';
+import { BadRequestError } from '../../errors';
 import { ProjectService } from '../../services/project.service';
-import { prisma } from '../../db';
 import logger from '../../utils/logger';
+
+const serializeProject = (project: any) => ({
+  id: project.id,
+  resourceId: project.resourceId,
+  name: project.name,
+  subdomain: project.slug,
+  description: project.description,
+  workspaceId: project.workspaceId,
+  createdAt: project.createdAt,
+  updatedAt: project.updatedAt,
+});
 
 /**
  * POST /projects
@@ -26,18 +36,6 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('subdomain is required');
   }
 
-  // Verify workspace exists and user has access
-  const workspace = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId,
-      userId: Number(req.user!.id)
-    }
-  });
-
-  if (!workspace) {
-    throw new BadRequestError('Workspace not found or you do not have access');
-  }
-
   const projectId = await ProjectService.createProject(workspaceId, {
     name,
     subdomain,
@@ -50,16 +48,7 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
   logger.debug('Project created via API', { project: project, workspaceId, userId: req.user!.id });
 
   return ok(res, {
-    project: {
-      id: project.id,
-      resourceId: project.resourceId,
-      name: project.name,
-      description: project.description,
-      subdomain: project.slug,
-      workspaceId: project.workspaceId,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    },
+    project: serializeProject(project),
   }, { statusCode: 201 });
 });
 
@@ -70,36 +59,12 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
  */
 export const getProjectById = asyncHandler(async (req: any, res: Response) => {
   const userId = Number(req.user!.id);
-  const workspaceId = Number(req.params.workspaceId);
   const projectId = Number(req.params.projectId);
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      id: true,
-      resourceId: true,
-      name: true,
-      slug: true,
-      description: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-
-  if (!project) {
-    throw new NotFoundError('Project not found');
-  }
+  const project = await ProjectService.assertProjectAccess(projectId, userId);
 
   return ok(res, {
-    project: {
-      id: project.id,
-      resourceId: project.resourceId,
-      name: project.name,
-      subdomain: project.slug,
-      description: project.description,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    },
+    project: serializeProject(project),
   });
 });
 
@@ -112,52 +77,9 @@ export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Respon
   const userId = Number(req.user!.id);
   const workspaceId = Number(req.params.workspaceId);
 
-  // 1. Check workspace membership
-  const workspaceMember = await prisma.workspaceMember.findMany({
-    where: {
-        workspaceId,
-        userId,
-      },
-      include: {
-        projectMemberships: {
-          include: {
-            project: true,
-          }
-        }
-      }
-  });
+  const projects = await ProjectService.listProjectsByWorkspace(workspaceId, userId);
+  const projectList = projects.map(serializeProject);
 
-  if (!workspaceMember) {
-    throw new ForbiddenError('Not a workspace member');
-  }
-
-  // 3. Fetch projects
-  const projects = await prisma.projectMember.findMany({
-    where: {
-      workspaceMember:{
-        workspaceId: workspaceId,
-        userId: userId
-      }
-    },
-    include: {
-      project: true,
-      workspaceMember: {
-        include: {
-          workspace: true,
-        }
-      }
-    },
-  });
-
-  const projectList = projects.map(pm => ({
-    id: pm.project.id,
-    resourceId: pm.project.resourceId,
-    name: pm.project.name,
-    subdomain: pm.project.slug,
-    description: pm.project.description,
-    createdAt: pm.project.createdAt,
-    updatedAt: pm.project.updatedAt,
-  }));
   return ok(res, {
     projects: projectList,
     total: projectList.length,
@@ -176,26 +98,6 @@ export const updateProject = asyncHandler(async (req: any, res: Response) => {
   const { name, subdomain, description } = req.body;
   const userId = Number(req.user!.id);
 
-  // Get project and verify access
-  const project = await prisma.project.findUnique({
-    where: { id: projectId }
-  });
-
-  if (!project) {
-    throw new NotFoundError('Project not found');
-  }
-
-  const workspace = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId: project.workspaceId,
-      userId
-    }
-  });
-
-  if (!workspace) {
-    throw new BadRequestError('You do not have access to this project');
-  }
-
   if (!name || typeof name !== 'string') {
     throw new BadRequestError('name is required');
   }
@@ -204,7 +106,7 @@ export const updateProject = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('subdomain is required');
   }
 
-  const updated = await ProjectService.updateProject(projectId, {
+  const project = await ProjectService.updateProject(projectId, userId, {
     name,
     subdomain,
     description
@@ -212,7 +114,7 @@ export const updateProject = asyncHandler(async (req: any, res: Response) => {
 
   logger.debug('Project updated via API', { projectId, userId });
 
-  return ok(res, { project: updated });
+  return ok(res, { project: serializeProject(project) });
 });
 
 /**
@@ -225,33 +127,13 @@ export const patchProject = asyncHandler(async (req: any, res: Response) => {
   
   const userId = Number(req.user!.id);
 
-  // Get project and verify access
-  const project = await prisma.project.findUnique({
-    where: { id: projectId }
-  });
-
-  if (!project) {
-    throw new NotFoundError('Project not found');
-  }
-
-  const workspace = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId: project.workspaceId,
-      userId
-    }
-  });
-
-  if (!workspace) {
-    throw new BadRequestError('You do not have access to this project');
-  }
-
   const { name, subdomain, description } = req.body;
 
   if (name === undefined && subdomain === undefined && description === undefined) {
     throw new BadRequestError('No fields provided for update');
   }
 
-  const updated = await ProjectService.updateProject(projectId, {
+  const updated = await ProjectService.updateProject(projectId, userId, {
     name,
     subdomain,
     description
@@ -259,7 +141,7 @@ export const patchProject = asyncHandler(async (req: any, res: Response) => {
 
   logger.debug('Project patched via API', { projectId, userId });
 
-  return ok(res, { project: updated });
+  return ok(res, { project: serializeProject(updated) });
 });
 
 /**
@@ -272,27 +154,7 @@ export const deleteProject = asyncHandler(async (req: any, res: Response) => {
   
   const userId = Number(req.user!.id);
 
-  // Get project and verify access
-  const project = await prisma.project.findUnique({
-    where: { id: projectId }
-  });
-
-  if (!project) {
-    throw new NotFoundError('Project not found');
-  }
-
-  const workspace = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId: project.workspaceId,
-      userId
-    }
-  });
-
-  if (!workspace) {
-    throw new BadRequestError('You do not have access to this project');
-  }
-
-  await ProjectService.deleteProject(projectId);
+  await ProjectService.deleteProject(projectId, userId);
 
   logger.debug('Project deleted via API', { projectId, userId });
 

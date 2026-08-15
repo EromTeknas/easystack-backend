@@ -226,6 +226,24 @@ app.post('/ai/generate',
 );
 ```
 
+### 4. Current Project Route Enforcement
+
+`/api/projects` routes are now protected with both authorization and billing checks:
+
+- `POST /api/projects`
+  - Requires `project:create` on the target workspace.
+  - Consumes `projects` quota by `1`.
+  - Consumes `api.requests.daily` quota by `1`.
+- `GET /api/projects/workspaces/:workspaceId`
+  - Requires `project:read` on the workspace.
+  - Consumes `api.requests.daily` quota by `1`.
+- `GET|PUT|PATCH|DELETE /api/projects/:projectId`
+  - Requires project-level permissions (`project:read` or `project:update`).
+  - Resolves project workspace for billing context.
+  - Consumes `api.requests.daily` quota by `1`.
+
+These checks are implemented in route middleware so quota enforcement happens before controller logic.
+
 ---
 
 ## API Endpoints
