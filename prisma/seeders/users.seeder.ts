@@ -4,7 +4,7 @@ import { AuthProvider, PrismaClient, SubscriptionStatus } from "@prisma/client";
 import { fakeUsers } from "../data/users.data";
 import { UsageService } from "../../src/services/billing/services/usage.service";
 import { BillingContextService } from "../../src/services/billing/cache/billing.context.service";
-import { ca } from "zod/locales";
+import ResourceIdService from "../../src/services/resource-id.service";
 export async function seedUsers(prisma: PrismaClient) {
   console.log("🌱 Seeding Users...");
 
@@ -77,6 +77,7 @@ export async function seedUsers(prisma: PrismaClient) {
         },
 
         create: {
+          resourceId: await ResourceIdService.generateUniqueUserId(tx),
           email: fakeUser.email,
           firstName: fakeUser.firstName,
           lastName: fakeUser.lastName,
@@ -123,6 +124,7 @@ export async function seedUsers(prisma: PrismaClient) {
       if (!workspace) {
         workspace = await tx.workspace.create({
           data: {
+            resourceId: await ResourceIdService.generateUniqueWorkspaceId(tx),
             name: fakeUser.workspace.name,
             slug: fakeUser.workspace.slug,
             createdById: user.id,

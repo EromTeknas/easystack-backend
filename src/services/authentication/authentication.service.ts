@@ -390,6 +390,7 @@ export class AuthenticationService {
 
     return {
       id: user.id.toString(),
+      resourceId: user.resourceId,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,

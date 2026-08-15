@@ -27,6 +27,7 @@ export class SessionRepository {
         user: {
           select: {
             id: true,
+            resourceId: true,
             email: true,
             firstName: true,
             lastName: true,

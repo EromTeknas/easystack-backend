@@ -16,6 +16,8 @@ model User {
   id    Int    @id @default(autoincrement())
   email String @unique
 
+  resourceId String @unique @map("resource_id")
+
   firstName String? @map("first_name")
   lastName  String? @map("last_name")
 
@@ -128,6 +130,8 @@ model AuthAccount {
 model Workspace {
   id Int @id @default(autoincrement())
 
+  resourceId String @unique @map("resource_id")
+
   name String
 
   slug String @unique
@@ -163,6 +167,8 @@ model Workspace {
 
 model Project {
   id Int @id @default(autoincrement())
+
+  resourceId String @unique @map("resource_id")
 
   workspaceId Int @map("workspace_id")
 

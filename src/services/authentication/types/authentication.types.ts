@@ -8,6 +8,7 @@ export interface ClientContext {
 
 export interface AuthUser {
   id: number;
+  resourceId: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
@@ -20,6 +21,7 @@ export interface AuthUser {
 
 export interface PublicAuthUser {
   id: string;
+  resourceId: string;
   email: string;
   firstName: string | null;
   lastName: string | null;

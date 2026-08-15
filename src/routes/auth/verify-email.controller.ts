@@ -23,6 +23,7 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
   return ok(res, {
     user: {
       id: session.user.id.toString(),
+      resourceId: session.user.resourceId,
       email: session.user.email,
       firstName: session.user.firstName,
       lastName: session.user.lastName,

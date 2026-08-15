@@ -9,9 +9,11 @@ import {
 import { BadRequestError, InternalServerError } from "../../../errors";
 import type { VerifiedProviderIdentity } from "../types/provider.types";
 import type { AuthUser } from "../types/authentication.types";
+import ResourceIdService from "../../resource-id.service";
 
 const authUserSelect = {
   id: true,
+  resourceId: true,
   email: true,
   firstName: true,
   lastName: true,
@@ -74,6 +76,7 @@ export class AccountProvisioningRepository {
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
+          resourceId: await ResourceIdService.generateUniqueUserId(tx),
           email: input.identity.email,
           firstName: input.identity.firstName,
           lastName: input.identity.lastName,
@@ -140,6 +143,7 @@ export class AccountProvisioningRepository {
     if (!workspaceId) {
       const workspace = await tx.workspace.create({
         data: {
+          resourceId: await ResourceIdService.generateUniqueWorkspaceId(tx),
           name: user.firstName ? `${user.firstName}'s Workspace` : "My Workspace",
           slug: this.buildDefaultWorkspaceSlug(user.email, user.id),
           createdById: user.id,

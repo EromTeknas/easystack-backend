@@ -9,9 +9,11 @@ import { ConflictError } from "../../../errors";
 import { AUTH_ERROR_CODES } from "../../../constants/errorCodes";
 import type { AuthUser } from "../types/authentication.types";
 import type { VerifiedProviderIdentity } from "../types/provider.types";
+import ResourceIdService from "../../resource-id.service";
 
 const authUserSelect = {
   id: true,
+  resourceId: true,
   email: true,
   firstName: true,
   lastName: true,
@@ -62,6 +64,7 @@ export class AuthenticationRepository {
           })
         : await tx.user.create({
             data: {
+              resourceId: await ResourceIdService.generateUniqueUserId(tx),
               email: input.email,
               firstName: input.firstName,
               lastName: input.lastName,

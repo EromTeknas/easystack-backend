@@ -13,6 +13,7 @@ import { prisma } from "../../db";
 import logger from "../../utils/logger";
 import { APP_ROLES } from "../../services/authorization/constants/role.constants";
 import { Workspace } from "@prisma/client";
+import ResourceIdService from "../../services/resource-id.service";
 
 const normalizeWorkspace = (workspace: Workspace) => {
   if (!workspace) return null;
@@ -22,6 +23,7 @@ const normalizeWorkspace = (workspace: Workspace) => {
 
   return {
     id: workspace.id,
+    resourceId: workspace.resourceId,
     name: workspace.name,
     logoUrl: workspace.logoUrl,
     createdBy: workspace.createdById,
@@ -110,6 +112,7 @@ export const createWorkspaceController = asyncHandler(
       // Step 1: Create workspace
       const workspace = await tx.workspace.create({
         data: {
+          resourceId: await ResourceIdService.generateUniqueWorkspaceId(tx),
           name: name.trim(),
           slug: buildWorkspaceSlug(name.trim(), userId),
           logoUrl: logoUrl || null,

@@ -41,14 +41,26 @@ export const createProject = asyncHandler(async (req: any, res: Response) => {
   const projectId = await ProjectService.createProject(workspaceId, {
     name,
     subdomain,
-    description
+    description,
+    createdById: Number(req.user!.id)
   });
 
   const project = await ProjectService.getProjectById(projectId);
 
   logger.debug('Project created via API', { project: project, workspaceId, userId: req.user!.id });
 
-  return ok(res, { projectId: project!.id, }, { statusCode: 201 });
+  return ok(res, {
+    project: {
+      id: project.id,
+      resourceId: project.resourceId,
+      name: project.name,
+      description: project.description,
+      subdomain: project.slug,
+      workspaceId: project.workspaceId,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    },
+  }, { statusCode: 201 });
 });
 
 /**
@@ -65,7 +77,9 @@ export const getProjectById = asyncHandler(async (req: any, res: Response) => {
     where: { id: projectId },
     select: {
       id: true,
+      resourceId: true,
       name: true,
+      slug: true,
       description: true,
       createdAt: true,
       updatedAt: true,
@@ -76,7 +90,17 @@ export const getProjectById = asyncHandler(async (req: any, res: Response) => {
     throw new NotFoundError('Project not found');
   }
 
-  return ok(res, { project });
+  return ok(res, {
+    project: {
+      id: project.id,
+      resourceId: project.resourceId,
+      name: project.name,
+      subdomain: project.slug,
+      description: project.description,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    },
+  });
 });
 
 /**
@@ -127,7 +151,9 @@ export const listProjectsByWorkspace = asyncHandler(async (req: any, res: Respon
 
   const projectList = projects.map(pm => ({
     id: pm.project.id,
+    resourceId: pm.project.resourceId,
     name: pm.project.name,
+    subdomain: pm.project.slug,
     description: pm.project.description,
     createdAt: pm.project.createdAt,
     updatedAt: pm.project.updatedAt,

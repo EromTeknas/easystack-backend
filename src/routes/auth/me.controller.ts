@@ -54,6 +54,7 @@ export const getMeController = asyncHandler(async (req, res) => {
     user,
     workspaces: workspaces.map((workspace: any) => ({
       id: workspace.id,
+      resourceId: workspace.resourceId,
       name: workspace.name,
       logoUrl: workspace.logo_url,
       role: workspace.role,

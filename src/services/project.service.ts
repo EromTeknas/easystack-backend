@@ -1,6 +1,7 @@
 import { prisma } from '../db';
 import { BadRequestError, NotFoundError } from '../errors';
 import logger from '../utils/logger';
+import ResourceIdService from './resource-id.service';
 
 export const ProjectService = {
   /**
@@ -8,9 +9,9 @@ export const ProjectService = {
    */
   async createProject(
     workspaceId: number,
-    data: { name: string; subdomain: string; description?: string }
+    data: { name: string; subdomain: string; description?: string; createdById: number }
   ): Promise<number> {
-    const { name, subdomain, description } = data;
+    const { name, subdomain, description, createdById } = data;
 
     // Validate inputs
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -39,11 +40,13 @@ export const ProjectService = {
     try {
       const project = await prisma.project.create({
         data: {
+          resourceId: await ResourceIdService.generateUniqueProjectId(prisma),
           workspaceId,
+          createdById,
           name: name.trim(),
-          subdomain: subdomain.toLowerCase().trim(),
+          slug: subdomain.toLowerCase().trim(),
           description: description?.trim() || null
-        } as any  // Type assertion since id is auto-generated
+        }
       });
 
       return project.id as unknown as number;
@@ -129,7 +132,7 @@ export const ProjectService = {
       updateData.name = trimmedName;
     }
     if (data.subdomain !== undefined) {
-      updateData.subdomain = data.subdomain.toLowerCase().trim();
+      updateData.slug = data.subdomain.toLowerCase().trim();
     }
     if (data.description !== undefined) {
       updateData.description = data.description?.trim() || null;

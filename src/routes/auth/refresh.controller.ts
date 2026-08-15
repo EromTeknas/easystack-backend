@@ -21,6 +21,7 @@ export const refreshController = asyncHandler(async (req, res) => {
   return ok(res, {
     user: {
       id: session.user.id.toString(),
+      resourceId: session.user.resourceId,
       email: session.user.email,
     },
   });
