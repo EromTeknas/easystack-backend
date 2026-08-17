@@ -17,4 +17,8 @@ router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);
 
 // Update workspace
 router.patch('/:workspaceId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.UPDATE, scopeId: req => req.params.workspaceId as string}), workspaceController.updateWorkspace);
+
+// Delete workspace
+router.delete('/:workspaceId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.DELETE, scopeId: req => req.params.workspaceId as string}), workspaceController.deleteWorkspace);
+
 export default router;

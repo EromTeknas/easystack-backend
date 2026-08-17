@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>EasyStack Storage API Tester</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0f1117;--panel:#171a23;--panel2:#202431;--border:#343a4d;--text:#f3f4f7;--muted:#a8adbd;--primary:#8b7cf6;--danger:#ef6b73;--success:#4bc587;--warning:#e5b454}
+    *{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--text)}
+    main{width:min(1100px,calc(100% - 30px));margin:28px auto 60px}h1{margin:0 0 6px}.sub{color:var(--muted);margin:0 0 24px}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}.card{grid-column:span 12;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px}
+    @media(min-width:900px){.half{grid-column:span 6}}h2{font-size:18px;margin:0 0 16px}.fields{display:grid;gap:13px}.two{grid-template-columns:1fr 1fr}
+    @media(max-width:650px){.two{grid-template-columns:1fr}}label{display:grid;gap:6px;color:var(--muted);font-size:13px}
+    input,select{width:100%;padding:10px 11px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px}
+    button{padding:10px 14px;border:0;border-radius:8px;background:var(--primary);color:white;font-weight:650;cursor:pointer}button.secondary{background:var(--panel2);border:1px solid var(--border)}button.danger{background:var(--danger)}button:disabled{opacity:.5}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.status{min-height:21px;margin-top:11px;color:var(--muted)}.success{color:var(--success)}.error{color:var(--danger)}.pending{color:var(--warning)}
+    .details,.asset{margin-top:13px;padding:13px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .progress{height:9px;margin-top:14px;border:1px solid var(--border);background:var(--panel2);border-radius:99px;overflow:hidden}.progress div{height:100%;width:0;background:var(--primary)}
+    .asset-list{display:grid;gap:11px;margin-top:14px}.asset{margin:0}.asset-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.asset-id{font:12px ui-monospace,monospace;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:13px;display:grid;gap:3px;margin-top:8px}
+    img{display:block;max-width:220px;max-height:160px;object-fit:contain;margin-top:10px;border-radius:7px;background:white}a{display:inline-block;margin-top:9px;color:#b9b1ff}
+    pre{margin:0;max-height:430px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#090b10;padding:14px;border-radius:8px;font:12px/1.5 ui-monospace,monospace}.hint{color:var(--muted);font-size:12px;margin:10px 0 0}
+  </style>
+</head>
+<body>
+<main>
+  <h1>EasyStack Storage API Tester</h1>
+  <p class="sub">Logs in using cookie authentication, then tests presets, presigned upload, completion, URL hydration and deletion.</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Login and connection</h2>
+
+      <div class="fields two">
+        <label>
+          API base URL
+          <input id="baseUrl" value="http://localhost:3002">
+        </label>
+
+        <label>
+          Login endpoint
+          <input id="loginPath" value="/api/auth/login">
+        </label>
+
+        <label>
+          Email
+          <input id="email" type="email" value="alice@example.com" autocomplete="username">
+        </label>
+
+        <label>
+          Password
+          <input id="password" type="password" value="Test@12345678" autocomplete="current-password">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="login">Login and save cookies</button>
+        <button id="loadPresets">Load presets</button>
+        <button id="clearLog" class="secondary">Clear log</button>
+      </div>
+
+      <p class="hint">
+        The login response is not used to store an access token in JavaScript.
+        The browser receives the authentication cookies, and all later API calls
+        attach them through <code>credentials: "include"</code>.
+      </p>
+
+      <div id="connectionStatus" class="status"></div>
+    </section>
+
+    <section class="card half">
+      <h2>Upload and complete</h2>
+      <div class="fields">
+        <label>Preset<select id="preset"><option value="">Load presets first</option></select></label>
+        <label>File<input id="file" type="file"></label>
+      </div>
+      <div id="presetDetails" class="details">No preset loaded.</div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="actions"><button id="upload">Upload and complete</button></div>
+      <div id="uploadStatus" class="status"></div>
+    </section>
+
+    <section class="card half">
+      <h2>List assets</h2>
+      <div class="fields two">
+        <label>Include private assets
+          <select id="includePrivate"><option value="true">Yes</option><option value="false">No</option></select>
+        </label>
+        <label>Private URL expiry<input id="expiry" type="number" min="1" max="3600" value="300"></label>
+      </div>
+      <div class="actions"><button id="refreshAssets">Refresh assets</button></div>
+      <div id="assetsStatus" class="status"></div>
+      <div id="assets" class="asset-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Request log</h2>
+      <pre id="log">Ready.</pre>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const state={presets:new Map(),busy:false};
+const $=id=>document.getElementById(id);
+const el={
+  baseUrl:$("baseUrl"),loginPath:$("loginPath"),email:$("email"),password:$("password"),
+  login:$("login"),loadPresets:$("loadPresets"),clearLog:$("clearLog"),
+  connectionStatus:$("connectionStatus"),preset:$("preset"),file:$("file"),presetDetails:$("presetDetails"),
+  progress:$("progress"),upload:$("upload"),uploadStatus:$("uploadStatus"),includePrivate:$("includePrivate"),
+  expiry:$("expiry"),refreshAssets:$("refreshAssets"),assetsStatus:$("assetsStatus"),assets:$("assets"),log:$("log")
+};
+
+function baseUrl(){
+  const value=el.baseUrl.value.trim().replace(/\/+$/,"");
+  if(!value) throw new Error("API base URL is required.");
+  return value;
+}
+function selectedPreset(){
+  if(!el.preset.value) throw new Error("Select a preset.");
+  return el.preset.value;
+}
+function headers(extra={}){
+  return {...extra};
+}
+function unwrap(value){
+  return value&&typeof value==="object"&&"data" in value?value.data:value;
+}
+function status(node,message,type=""){
+  node.textContent=message;
+  node.className=`status ${type}`.trim();
+}
+function log(title,value){
+  const output=typeof value==="string"?value:JSON.stringify(value,null,2);
+  el.log.textContent+=`\n\n[${new Date().toISOString()}] ${title}\n${output}`;
+  el.log.scrollTop=el.log.scrollHeight;
+}
+function parse(text){
+  if(!text) return null;
+  try{return JSON.parse(text)}catch{return text}
+}
+async function api(path,options={}){
+  const url=baseUrl()+path;
+  log(`${options.method||"GET"} ${url}`,options.body?parse(options.body):{});
+  const response=await fetch(url,{credentials:"include",...options,headers:headers(options.headers||{})});
+  const payload=parse(await response.text());
+  log(`Response ${response.status} ${url}`,payload);
+  if(!response.ok){
+    throw new Error(String(payload?.message||payload?.error?.message||payload?.error||`${response.status} ${response.statusText}`));
+  }
+  return unwrap(payload);
+}
+
+async function login(){
+  const email=el.email.value.trim();
+  const password=el.password.value;
+  const loginPath=el.loginPath.value.trim();
+
+  if(!email) throw new Error("Email is required.");
+  if(!password) throw new Error("Password is required.");
+  if(!loginPath.startsWith("/")) throw new Error("Login endpoint must start with /.");
+
+  status(el.connectionStatus,"Logging in…","pending");
+  setBusy(true);
+
+  try{
+    const result=await api(loginPath,{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({email,password})
+    });
+
+    status(
+      el.connectionStatus,
+      "Login successful. Authentication cookies will be attached automatically.",
+      "success"
+    );
+
+    log("Login completed",{
+      cookiesManagedByBrowser:true,
+      response:result
+    });
+
+    await loadPresets();
+  }catch(error){
+    status(el.connectionStatus,error.message,"error");
+    log("Login failed",errorInfo(error));
+  }finally{
+    setBusy(false);
+  }
+}
+
+async function loadPresets(){
+  status(el.connectionStatus,"Loading presets…","pending");
+  try{
+    const result=await api("/api/storage/demo/presets");
+    const presets=Array.isArray(result?.presets)?result.presets:[];
+    state.presets.clear();el.preset.innerHTML="";
+    presets.forEach(item=>{
+      state.presets.set(item.name,item);
+      const option=document.createElement("option");
+      option.value=item.name;option.textContent=item.name;el.preset.appendChild(option);
+    });
+    if(!presets.length) el.preset.innerHTML='<option value="">No presets returned</option>';
+    showPreset();
+    status(el.connectionStatus,`Loaded ${presets.length} preset(s).`,"success");
+  }catch(error){
+    status(el.connectionStatus,error.message,"error");log("Preset loading failed",errorInfo(error));
+  }
+}
+function showPreset(){
+  const item=state.presets.get(el.preset.value);
+  if(!item){el.presetDetails.textContent="No preset selected.";return}
+  const p=item.policy||{};
+  el.presetDetails.textContent=[
+    `Class: ${item.fileClass}`,`Visibility: ${p.visibility}`,`Cardinality: ${p.cardinality}`,
+    `Max size: ${formatBytes(p.maxSizeBytes)}`,`Allowed MIME: ${(p.allowedMimeTypes||[]).join(", ")}`,
+    `Target: ${formatTarget(item.target)}`
+  ].join("\n");
+}
+async function uploadAll(){
+  const preset=selectedPreset();
+  const file=el.file.files?.[0];
+  if(!file) throw new Error("Select a file.");
+
+  setBusy(true);setProgress(0);status(el.uploadStatus,"Creating upload intent…","pending");
+  try{
+    const intent=await api("/api/storage/demo/upload-intents",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({preset,file:{originalName:file.name,mimeType:file.type||"application/octet-stream",sizeBytes:file.size}})
+    });
+    if(!intent?.uploadId||!intent?.upload?.url||!intent?.upload?.fields){
+      throw new Error("Upload-intent response is missing upload details.");
+    }
+
+    status(el.uploadStatus,"Uploading to object storage…","pending");
+    await presignedPost(intent.upload,file,percent=>{
+      setProgress(percent);status(el.uploadStatus,`Uploading to object storage… ${percent}%`,"pending");
+    });
+
+    setProgress(100);status(el.uploadStatus,"Completing and verifying…","pending");
+    const completed=await api(`/api/storage/demo/upload-intents/${encodeURIComponent(intent.uploadId)}/complete`,{
+      method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
+    });
+    const asset=completed?.asset||completed;
+    status(el.uploadStatus,`Completed asset ${asset?.id||"unknown"}.`,"success");
+    log("Completed asset",asset);
+    await listAssets();
+  }catch(error){
+    status(el.uploadStatus,error.message,"error");log("Upload flow failed",errorInfo(error));
+  }finally{setBusy(false)}
+}
+function presignedPost(upload,file,onProgress){
+  return new Promise((resolve,reject)=>{
+    const data=new FormData();
+    Object.entries(upload.fields).forEach(([key,value])=>data.append(key,value));
+    data.append("file",file);
+
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST",upload.url,true);
+    xhr.upload.onprogress=event=>{
+      if(event.lengthComputable) onProgress(Math.min(100,Math.round(event.loaded/event.total*100)));
+    };
+    xhr.onload=()=>{
+      log(`Object storage response ${xhr.status}`,xhr.responseText||null);
+      if(xhr.status>=200&&xhr.status<300) resolve();
+      else reject(new Error(`Object-storage upload failed (${xhr.status}): ${xhr.responseText||""}`));
+    };
+    xhr.onerror=()=>reject(new Error("Cannot reach object storage. Check public endpoint and CORS."));
+    xhr.onabort=()=>reject(new Error("Object-storage upload was aborted."));
+    xhr.send(data);
+  });
+}
+
+async function listAssets(){
+  const preset=selectedPreset();
+  const expiry=Number(el.expiry.value);
+  if(!Number.isSafeInteger(expiry)||expiry<1||expiry>3600) throw new Error("Expiry must be between 1 and 3600.");
+  status(el.assetsStatus,"Loading assets…","pending");
+  try{
+    const query=new URLSearchParams({preset,includePrivate:el.includePrivate.value,expiresInSeconds:String(expiry)});
+    const result=await api(`/api/storage/demo/assets?${query}`);
+    const assets=Array.isArray(result?.assets)?result.assets:[];
+    renderAssets(assets,preset);
+    status(el.assetsStatus,`Loaded ${assets.length} asset(s).`,"success");
+  }catch(error){
+    status(el.assetsStatus,error.message,"error");log("Asset listing failed",errorInfo(error));
+  }
+}
+function renderAssets(items,preset){
+  el.assets.innerHTML="";
+  if(!items.length){el.assets.innerHTML='<div class="details">No active assets returned.</div>';return}
+  items.forEach(asset=>{
+    const card=document.createElement("article");card.className="asset";
+    const head=document.createElement("div");head.className="asset-head";
+    const id=document.createElement("div");id.className="asset-id";id.textContent=asset.id;
+    const button=document.createElement("button");button.className="danger";button.textContent="Delete";
+    button.onclick=()=>void deleteAsset(asset.id,preset);
+    head.append(id,button);card.appendChild(head);
+
+    const meta=document.createElement("div");meta.className="meta";
+    ["Visibility: "+(asset.visibility||"unknown"),"MIME: "+(asset.mimeType||"unknown"),"Size: "+formatBytes(asset.sizeBytes)]
+      .forEach(text=>{const span=document.createElement("span");span.textContent=text;meta.appendChild(span)});
+    card.appendChild(meta);
+
+    if(asset.url){
+      if(String(asset.mimeType||"").startsWith("image/")){
+        const image=document.createElement("img");image.src=asset.url;image.alt=asset.id;image.loading="lazy";card.appendChild(image);
+      }
+      const link=document.createElement("a");link.href=asset.url;link.target="_blank";link.rel="noopener";link.textContent="Open asset URL";card.appendChild(link);
+    }
+    el.assets.appendChild(card);
+  });
+}
+async function deleteAsset(assetId,preset){
+  if(!confirm(`Delete ${assetId}?`)) return;
+  status(el.assetsStatus,`Deleting ${assetId}…`,"pending");
+  try{
+    await api(`/api/storage/demo/assets/${encodeURIComponent(assetId)}`,{
+      method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({preset})
+    });
+    status(el.assetsStatus,`${assetId} is pending asynchronous deletion.`,"success");
+    await listAssets();
+  }catch(error){
+    status(el.assetsStatus,error.message,"error");log("Deletion failed",errorInfo(error));
+  }
+}
+function setBusy(value){
+  state.busy=value;
+  el.login.disabled=value;
+  el.upload.disabled=value;
+  el.loadPresets.disabled=value;
+  el.refreshAssets.disabled=value;
+}
+function setProgress(value){el.progress.style.width=`${Math.max(0,Math.min(100,value))}%`}
+function formatTarget(target){
+  if(!target||!Array.isArray(target.nodes)) return "unknown";
+  return target.nodes.map(x=>`${x.collection}:${x.id}`).join("/")+"#"+target.slot;
+}
+function formatBytes(value){
+  let n=Number(value);if(!Number.isFinite(n)||n<0)return"unknown";if(n<1024)return`${n} B`;
+  const units=["KB","MB","GB","TB"];let i=0;n/=1024;
+  while(n>=1024&&i<units.length-1){n/=1024;i++}
+  return`${n.toFixed(n>=10?1:2)} ${units[i]}`;
+}
+function errorInfo(error){return{name:error?.name||"Error",message:error?.message||String(error),stack:error?.stack}}
+el.login.onclick=()=>void login().catch(error=>status(el.connectionStatus,error.message,"error"));
+el.loadPresets.onclick=()=>void loadPresets();
+el.clearLog.onclick=()=>el.log.textContent="Ready.";
+el.preset.onchange=()=>{showPreset();el.assets.innerHTML="";status(el.assetsStatus,"")};
+el.upload.onclick=()=>void uploadAll().catch(error=>status(el.uploadStatus,error.message,"error"));
+el.refreshAssets.onclick=()=>void listAssets().catch(error=>status(el.assetsStatus,error.message,"error"));
+</script>
+</body>
+</html>

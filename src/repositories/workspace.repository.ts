@@ -22,4 +22,17 @@ export default class WorkspaceRepository {
             },
         });
     }
+
+    static async updateWorkspace(workspaceId: number, data: any) {
+        return prisma.workspace.update({
+            where: { id: workspaceId },
+            data,
+        });
+    }
+
+    static async deleteWorkspace(workspaceId: number) {
+        return prisma.workspace.delete({
+            where: { id: workspaceId },
+        });
+    }
 }

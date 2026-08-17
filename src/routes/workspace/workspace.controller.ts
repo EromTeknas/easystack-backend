@@ -7,13 +7,15 @@ import {
   NotFoundError,
 } from "../../errors";
 import WorkspaceRepository from "../../repositories/workspace.repository";
-import { ImageUrlService } from "../../services/image-url.service";
 import { isValidName } from "../../utils/validation";
 import { prisma } from "../../db";
 import logger from "../../utils/logger";
 import { APP_ROLES } from "../../services/authorization/constants/role.constants";
 import { Workspace } from "@prisma/client";
 import ResourceIdService from "../../services/resource-id.service";
+import { WorkspaceService } from "../../services/workspace/workspace.service";
+import { storageService } from "../../services/storage/storage.instance";
+import { StoragePrivateAccess } from "../../services/storage/public/storage.contracts";
 
 const normalizeWorkspace = (workspace: Workspace) => {
   if (!workspace) return null;
@@ -25,13 +27,41 @@ const normalizeWorkspace = (workspace: Workspace) => {
     id: workspace.id,
     resourceId: workspace.resourceId,
     name: workspace.name,
-    logoUrl: workspace.logoUrl,
+    logoAssetId: workspace.logoAssetId,
     createdBy: workspace.createdById,
     // role: workspace.createdById. ?? null,
     createdAt: createdAt ? new Date(createdAt).toISOString() : null,
     updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
   };
 };
+
+async function hydrateWorkspacesWithLogos(workspaces: any[]) {
+  return Promise.all(workspaces.map(async (workspace) => {
+    if (!workspace || !workspace.logoAssetId) {
+      return { ...workspace, logoUrl: null };
+    }
+    
+    try {
+      const assets = await storageService.resolveTargetUrls({
+        target: {
+          nodes: [{ collection: "workspaces", id: workspace.id.toString() }],
+          slot: "workspace-logo"
+        },
+        privateAccess: StoragePrivateAccess.PUBLIC_ONLY
+      });
+      
+      const matchingAsset = assets.find(a => a.id === workspace.logoAssetId);
+      
+      return {
+        ...workspace,
+        logoUrl: matchingAsset?.url || null
+      };
+    } catch (e) {
+      logger.error("Failed to hydrate logo for workspace", { workspaceId: workspace.id, error: e });
+      return { ...workspace, logoUrl: null };
+    }
+  }));
+}
 
 function buildWorkspaceSlug(name: string, userId: number) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workspace";
@@ -69,9 +99,8 @@ export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
           : never => w !== null,
       );
 
-    const hydrated = await ImageUrlService.hydrateArray(
-      normalized as Record<string, any>[],
-      ["logoUrl"],
+    const hydrated = await hydrateWorkspacesWithLogos(
+      normalized as Record<string, any>[]
     );
 
     logger.debug("Workspaces retrieved successfully", {
@@ -97,67 +126,19 @@ export const createWorkspaceController = asyncHandler(
   async (req: any, res: Response) => {
     logger.debug("POST /api/workspace start");
     const userId = Number(req.user!.id);
-    const { name, logoUrl } = req.body;
+    const { name, logoAssetId } = req.body;
 
     if (!name || typeof name !== "string" || !isValidName(name)) {
       throw new BadRequestError("Invalid workspace name");
     }
 
-    // if (logoUrl !== undefined && logoUrl !== null && typeof logoUrl !== 'string') {
-    //   throw new BadRequestError('Invalid logoUrl');
-    // }
-
-    // Transactional: Create workspace + add member
-    const result = await prisma.$transaction(async (tx) => {
-      // Step 1: Create workspace
-      const workspace = await tx.workspace.create({
-        data: {
-          resourceId: await ResourceIdService.generateUniqueWorkspaceId(tx),
-          name: name.trim(),
-          slug: buildWorkspaceSlug(name.trim(), userId),
-          logoUrl: logoUrl || null,
-          createdById: userId,
-        },
-      });
-
-      logger.info("Workspace created in transaction", {
-        workspaceId: workspace.id,
-        name: workspace.name,
-        createdBy: userId,
-      });
-
-      const ownerRole = await prisma.role.findUnique({
-        where: {
-          key: APP_ROLES.WORKSPACE.WORKSPACE_OWNER,
-        },
-      });
-
-      if (!ownerRole) {
-        throw new InternalServerError(
-          "Workspace owner role not found. Ensure roles are seeded.",
-        );
-      }
-
-      await tx.workspaceMember.create({
-        data: {
-          workspaceId: workspace.id,
-          userId: workspace.createdById,
-          roleId: ownerRole.id,
-        },
-      });
-
-      logger.info("Workspace created", {
-        workspaceId: workspace.id,
-        userId: workspace.createdById,
-      });
-
-      return workspace;
-    });
+    const result = await WorkspaceService.createWorkspace(userId, name, logoAssetId);
 
     const normalized = normalizeWorkspace(result);
-    const hydrated = normalized
-      ? await ImageUrlService.hydrateObject(normalized, ["logoUrl"])
-      : null;
+    const hydratedList = normalized
+      ? await hydrateWorkspacesWithLogos([normalized])
+      : [null];
+    const hydrated = hydratedList[0];
 
     return ok(res, { workspace: hydrated }, { statusCode: 201 });
   },
@@ -178,12 +159,33 @@ export const getWorkspaceById = asyncHandler(
       throw new NotFoundError("Workspace not found");
     }
 
-    const hydrated = await ImageUrlService.hydrateObject(workspace, ["logoUrl"])
+    const hydratedList = await hydrateWorkspacesWithLogos([workspace]);
+    const hydrated = hydratedList[0];
 
     return ok(res, { workspace: hydrated });
   },
 );
 
 export const updateWorkspace = asyncHandler( async (req: any, res: Response) => {
-  return ok(res, { message: "Update workspace endpoint is under construction" });
+  const workspaceId = Number(req.params.workspaceId);
+  const { name, logoAssetId } = req.body;
+
+  if (name && (typeof name !== "string" || !isValidName(name))) {
+    throw new BadRequestError("Invalid workspace name");
+  }
+
+  const updatedWorkspace = await WorkspaceService.updateWorkspace(workspaceId, { name, logoAssetId });
+  const normalized = normalizeWorkspace(updatedWorkspace as any);
+  const hydratedList = normalized ? await hydrateWorkspacesWithLogos([normalized]) : [null];
+  const hydrated = hydratedList[0];
+
+  return ok(res, { workspace: hydrated });
+});
+
+export const deleteWorkspace = asyncHandler( async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  
+  await WorkspaceService.deleteWorkspace(workspaceId);
+  
+  return ok(res, { message: "Workspace deleted successfully" });
 });

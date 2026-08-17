@@ -136,7 +136,7 @@ model Workspace {
 
   slug String @unique
 
-  logoUrl String? @map("logo_url")
+  logoAssetId String? @map("logo_asset_id")
 
   createdById Int @map("created_by")
 

@@ -217,3 +217,64 @@ export const generateGetUrl = asyncHandler(async (req: any, res: Response) => {
     expiresIn
   });
 });
+
+import { storageService } from '../../services/storage/storage.instance';
+import { STORAGE_PRESETS, PresetName } from '../../config/storage.presets';
+import { StorageTarget } from '../../services/storage/public/storage.contracts';
+
+export const createUploadIntent = asyncHandler(async (req: any, res: Response) => {
+  const userId = String(req.user!.id);
+  const presetName = req.body?.preset as string;
+  
+  if (!presetName || !(presetName in STORAGE_PRESETS)) {
+    throw new BadRequestError(`preset must be one of: ${Object.keys(STORAGE_PRESETS).join(", ")}`);
+  }
+
+  const presetConfig = STORAGE_PRESETS[presetName as PresetName];
+
+  const nodes = req.body?.targetNodes;
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    throw new BadRequestError("targetNodes array is required");
+  }
+
+  const normalizedNodes = nodes.map(n => ({
+    collection: typeof n.collection === "string" ? n.collection.trim() : String(n.collection),
+    id: typeof n.id === "string" ? n.id.trim() : String(n.id)
+  }));
+
+  const target: StorageTarget = {
+    nodes: normalizedNodes,
+    slot: presetConfig.slot,
+  };
+
+  const file = req.body?.file;
+  if (!file || typeof file.originalName !== "string" || typeof file.mimeType !== "string" || typeof file.sizeBytes !== "number") {
+      throw new BadRequestError("file must contain originalName, mimeType, and sizeBytes");
+  }
+
+  const result = await storageService.createUploadIntent({
+    actorId: userId,
+    target,
+    fileClass: presetConfig.fileClass,
+    file,
+    policy: presetConfig.policy,
+  });
+
+  return ok(res, {
+    uploadId: result.uploadId,
+    upload: result.upload,
+  }, { statusCode: 201 });
+});
+
+export const completeUpload = asyncHandler(async (req: any, res: Response) => {
+  const userId = String(req.user!.id);
+  const uploadId = req.params.uploadId;
+
+  if (!uploadId || typeof uploadId !== "string") {
+    throw new BadRequestError("uploadId is required");
+  }
+
+  const asset = await storageService.completeUpload({ actorId: userId, uploadId });
+
+  return ok(res, { asset });
+});

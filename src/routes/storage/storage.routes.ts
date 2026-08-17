@@ -5,7 +5,9 @@ import {
 	deleteS3Object,
 	listS3Objects,
 	generateUploadUrl,
-	generateGetUrl
+	generateGetUrl,
+	createUploadIntent,
+	completeUpload
 } from './storage.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import {
@@ -27,6 +29,10 @@ router.delete('/s3', deleteS3Object);
 // Presigned URL generation (protected)
 router.post('/upload-url', authenticate, generateUploadUrl);
 router.get('/get-url', authenticate, generateGetUrl);
+
+// Generic Storage Upload Lifecycle
+router.post('/upload-intents', authenticate, createUploadIntent);
+router.post('/upload-intents/:uploadId/complete', authenticate, completeUpload);
 
 // Intent-based StorageService demonstration APIs (authenticated and user-isolated).
 router.get('/demo/presets', authenticate, listStorageDemoPresets);
