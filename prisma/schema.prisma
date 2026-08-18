@@ -47,6 +47,9 @@ model User {
   defaultWorkspace     Workspace?     @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id], map: "User_defaultWorkspace_fkey")
   billingSubscriptions Subscription[] @relation("SubscriptionBillingOwner")
 
+  invitesSent     WorkspaceInvitation[] @relation("InvitesSent")
+  invitesReceived WorkspaceInvitation[] @relation("InvitesReceived")
+
   @@index([status])
 }
 
@@ -158,6 +161,8 @@ model Workspace {
   invoices              Invoice[]
   subscriptionHistories SubscriptionHistory[]
 
+  invitations WorkspaceInvitation[]
+
   @@index([createdById])
 }
 
@@ -188,12 +193,64 @@ model Project {
 
   createdBy User @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
-  members ProjectMember[]
+  members               ProjectMember[]
+  invitationAssignments InvitationProjectAssignment[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
   @@index([slug])
+}
+
+//////////////////////////////////////////////////////////////
+// WORKSPACE INVITATIONS
+//////////////////////////////////////////////////////////////
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+model WorkspaceInvitation {
+  id              Int              @id @default(autoincrement())
+  workspaceId     Int              @map("workspace_id")
+  inviterId       Int              @map("inviter_id")
+  inviteeId       Int?             @map("invitee_id")
+  inviteeEmail    String           @map("invitee_email")
+  workspaceRoleId Int              @map("workspace_role_id")
+  status          InvitationStatus @default(PENDING)
+  token           String           @unique
+  expiresAt       DateTime         @map("expires_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter   User      @relation("InvitesSent", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee   User?     @relation("InvitesReceived", fields: [inviteeId], references: [id], onDelete: SetNull)
+  role      Role      @relation(fields: [workspaceRoleId], references: [id], onDelete: Restrict)
+
+  projectAssignments InvitationProjectAssignment[]
+
+  @@index([workspaceId])
+  @@index([inviteeEmail])
+  @@index([inviteeId])
+}
+
+model InvitationProjectAssignment {
+  id           Int @id @default(autoincrement())
+  invitationId Int @map("invitation_id")
+  projectId    Int @map("project_id")
+  roleId       Int @map("role_id")
+
+  invitation WorkspaceInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role       Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@index([invitationId])
+  @@index([projectId])
 }
 
 //////////////////////////////////////////////////////////////
@@ -288,8 +345,10 @@ model Role {
   workspaceMembers WorkspaceMember[]
 
   projectMembers ProjectMember[]
+  permissions    RolePermission[]
 
-  permissions RolePermission[]
+  workspaceInvitations         WorkspaceInvitation[]
+  invitationProjectAssignments InvitationProjectAssignment[]
 
   @@index([scope])
   @@index([workspaceId])

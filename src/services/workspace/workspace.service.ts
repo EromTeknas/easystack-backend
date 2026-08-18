@@ -49,4 +49,8 @@ export class WorkspaceService {
   static async deleteWorkspace(workspaceId: number) {
     return WorkspaceRepository.deleteWorkspace(workspaceId);
   }
+
+  static async listWorkspaceMembers(workspaceId: number) {
+    return WorkspaceRepository.getWorkspaceMembers(workspaceId);
+  }
 }

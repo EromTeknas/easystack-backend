@@ -8,7 +8,11 @@ import onboardingRoutes from './onboarding/onboarding.routes';
 import workspaceRoutes from './workspace/workspace.routes';
 import projectsRoutes from './projects/projects.routes';
 import publicBillingRoutes from './public/billing/billing.routes';
+import userRoutes from './user/user.routes';
 const router = Router();
+
+// User routes
+router.use('/user', userRoutes);
 
 // Authentication routes
 router.use('/auth', authRoutes);

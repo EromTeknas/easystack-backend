@@ -251,3 +251,66 @@ export async function sendPasswordResetEmail(
     htmlContent
   });
 }
+
+/**
+ * Send workspace invitation email
+ */
+export async function sendWorkspaceInviteEmail(
+  email: string,
+  inviterName: string,
+  workspaceName: string,
+  token: string
+): Promise<boolean> {
+  // Assuming the frontend runs at a known URL or the same domain
+  // We can configure this in config later, but for now:
+  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  const inviteUrl = `${appUrl}/invites/accept?token=${encodeURIComponent(token)}`;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px; }
+          .button { 
+            display: inline-block; 
+            background-color: #0066cc; 
+            color: white; 
+            padding: 12px 30px; 
+            border-radius: 6px; 
+            text-decoration: none;
+            margin: 20px 0;
+          }
+          .footer { font-size: 12px; color: #666; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>You've been invited!</h2>
+            <p>Hi there,</p>
+            <p><strong>${inviterName}</strong> has invited you to join the <strong>${workspaceName}</strong> workspace on EasyStack.</p>
+          </div>
+          <p>
+            <a href="${inviteUrl}" class="button">Accept Invitation</a>
+          </p>
+          <p>If you don't have an account yet, you will be prompted to create one.</p>
+          <div class="footer">
+            <p>This invitation link will expire in 7 days.</p>
+            <p>&copy; 2026 EasyStack. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendBrevoEmail({
+    email,
+    firstName: email.split('@')[0]!,
+    subject: `You've been invited to join ${workspaceName}`,
+    htmlContent
+  });
+}

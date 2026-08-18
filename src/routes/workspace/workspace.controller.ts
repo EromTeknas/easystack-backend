@@ -38,7 +38,7 @@ const normalizeWorkspace = (workspace: Workspace) => {
 async function hydrateWorkspacesWithLogos(workspaces: any[]) {
   return Promise.all(workspaces.map(async (workspace) => {
     if (!workspace || !workspace.logoAssetId) {
-      return { ...workspace, logoUrl: null };
+      return { ...workspace, logo: null };
     }
     
     try {
@@ -52,13 +52,23 @@ async function hydrateWorkspacesWithLogos(workspaces: any[]) {
       
       const matchingAsset = assets.find(a => a.id === workspace.logoAssetId);
       
+      let logo = null;
+      if (matchingAsset) {
+        logo = {
+          id: matchingAsset.id,
+          src: matchingAsset.url,
+          mimeType: matchingAsset.mimeType,
+          sizeBytes: matchingAsset.sizeBytes
+        };
+      }
+
       return {
         ...workspace,
-        logoUrl: matchingAsset?.url || null
+        logo
       };
     } catch (e) {
       logger.error("Failed to hydrate logo for workspace", { workspaceId: workspace.id, error: e });
-      return { ...workspace, logoUrl: null };
+      return { ...workspace, logo: null };
     }
   }));
 }
@@ -89,6 +99,11 @@ export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
       throw new InternalServerError("Failed to retrieve workspaces");
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { defaultWorkspaceId: true },
+    });
+
     const normalized = workspaces
       .map(normalizeWorkspace)
       .filter(
@@ -97,7 +112,11 @@ export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
         ): w is typeof normalizeWorkspace extends (...args: any[]) => infer R
           ? R & {}
           : never => w !== null,
-      );
+      )
+      .map(w => ({
+        ...w,
+        isDefault: w.id === user?.defaultWorkspaceId
+      }));
 
     const hydrated = await hydrateWorkspacesWithLogos(
       normalized as Record<string, any>[]
@@ -125,6 +144,7 @@ export const listWorkspaces = asyncHandler(async (req: any, res: Response) => {
 export const createWorkspaceController = asyncHandler(
   async (req: any, res: Response) => {
     logger.debug("POST /api/workspace start");
+    
     const userId = Number(req.user!.id);
     const { name, logoAssetId } = req.body;
 
@@ -188,4 +208,12 @@ export const deleteWorkspace = asyncHandler( async (req: any, res: Response) => 
   await WorkspaceService.deleteWorkspace(workspaceId);
   
   return ok(res, { message: "Workspace deleted successfully" });
+});
+
+export const listWorkspaceMembers = asyncHandler(async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  
+  const members = await WorkspaceService.listWorkspaceMembers(workspaceId);
+  
+  return ok(res, { members });
 });

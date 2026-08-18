@@ -35,4 +35,29 @@ export default class WorkspaceRepository {
             where: { id: workspaceId },
         });
     }
+
+    static async getWorkspaceMembers(workspaceId: number) {
+        return prisma.workspaceMember.findMany({
+            where: { workspaceId, removedAt: null },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        resourceId: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true
+                    }
+                },
+                role: {
+                    select: {
+                        id: true,
+                        key: true,
+                        name: true
+                    }
+                }
+            },
+            orderBy: { joinedAt: "asc" }
+        });
+    }
 }
