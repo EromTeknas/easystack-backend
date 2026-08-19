@@ -50,3 +50,16 @@ export const listWorkspaceInvites = asyncHandler(async (req: any, res: Response)
   const invitations = await WorkspaceInviteService.listSentInvites(workspaceId);
   return ok(res, { invitations });
 });
+
+/**
+ * DELETE /api/workspace/:workspaceId/invites/:invitationId
+ * Delete (revoke) an active invitation
+ */
+export const revokeInvite = asyncHandler(async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  const invitationId = Number(req.params.invitationId);
+  const inviterId = Number(req.user!.id);
+  
+  const result = await WorkspaceInviteService.revokeInvite(workspaceId, invitationId, inviterId);
+  return ok(res, result);
+});

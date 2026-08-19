@@ -225,4 +225,17 @@ export class AuthenticationRepository {
       });
     });
   }
+
+  async addPasswordMethod(userId: number, email: string, passwordHash: string): Promise<void> {
+    await this.prisma.authAccount.create({
+      data: {
+        userId,
+        provider: AuthProvider.PASSWORD,
+        providerAccountId: email,
+        email,
+        emailVerified: true,
+        passwordHash,
+      },
+    });
+  }
 }

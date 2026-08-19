@@ -49,6 +49,11 @@ export class WorkspaceInviteService {
       throw new BadRequestError("Email is required for the invitation");
     }
 
+    const pendingInvite = await WorkspaceInvitationRepository.findPendingByWorkspaceAndUser(workspaceId, invitee?.id || -1, inviteeEmail);
+    if (pendingInvite) {
+      throw new BadRequestError("An active invitation already exists for this email");
+    }
+
     if (invitee) {
       const existingMember = await prisma.workspaceMember.findUnique({
         where: {
@@ -93,5 +98,19 @@ export class WorkspaceInviteService {
 
   static async listSentInvites(workspaceId: number) {
     return WorkspaceInvitationRepository.getSentInvitationsByWorkspaceId(workspaceId);
+  }
+
+  static async revokeInvite(workspaceId: number, invitationId: number, inviterId: number) {
+    const invite = await WorkspaceInvitationRepository.findById(invitationId);
+    if (!invite || invite.workspaceId !== workspaceId) {
+      throw new BadRequestError("Invitation not found");
+    }
+    
+    // Revoke by simply deleting it (or could set status to REVOKED)
+    await prisma.workspaceInvitation.delete({
+      where: { id: invitationId }
+    });
+    
+    return { message: "Invitation revoked successfully" };
   }
 }

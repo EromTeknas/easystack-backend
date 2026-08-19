@@ -401,4 +401,23 @@ export class AuthenticationService {
       defaultWorkspaceId: user.defaultWorkspaceId,
     };
   }
+
+  async addPasswordMethod(userId: string, password: string): Promise<{ message: string }> {
+    const numericUserId = Number(userId);
+    const user = await this.users.findUserById(numericUserId);
+    
+    if (!user) {
+      throw new NotFoundError("User not found");
+    }
+
+    const existingPasswordAccount = await this.users.findPasswordLoginByEmail(user.email);
+    if (existingPasswordAccount) {
+      throw new ConflictError("A password login method is already configured for this account");
+    }
+
+    const passwordHash = await hashPassword(password);
+    await this.users.addPasswordMethod(numericUserId, user.email, passwordHash);
+
+    return { message: "Password login method added successfully" };
+  }
 }

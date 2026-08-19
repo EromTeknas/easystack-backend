@@ -10,7 +10,7 @@ import { forgotPasswordController } from './forgot-password.controller';
 import { resetPasswordController } from './reset-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
-import { googleLoginController, linkGoogleController } from './provider.controller';
+import { googleLoginController, linkGoogleController, addPasswordController } from './provider.controller';
 
 const router = Router();
 
@@ -148,5 +148,24 @@ router.post('/logout', logoutController);
  *   - user object with workspaces
  */
 router.get('/me', authenticate, getMeController);
+
+/**
+ * POST /auth/link/google
+ * Link Google account to existing user account
+ * Protected endpoint
+ */
+router.post('/link/google', authenticate, linkGoogleController);
+
+/**
+ * @swagger
+ * /auth/link/password:
+ *   post:
+ *     summary: Add password login method
+ *     description: Add a password login method to an account that was created via OAuth
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/link/password', authenticate, addPasswordController);
 
 export default router;

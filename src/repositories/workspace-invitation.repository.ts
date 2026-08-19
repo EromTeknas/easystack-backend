@@ -13,11 +13,14 @@ class WorkspaceInvitationRepository {
     });
   }
 
-  async findPendingByWorkspaceAndUser(workspaceId: number, userId: number) {
+  async findPendingByWorkspaceAndUser(workspaceId: number, userId: number, email: string) {
     return prisma.workspaceInvitation.findFirst({
       where: {
         workspaceId,
-        inviteeId: userId,
+        OR: [
+          { inviteeId: userId !== -1 ? userId : null },
+          { inviteeEmail: email }
+        ],
         status: "PENDING",
         expiresAt: { gt: new Date() }
       }

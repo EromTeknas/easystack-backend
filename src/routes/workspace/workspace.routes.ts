@@ -34,5 +34,6 @@ router.get('/roles', authenticate, authorize({scope: 'workspace', permission: PE
 router.get('/:workspaceId/invitation-context', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.getInvitationContext);
 router.post('/:workspaceId/invites', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.sendInvite);
 router.get('/:workspaceId/invites', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.listWorkspaceInvites);
+router.delete('/:workspaceId/invites/:invitationId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.revokeInvite);
 
 export default router;
