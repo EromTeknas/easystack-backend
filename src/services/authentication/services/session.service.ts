@@ -1,6 +1,7 @@
 import { UserStatus } from "@prisma/client";
 
 import { UnauthorizedError } from "../../../errors";
+import { AUTH_ERROR_CODES } from "../../../constants/errorCodes";
 import logger from "../../../utils/logger";
 import type {
   AuthUser,
@@ -46,7 +47,7 @@ export class SessionService {
     try {
       claims = this.tokens.verifyRefreshToken(presentedRefreshToken);
     } catch {
-      throw new UnauthorizedError("Invalid or expired refresh token");
+      throw new UnauthorizedError("Invalid or expired refresh token", AUTH_ERROR_CODES.REFRESH_TOKEN_EXPIRED);
     }
 
     const current = await this.repository.findByJti(claims.jti);
@@ -136,7 +137,7 @@ export class SessionService {
       return this.tokens.verifyAccessToken(accessToken);
     } catch (error: any) {
       if (error?.name === "TokenExpiredError") {
-        throw new UnauthorizedError("Token expired");
+        throw new UnauthorizedError("Access token expired", AUTH_ERROR_CODES.ACCESS_TOKEN_EXPIRED);
       }
 
       throw new UnauthorizedError("Invalid token");

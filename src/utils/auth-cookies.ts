@@ -10,7 +10,7 @@ const baseCookieOptions = (): CookieOptions => ({
 });
 
 export const setAccessTokenCookie = (res: Response, accessToken: string) => {
-  const maxAge = auth.accessTokenExpirySeconds * 1000; // Convert to milliseconds
+  const maxAge = (auth.refreshTokenExpirySeconds + 15) * 1000; // Convert to milliseconds
   res.cookie(auth.cookies.accessTokenName, accessToken, {
     ...baseCookieOptions(),
     maxAge
@@ -18,7 +18,7 @@ export const setAccessTokenCookie = (res: Response, accessToken: string) => {
 };
 
 export const setRefreshTokenCookie = (res: Response, refreshToken: string) => {
-  const maxAge = auth.refreshTokenExpirySeconds * 1000; // Convert to milliseconds
+  const maxAge = (auth.refreshTokenExpirySeconds + (60 * 24)) * 1000; // Convert to milliseconds
   res.cookie(auth.cookies.refreshTokenName, refreshToken, {
     ...baseCookieOptions(),
     maxAge
