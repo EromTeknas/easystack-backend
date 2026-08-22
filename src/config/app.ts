@@ -4,6 +4,7 @@ export const app = {
   name: env.APP_NAME,
   port: env.PORT,
   environment: env.ENVIRONMENT,
+  simulateDelay: env.SIMULATE_DELAY,
 };
 
 
@@ -13,5 +14,6 @@ export const logDir = env.LOG_DIR;
 export const logIdentifier = env.LOG_IDENTIFIER;
 export const baseUrl = env.BASE_URL;
 export const passwordResetUrl = env.PASSWORD_RESET_URL;
+export const simulateDelay = env.SIMULATE_DELAY;
 
-export default { app, logLevel, logDir, logIdentifier, environment, baseUrl, passwordResetUrl };
+export default { app, logLevel, logDir, logIdentifier, environment, baseUrl, passwordResetUrl, simulateDelay };

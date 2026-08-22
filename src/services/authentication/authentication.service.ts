@@ -292,7 +292,7 @@ export class AuthenticationService {
     context: ClientContext,
   ): Promise<AuthenticatedSession> {
     if (!refreshToken) {
-      throw new UnauthorizedError("Refresh token not found");
+      throw new UnauthorizedError("Refresh token not found", AUTH_ERROR_CODES.REFRESH_TOKEN_EXPIRED);
     }
 
     return this.sessions.rotate(refreshToken, context);
