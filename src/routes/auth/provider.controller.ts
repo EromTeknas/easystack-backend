@@ -60,3 +60,11 @@ export const addPasswordController = asyncHandler(async (req, res) => {
 
   return ok(res, result);
 });
+
+export const getAuthProvidersController = asyncHandler(async (req, res) => {
+  const result = await authenticationService.getLinkedAuthProviders(
+    req.user!.id.toString(),
+  );
+
+  return ok(res, result);
+});

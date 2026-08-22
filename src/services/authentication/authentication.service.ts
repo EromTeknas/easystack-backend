@@ -420,4 +420,32 @@ export class AuthenticationService {
 
     return { message: "Password login method added successfully" };
   }
+
+  async getLinkedAuthProviders(userId: string) {
+    const accounts = await this.users.findAuthAccountsByUserId(Number(userId));
+
+    const googleAccount = accounts.find(
+      (account) => account.provider === AuthProvider.GOOGLE,
+    );
+    const passwordAccount = accounts.find(
+      (account) => account.provider === AuthProvider.PASSWORD,
+    );
+
+    const toProviderPayload = (
+      provider: "google" | "password",
+      account?: (typeof accounts)[number],
+    ) => ({
+      provider,
+      connected: Boolean(account),
+      identifier: account?.email,
+      connectedAt: (account?.lastUsedAt ?? account?.createdAt)?.toISOString(),
+    });
+
+    return {
+      providers: [
+        toProviderPayload("google", googleAccount),
+        toProviderPayload("password", passwordAccount),
+      ],
+    };
+  }
 }

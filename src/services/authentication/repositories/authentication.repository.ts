@@ -238,4 +238,16 @@ export class AuthenticationRepository {
       },
     });
   }
+
+  async findAuthAccountsByUserId(userId: number) {
+    return this.prisma.authAccount.findMany({
+      where: { userId },
+      select: {
+        provider: true,
+        email: true,
+        lastUsedAt: true,
+        createdAt: true,
+      },
+    });
+  }
 }
