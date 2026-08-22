@@ -250,4 +250,46 @@ export class AuthenticationRepository {
       },
     });
   }
+
+  async deleteAuthAccountByUserAndProvider(
+    userId: number,
+    provider: AuthProvider,
+  ): Promise<void> {
+    const account = await this.prisma.authAccount.findFirst({
+      where: { userId, provider },
+      select: { id: true },
+    });
+
+    if (!account) {
+      return;
+    }
+
+    await this.prisma.authAccount.delete({
+      where: { id: account.id },
+    });
+  }
+
+  async updatePasswordHashForUser(
+    userId: number,
+    email: string,
+    passwordHash: string,
+  ): Promise<void> {
+    const account = await this.prisma.authAccount.findFirst({
+      where: {
+        userId,
+        provider: AuthProvider.PASSWORD,
+        providerAccountId: email,
+      },
+      select: { id: true },
+    });
+
+    if (!account) {
+      throw new ConflictError("Password sign-in is not configured for this account");
+    }
+
+    await this.prisma.authAccount.update({
+      where: { id: account.id },
+      data: { passwordHash },
+    });
+  }
 }

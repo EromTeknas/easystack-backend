@@ -68,3 +68,30 @@ export const getAuthProvidersController = asyncHandler(async (req, res) => {
 
   return ok(res, result);
 });
+
+export const unlinkProviderController = asyncHandler(async (req, res) => {
+  const provider = Array.isArray(req.params.provider)
+    ? req.params.provider[0]
+    : req.params.provider;
+
+  if (!provider) {
+    throw new BadRequestError("Provider is required");
+  }
+
+  const result = await authenticationService.unlinkAuthProvider(
+    req.user!.id.toString(),
+    provider,
+    req.body,
+  );
+
+  return ok(res, result);
+});
+
+export const changePasswordController = asyncHandler(async (req, res) => {
+  const result = await authenticationService.changePassword(
+    req.user!.id.toString(),
+    req.body,
+  );
+
+  return ok(res, result);
+});

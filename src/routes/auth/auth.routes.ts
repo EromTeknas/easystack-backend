@@ -10,7 +10,7 @@ import { forgotPasswordController } from './forgot-password.controller';
 import { resetPasswordController } from './reset-password.controller';
 import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
-import { googleLoginController, linkGoogleController, addPasswordController, getAuthProvidersController } from './provider.controller';
+import { googleLoginController, linkGoogleController, addPasswordController, getAuthProvidersController, unlinkProviderController, changePasswordController } from './provider.controller';
 
 const router = Router();
 
@@ -119,6 +119,20 @@ router.post('/providers/google/link', authenticate, linkGoogleController);
  * Protected endpoint
  */
 router.get('/providers', authenticate, getAuthProvidersController);
+
+/**
+ * DELETE /auth/providers/:provider
+ * Remove a linked sign-in method from the current user
+ * Protected endpoint
+ */
+router.delete('/providers/:provider', authenticate, unlinkProviderController);
+
+/**
+ * POST /auth/change-password
+ * Change password for the currently authenticated user
+ * Protected endpoint
+ */
+router.post('/change-password', authenticate, changePasswordController);
 
 /**
  * POST /auth/refresh

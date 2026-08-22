@@ -75,6 +75,17 @@ export interface ResetPasswordInput {
   confirmPassword: string;
 }
 
+export interface ChangePasswordInput {
+  currentPassword: string;
+  password: string;
+  confirmPassword: string;
+}
+
+export interface UnlinkProviderInput {
+  currentPassword?: string;
+  credential?: string;
+}
+
 export interface LogoutInput {
   refreshToken?: string | undefined;
   logoutFromAllDevices?: boolean;

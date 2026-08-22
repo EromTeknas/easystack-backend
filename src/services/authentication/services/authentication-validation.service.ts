@@ -9,6 +9,7 @@ import type {
   LoginPasswordInput,
   RegisterPasswordInput,
   ResetPasswordInput,
+  ChangePasswordInput,
   VerifyEmailInput,
 } from "../types/authentication.types";
 
@@ -103,6 +104,35 @@ export class AuthenticationValidationService {
       throw new BadRequestError("Password and confirm password do not match", {
         field: "confirmPassword",
       });
+    }
+
+    return input;
+  }
+
+  validateChangePassword(input: ChangePasswordInput): ChangePasswordInput {
+    if (!input.currentPassword || !input.password || !input.confirmPassword) {
+      throw new BadRequestError(
+        "currentPassword, password, and confirmPassword are required",
+      );
+    }
+
+    if (!isValidPassword(input.password)) {
+      throw new BadRequestError("Password does not meet requirements", {
+        field: "password",
+      });
+    }
+
+    if (input.password !== input.confirmPassword) {
+      throw new BadRequestError("Password and confirm password do not match", {
+        field: "confirmPassword",
+      });
+    }
+
+    if (input.currentPassword === input.password) {
+      throw new BadRequestError(
+        "New password must be different from your current password",
+        { field: "password" },
+      );
     }
 
     return input;

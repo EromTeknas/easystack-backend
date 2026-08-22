@@ -19,6 +19,8 @@ import type {
   PublicAuthUser,
   RegisterPasswordInput,
   ResetPasswordInput,
+  ChangePasswordInput,
+  UnlinkProviderInput,
   VerifyEmailInput,
 } from "./types/authentication.types";
 import { AuthenticationProviderRegistry } from "./providers/provider.registry";
@@ -447,5 +449,158 @@ export class AuthenticationService {
         toProviderPayload("password", passwordAccount),
       ],
     };
+  }
+
+  async unlinkAuthProvider(
+    userId: string,
+    providerParam: string,
+    input: UnlinkProviderInput = {},
+  ) {
+    const provider = this.parseAuthProviderParam(providerParam);
+    const numericUserId = Number(userId);
+    const user = await this.users.findUserById(numericUserId);
+
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerified) {
+      throw new UnauthorizedError("User account is not active");
+    }
+
+    const accounts = await this.users.findAuthAccountsByUserId(numericUserId);
+    const linkedAccount = accounts.find((account) => account.provider === provider);
+
+    if (!linkedAccount) {
+      throw new NotFoundError("This sign-in method is not linked to your account");
+    }
+
+    if (accounts.length <= 1) {
+      throw new BadRequestError(
+        "You must keep at least one sign-in method on your account",
+      );
+    }
+
+    if (provider === AuthProvider.GOOGLE) {
+      if (!input.currentPassword) {
+        throw new BadRequestError(
+          "Current password is required to disconnect Google",
+          { field: "currentPassword" },
+        );
+      }
+
+      await this.verifyCurrentPasswordForUser(
+        numericUserId,
+        user.email,
+        input.currentPassword,
+      );
+    } else {
+      if (!input.credential) {
+        throw new BadRequestError(
+          "Google verification is required to remove password sign-in",
+          { field: "credential" },
+        );
+      }
+
+      await this.verifyGoogleReauthForUser(user, input.credential);
+    }
+
+    await this.users.deleteAuthAccountByUserAndProvider(numericUserId, provider);
+
+    const providerLabel = provider === AuthProvider.GOOGLE ? "Google" : "Email & Password";
+
+    return {
+      message: `${providerLabel} sign-in method removed successfully`,
+    };
+  }
+
+  async changePassword(userId: string, input: ChangePasswordInput) {
+    const validated = this.validation.validateChangePassword(input);
+    const numericUserId = Number(userId);
+    const user = await this.users.findUserById(numericUserId);
+
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerified) {
+      throw new UnauthorizedError("User account is not active");
+    }
+
+    await this.verifyCurrentPasswordForUser(
+      numericUserId,
+      user.email,
+      validated.currentPassword,
+    );
+
+    const passwordHash = await hashPassword(validated.password);
+    await this.users.updatePasswordHashForUser(
+      numericUserId,
+      user.email,
+      passwordHash,
+    );
+
+    return { message: "Password changed successfully" };
+  }
+
+  private async verifyCurrentPasswordForUser(
+    userId: number,
+    email: string,
+    currentPassword: string,
+  ): Promise<void> {
+    const passwordAccount = await this.users.findPasswordLoginByEmail(email);
+
+    if (!passwordAccount?.passwordHash || passwordAccount.user.id !== userId) {
+      throw new BadRequestError(
+        "Password sign-in is not configured for this account",
+      );
+    }
+
+    const validCurrentPassword = await verifyPassword(
+      currentPassword,
+      passwordAccount.passwordHash,
+    );
+
+    if (!validCurrentPassword) {
+      throw new UnauthorizedError(
+        "Current password is incorrect",
+        AUTH_ERROR_CODES.INVALID_CREDENTIALS,
+        { field: "currentPassword" },
+      );
+    }
+  }
+
+  private async verifyGoogleReauthForUser(
+    user: { id: number; email: string },
+    credential: string,
+  ): Promise<void> {
+    const googleProvider = this.providers.get(AuthProvider.GOOGLE);
+    const identity = await googleProvider.verifyCredential({ credential });
+
+    if (identity.email !== user.email) {
+      throw new BadRequestError(
+        "Google account email must match the signed-in EasyStack account",
+      );
+    }
+
+    const linkedGoogleAccount = await this.users.findProviderAccount(
+      AuthProvider.GOOGLE,
+      identity.providerAccountId,
+    );
+
+    if (!linkedGoogleAccount || linkedGoogleAccount.userId !== user.id) {
+      throw new UnauthorizedError(
+        "Google verification does not match the Google account linked to this user",
+      );
+    }
+  }
+
+  private parseAuthProviderParam(providerParam: string): AuthProvider {
+    const normalized = providerParam?.trim().toLowerCase();
+
+    if (normalized === "google") {
+      return AuthProvider.GOOGLE;
+    }
+
+    if (normalized === "password") {
+      return AuthProvider.PASSWORD;
+    }
+
+    throw new BadRequestError(
+      "Invalid provider. Supported values: google, password",
+      { field: "provider" },
+    );
   }
 }
