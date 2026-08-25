@@ -90,6 +90,56 @@ export class SessionRepository {
     });
   }
 
+  async revokeAllExceptJti(userId: number, keepJti: string): Promise<number> {
+    const result = await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        jti: { not: keepJti },
+      },
+      data: { revokedAt: new Date() },
+    });
+
+    return result.count;
+  }
+
+  async findActiveSessionsByUserId(userId: number) {
+    return this.prisma.refreshToken.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: {
+        id: true,
+        jti: true,
+        deviceName: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+        updatedAt: true,
+        expiresAt: true,
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+  }
+
+  async findActiveSessionByIdForUser(userId: number, sessionId: number) {
+    return this.prisma.refreshToken.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: {
+        id: true,
+        jti: true,
+        familyId: true,
+      },
+    });
+  }
+
   async revokeExact(jti: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({
       where: {

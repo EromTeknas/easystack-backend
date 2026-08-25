@@ -91,6 +91,7 @@ export const changePasswordController = asyncHandler(async (req, res) => {
   const result = await authenticationService.changePassword(
     req.user!.id.toString(),
     req.body,
+    req.cookies?.[auth.cookies.refreshTokenName],
   );
 
   return ok(res, result);

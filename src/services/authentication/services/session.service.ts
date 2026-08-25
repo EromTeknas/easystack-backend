@@ -1,6 +1,6 @@
 import { UserStatus } from "@prisma/client";
 
-import { UnauthorizedError } from "../../../errors";
+import { BadRequestError, NotFoundError, UnauthorizedError } from "../../../errors";
 import { AUTH_ERROR_CODES } from "../../../constants/errorCodes";
 import logger from "../../../utils/logger";
 import type {
@@ -130,6 +130,118 @@ export class SessionService {
     }
 
     await this.repository.revokeFamily(current.familyId);
+  }
+
+  async listActiveSessions(userId: number, currentRefreshToken?: string) {
+    let currentJti: string | null = null;
+
+    if (currentRefreshToken) {
+      try {
+        currentJti = this.tokens.verifyRefreshToken(currentRefreshToken).jti;
+      } catch {
+        currentJti = null;
+      }
+    }
+
+    const sessions = await this.repository.findActiveSessionsByUserId(userId);
+
+    return sessions.map((session) => ({
+      id: session.id,
+      deviceName: session.deviceName ?? "Unknown device",
+      ipAddress: session.ipAddress,
+      createdAt: session.createdAt.toISOString(),
+      lastActiveAt: session.updatedAt.toISOString(),
+      expiresAt: session.expiresAt.toISOString(),
+      isCurrent: currentJti !== null && session.jti === currentJti,
+    }));
+  }
+
+  async revokeSessionForUser(
+    userId: number,
+    sessionId: number,
+    currentRefreshToken?: string,
+  ): Promise<{ message: string }> {
+    const session = await this.repository.findActiveSessionByIdForUser(
+      userId,
+      sessionId,
+    );
+
+    if (!session) {
+      throw new NotFoundError("Session not found or already revoked");
+    }
+
+    if (currentRefreshToken) {
+      try {
+        const currentJti = this.tokens.verifyRefreshToken(currentRefreshToken).jti;
+        if (session.jti === currentJti) {
+          throw new BadRequestError(
+            "Cannot revoke the current session. Use logout instead.",
+          );
+        }
+      } catch (error) {
+        if (error instanceof BadRequestError) {
+          throw error;
+        }
+      }
+    }
+
+    await this.repository.revokeFamily(session.familyId);
+
+    return { message: "Session revoked successfully" };
+  }
+
+  async revokeOtherSessions(
+    userId: number,
+    currentRefreshToken: string | undefined,
+  ): Promise<{ message: string; revokedCount: number }> {
+    if (!currentRefreshToken) {
+      throw new UnauthorizedError("Current session is required");
+    }
+
+    let currentJti: string;
+
+    try {
+      currentJti = this.tokens.verifyRefreshToken(currentRefreshToken).jti;
+    } catch {
+      throw new UnauthorizedError("Current session is invalid");
+    }
+
+    const current = await this.repository.findByJti(currentJti);
+
+    if (!current || current.userId !== userId || current.revokedAt) {
+      throw new UnauthorizedError("Current session is invalid");
+    }
+
+    const revokedCount = await this.repository.revokeAllExceptJti(
+      userId,
+      currentJti,
+    );
+
+    return {
+      message:
+        revokedCount > 0
+          ? `Signed out of ${revokedCount} other session${revokedCount === 1 ? "" : "s"}`
+          : "No other active sessions to revoke",
+      revokedCount,
+    };
+  }
+
+  async revokeOtherSessionsAfterPasswordChange(
+    userId: number,
+    currentRefreshToken: string | undefined,
+  ): Promise<number> {
+    if (!currentRefreshToken) {
+      await this.repository.revokeAllForUser(userId);
+      return -1;
+    }
+
+    try {
+      const currentJti = this.tokens.verifyRefreshToken(currentRefreshToken).jti;
+      return this.repository.revokeAllExceptJti(userId, currentJti);
+    } catch {
+      await this.repository.revokeAllForUser(userId);
+      return -1;
+    }
   }
 
   verifyAccessToken(accessToken: string) {
