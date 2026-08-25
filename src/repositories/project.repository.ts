@@ -119,6 +119,7 @@ class ProjectRepository {
       name: string;
       slug: string;
       description: string | null;
+      supportedLanguages: any;
     }
   ) {
     return db.project.create({

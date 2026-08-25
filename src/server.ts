@@ -9,6 +9,7 @@ import { initDatabases } from './db/index';
 import router from './routes/index';
 import { requestLogger } from './middlewares/request-logger.middleware';
 import { delayMiddleware } from './middlewares/delay.middleware';
+import { setupBullBoard } from './config/bull-board';
 
 async function start() {
   try {
@@ -34,6 +35,8 @@ async function start() {
     
     // Artificial delay for local testing (if configured)
     app.use(delayMiddleware);
+
+    setupBullBoard(app);
 
     // Routes
     app.use('/api', router);

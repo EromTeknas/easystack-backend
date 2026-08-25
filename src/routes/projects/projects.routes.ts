@@ -5,11 +5,14 @@ import {
   listProjectsByWorkspace,
   updateProject,
   patchProject,
-  deleteProject
+  deleteProject,
+  getProjectLanguages,
+  updateProjectLanguages
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
-  getProjectBySubdomain
+  getProjectBySubdomain,
+  getSupportedLanguages
 } from './projects.public.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
@@ -18,8 +21,12 @@ import { billingMiddleware } from '../../services/billing/middleware/express/bil
 import { Quotas } from '../../services/billing/config/quotas.config';
 import { ProjectService } from '../../services/project.service';
 import { BadRequestError } from '../../errors';
+import feedsRoutes from '../feeds/feeds.routes';
 
 const router = Router();
+
+// Mount Feeds under Projects
+router.use('/:projectId/feeds', feedsRoutes);
 
 const attachWorkspaceFromProject = async (req: any, _res: any, next: any) => {
   try {
@@ -57,6 +64,12 @@ router.get('/subdomain-available/:subdomain', checkSubdomainAvailability);
  * Get project details by subdomain (public)
  */
 router.get('/subdomain/:subdomain', getProjectBySubdomain);
+
+/**
+ * GET /api/projects/languages/supported
+ * Get all available languages for AI localization
+ */
+router.get('/languages/supported', getSupportedLanguages);
 
 // ============================================================================
 // PROTECTED ROUTES (require authentication)
@@ -213,6 +226,38 @@ router.delete(
     }
   ),
   deleteProject
+);
+
+/**
+ * GET /api/projects/:projectId/languages
+ * Get supported languages for the project
+ */
+router.get(
+  '/:projectId/languages',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectLanguages
+);
+
+/**
+ * PUT /api/projects/:projectId/languages
+ * Update supported languages for the project
+ */
+router.put(
+  '/:projectId/languages',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.UPDATE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  updateProjectLanguages
 );
 
 export default router;

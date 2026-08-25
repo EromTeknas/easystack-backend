@@ -56,9 +56,9 @@ export const ProjectService = {
    */
   async createProject(
     workspaceId: number,
-    data: { name: string; subdomain: string; description?: string; createdById: number }
+    data: { name: string; subdomain: string; description?: string; createdById: number; supportedLanguages?: string[] }
   ): Promise<number> {
-    const { name, subdomain, description, createdById } = data;
+    const { name, subdomain, description, createdById, supportedLanguages = ["en"] } = data;
 
     if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
       throw new BadRequestError('workspaceId must be a positive number');
@@ -119,12 +119,22 @@ export const ProjectService = {
           name: name.trim(),
           slug: normalizedSubdomain,
           description: description?.trim() || null,
+          supportedLanguages,
         });
 
         await ProjectRepository.createProjectMember(tx, {
           projectId: createdProject.id,
           workspaceMemberId: workspaceMember.id,
           roleId: projectOwnerRole.id,
+        });
+
+        // Generate default environments
+        await tx.environment.createMany({
+          data: [
+            { projectId: createdProject.id, name: 'development' },
+            { projectId: createdProject.id, name: 'staging' },
+            { projectId: createdProject.id, name: 'production' }
+          ]
         });
 
         return createdProject;
@@ -269,6 +279,28 @@ export const ProjectService = {
     if (!project) {
       throw new NotFoundError('Project not found');
     }
+
+    return project;
+  },
+
+  /**
+   * Update the supported languages for a project
+   */
+  async updateProjectLanguages(
+    projectId: number,
+    userId: number,
+    supportedLanguages: string[]
+  ): Promise<any> {
+    await this.assertProjectAccess(projectId, userId);
+
+    if (!Array.isArray(supportedLanguages) || supportedLanguages.length === 0) {
+      throw new BadRequestError('supportedLanguages must be a non-empty array of language codes');
+    }
+
+    const project = await prisma.project.update({
+      where: { id: projectId },
+      data: { supportedLanguages },
+    });
 
     return project;
   }

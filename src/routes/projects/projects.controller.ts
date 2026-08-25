@@ -160,3 +160,39 @@ export const deleteProject = asyncHandler(async (req: any, res: Response) => {
 
   return ok(res, { message: 'Project deleted successfully' });
 });
+
+/**
+ * GET /projects/:projectId/languages
+ * Get the supported languages for a project
+ */
+export const getProjectLanguages = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const userId = Number(req.user!.id);
+
+  const project = await ProjectService.assertProjectAccess(projectId, userId);
+
+  return ok(res, {
+    supportedLanguages: project.supportedLanguages || ["en"]
+  });
+});
+
+/**
+ * PUT /projects/:projectId/languages
+ * Update the supported languages for a project
+ */
+export const updateProjectLanguages = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const userId = Number(req.user!.id);
+  const { supportedLanguages } = req.body;
+
+  if (!Array.isArray(supportedLanguages)) {
+    throw new BadRequestError('supportedLanguages must be an array of language codes');
+  }
+
+  const updatedProject = await ProjectService.updateProjectLanguages(projectId, userId, supportedLanguages);
+
+  return ok(res, {
+    supportedLanguages: updatedProject.supportedLanguages,
+    message: 'Project languages updated successfully'
+  });
+});

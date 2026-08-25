@@ -1,6 +1,6 @@
 import type { Worker } from "bullmq";
 
-export type WorkerGroup = "email" | "storage";
+export type WorkerGroup = "email" | "storage" | "translation";
 
 export interface WorkerGroupRegistration {
   create(): Promise<Worker[]>;
@@ -28,8 +28,16 @@ export const workerRegistry: Record<WorkerGroup, WorkerGroupRegistration> = {
       await disconnectPrisma();
     },
   },
+  translation: {
+    create: async () => {
+      const { createTranslationWorkers } = await import(
+        "../services/feed/infrastructure/queue/createTranslationWorkers"
+      );
+      return createTranslationWorkers();
+    },
+  },
 };
 
-export function isWorkerGroup(value: string): value is WorkerGroup {
+export function isWorkerGroup(value: string): value is WorkerGroup | "translation" {
   return value in workerRegistry;
 }

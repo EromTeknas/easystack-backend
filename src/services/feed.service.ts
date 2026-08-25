@@ -1,0 +1,413 @@
+import { JsonValidationService, JsonValidationError } from "./json-validation.service";
+import { prisma } from '../db';
+import { FeedVersion } from '../models/feed-version.model';
+import { FeedLocalization } from '../models/feed-localization.model';
+import { BadRequestError, NotFoundError } from '../errors';
+
+export const FeedService = {
+  /**
+   * List feeds for a specific environment within a project
+   */
+  async listFeeds(
+    projectId: number, 
+    environmentName: string, 
+    options: { page?: number; limit?: number; search?: string; sortBy?: string; sortOrder?: 'asc' | 'desc'; status?: string } = {}
+  ) {
+    const { page = 1, limit = 10, search, sortBy = 'createdAt', sortOrder = 'desc', status } = options;
+
+    const environment = await prisma.environment.findUnique({
+      where: { projectId_name: { projectId, name: environmentName } }
+    });
+
+    if (!environment) {
+      throw new NotFoundError(`Environment ${environmentName} not found`);
+    }
+
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    const supportedLanguages = (project?.supportedLanguages as string[]) || ['en'];
+
+    // 1. Fetch all matching feeds from Prisma (since we may need to sort/filter by aggregateStatus in-memory)
+    const whereClause: any = { projectId };
+    if (search) {
+      whereClause.name = { contains: search }; // basic substring search
+    }
+
+    const feeds = await prisma.feed.findMany({
+      where: whereClause,
+      include: {
+        states: {
+          where: { environmentId: environment.id }
+        }
+      }
+    });
+
+    // 2. Enrich all feeds with MongoDB data
+    let enrichedFeeds = await Promise.all(feeds.map(async (feed) => {
+      const activeState = feed.states[0];
+      if (!activeState) return { ...feed, activeVersion: null };
+
+      const activeVersion = await FeedVersion.findById(activeState.activeVersionId).lean();
+      if (!activeVersion) return { ...feed, activeVersion: null };
+
+      const localizations = await FeedLocalization.find({ feedVersionId: activeState.activeVersionId }).lean();
+      const languages: { code: string, status: string }[] = localizations.map(l => ({
+        code: l.languageCode,
+        status: l.status
+      }));
+
+      languages.unshift({ code: feed.baseLanguage, status: 'COMPLETED' });
+
+      for (const lang of supportedLanguages) {
+        if (!languages.find(l => l.code === lang)) {
+          languages.push({ code: lang, status: 'UNTRANSLATED' });
+        }
+      }
+
+      const allStatuses = languages.map(l => l.status);
+      let aggregateStatus = 'COMPLETED';
+      if (allStatuses.includes('PROCESSING') || allStatuses.includes('PENDING')) {
+        aggregateStatus = 'TRANSLATING';
+      } else if (allStatuses.includes('FAILED')) {
+        aggregateStatus = 'FAILED';
+      } else if (allStatuses.includes('UNTRANSLATED')) {
+        aggregateStatus = 'PARTIALLY_COMPLETED';
+      }
+
+      return {
+        ...feed,
+        activeVersion: {
+          id: activeVersion._id.toString(),
+          versionNumber: activeVersion.versionNumber,
+          notes: activeVersion.notes,
+          keyCount: Object.keys(activeVersion.baseContent || {}).length,
+          aggregateStatus,
+          languages,
+          selectedKeys: activeVersion.selectedKeys || []
+        }
+      };
+    }));
+
+    // 3. Filter by aggregateStatus if provided
+    if (status) {
+      enrichedFeeds = enrichedFeeds.filter(f => f.activeVersion?.aggregateStatus === status);
+    }
+
+    // 4. Sort in memory
+    enrichedFeeds.sort((a, b) => {
+      let valA: any;
+      let valB: any;
+
+      if (sortBy === 'aggregateStatus') {
+        valA = a.activeVersion?.aggregateStatus || '';
+        valB = b.activeVersion?.aggregateStatus || '';
+      } else if (sortBy === 'updatedAt') {
+        valA = new Date(a.updatedAt).getTime();
+        valB = new Date(b.updatedAt).getTime();
+      } else {
+        // default to createdAt
+        valA = new Date(a.createdAt).getTime();
+        valB = new Date(b.createdAt).getTime();
+      }
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // 5. Paginate
+    const total = enrichedFeeds.length;
+    const skip = (page - 1) * limit;
+    const paginatedFeeds = enrichedFeeds.slice(skip, skip + limit);
+
+    return {
+      feeds: paginatedFeeds,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  },
+
+  async isFeedNameAvailable(projectId: number, name: string) {
+    const count = await prisma.feed.count({ where: { projectId, name } });
+    return count === 0;
+  },
+
+  async getFeedDetail(projectId: number, feedId: number) {
+    const feed = await prisma.feed.findUnique({
+      where: { id: feedId },
+      include: {
+        states: { include: { environment: true } }
+      }
+    });
+
+    if (!feed || feed.projectId !== projectId) {
+      throw new Error("Feed not found");
+    }
+
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    const supportedLanguages = (project?.supportedLanguages as string[]) || ['en'];
+
+    const versions = await FeedVersion.find({ feedId: feed.id }).sort({ versionNumber: -1 }).lean();
+
+    const history = await Promise.all(versions.map(async (v) => {
+      const localizations = await FeedLocalization.find({ feedVersionId: v._id }).lean();
+      
+      const languages: { code: string, status: string }[] = localizations.map(l => ({ code: l.languageCode, status: l.status }));
+      languages.unshift({ code: feed.baseLanguage, status: "COMPLETED" });
+
+      for (const lang of supportedLanguages) {
+        if (!languages.find(l => l.code === lang)) {
+          languages.push({ code: lang, status: 'UNTRANSLATED' });
+        }
+      }
+
+      const allStatuses = languages.map(l => l.status);
+      let aggregateStatus = "COMPLETED";
+      if (allStatuses.includes("PROCESSING") || allStatuses.includes("PENDING")) {
+        aggregateStatus = "TRANSLATING";
+      } else if (allStatuses.includes("FAILED")) {
+        aggregateStatus = "FAILED";
+      } else if (allStatuses.includes("UNTRANSLATED")) {
+        aggregateStatus = "PARTIALLY_COMPLETED";
+      }
+
+      const activeInEnvironments = feed.states
+        .filter(s => s.activeVersionId === v._id.toString())
+        .map(s => s.environment.name);
+
+      return {
+        id: v._id.toString(),
+        versionNumber: v.versionNumber,
+        notes: v.notes,
+        keyCount: Object.keys(v.baseContent || {}).length,
+        aggregateStatus,
+        languages,
+        selectedKeys: v.selectedKeys || [],
+        createdAt: v.createdAt,
+        activeInEnvironments
+      };
+    }));
+
+    return {
+      id: feed.id,
+      name: feed.name,
+      baseLanguage: feed.baseLanguage,
+      createdAt: feed.createdAt,
+      updatedAt: feed.updatedAt,
+      history
+    };
+  },
+
+  async createFeed(projectId: number, userId: number, data: { name: string, baseLanguage?: string, jsonContent: any, selectedKeys?: string[] }) {
+    const { name, baseLanguage = 'en', jsonContent, selectedKeys } = data;
+
+    // 1. Validate JSON and Selected Keys
+    try {
+      JsonValidationService.validate(jsonContent, selectedKeys);
+    } catch (error: any) {
+      if (error instanceof JsonValidationError) {
+        throw new BadRequestError(`JSON Validation Failed: ${error.message}`);
+      }
+      throw error;
+    }
+
+    let feed;
+    try {
+      // Create Feed in MySQL
+      feed = await prisma.feed.create({
+        data: {
+          projectId,
+          name,
+          baseLanguage,
+        }
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestError('A feed with this name already exists in this project');
+      }
+      throw error;
+    }
+
+    // Create v1 in MongoDB
+    const feedVersion = await FeedVersion.create({
+      feedId: feed.id,
+      versionNumber: 1,
+      notes: 'Initial upload',
+      baseLanguage,
+      baseContent: jsonContent,
+      ...(selectedKeys ? { selectedKeys } : {}),
+      createdBy: userId,
+    });
+
+    // Create Base Localization in MongoDB
+    await FeedLocalization.create({
+      feedVersionId: feedVersion._id,
+      languageCode: baseLanguage,
+      status: 'COMPLETED',
+      localizedContent: jsonContent,
+    });
+
+    // Link v1 to 'development' environment in MySQL
+    const devEnv = await prisma.environment.findUnique({
+      where: { projectId_name: { projectId, name: 'development' } }
+    });
+
+    if (devEnv) {
+      await prisma.environmentState.create({
+        data: {
+          environmentId: devEnv.id,
+          feedId: feed.id,
+          activeVersionId: feedVersion._id.toString(),
+        }
+      });
+    }
+
+    // TRIGGER TRANSLATIONS for non-base languages supported by the project
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (project && project.supportedLanguages && Array.isArray(project.supportedLanguages)) {
+      const { translationQueue } = require('./feed/infrastructure/queue/translation.queue');
+      const supportedLanguages = project.supportedLanguages as string[];
+      for (const lang of supportedLanguages) {
+        if (lang === baseLanguage) continue;
+
+        // Create PENDING localization in MongoDB
+        const loc = await FeedLocalization.create({
+          feedVersionId: feedVersion._id,
+          languageCode: lang,
+          status: 'PENDING',
+          localizedContent: {},
+        });
+
+        // Push to BullMQ
+        await translationQueue.add('translate', {
+          localizationId: (loc as any)._id.toString(),
+          feedVersionId: (feedVersion as any)._id.toString(),
+          targetLang: lang,
+          selectedKeys,
+        });
+      }
+    }
+
+    return {
+      feedId: feed.id,
+      versionId: feedVersion._id,
+      versionNumber: 1
+    };
+  },
+
+  /**
+   * Get statuses of all localizations for a feed's development environment
+   */
+  async getLocalizationStatuses(feedId: number) {
+    const devEnvState = await prisma.environmentState.findFirst({
+      where: { feedId, environment: { name: 'development' } }
+    });
+
+    if (!devEnvState) {
+      throw new NotFoundError('Feed not active in development environment');
+    }
+
+    const localizations = await FeedLocalization.find({ feedVersionId: devEnvState.activeVersionId }).lean();
+    
+    // Determine aggregate status
+    const allStatuses = localizations.map(l => l.status);
+    let aggregateStatus = 'COMPLETED';
+    if (allStatuses.includes('FAILED')) aggregateStatus = 'FAILED';
+    else if (allStatuses.includes('PROCESSING') || allStatuses.includes('PENDING')) {
+      aggregateStatus = allStatuses.includes('COMPLETED') ? 'PARTIALLY_COMPLETED' : 'TRANSLATING';
+    }
+
+    return {
+      aggregateStatus,
+      localizations: localizations.map(l => ({
+        language: l.languageCode,
+        status: l.status,
+        attempts: l.attempts || 0,
+        lastError: l.lastError ? 'Translation failed due to an internal error. Please try again.' : null
+      }))
+    };
+  },
+
+  /**
+   * Get content for a specific localization
+   */
+  async getLocalizationContent(feedId: number, language: string) {
+    const devEnvState = await prisma.environmentState.findFirst({
+      where: { feedId, environment: { name: 'development' } }
+    });
+
+    if (!devEnvState) {
+      throw new NotFoundError('Feed not active in development environment');
+    }
+
+    const localization = await FeedLocalization.findOne({ 
+      feedVersionId: devEnvState.activeVersionId, 
+      languageCode: language 
+    }).lean();
+
+    if (!localization) {
+      throw new NotFoundError('Localization not found');
+    }
+    
+    const version = await FeedVersion.findById(devEnvState.activeVersionId).lean();
+
+    return { 
+      content: localization.localizedContent,
+      selectedKeys: version?.selectedKeys || []
+    };
+  },
+
+  /**
+   * Retry a failed localization manually
+   */
+  async retryLocalization(feedId: number, language: string, selectedKeys?: string[]) {
+    const devEnvState = await prisma.environmentState.findFirst({
+      where: { feedId, environment: { name: 'development' } },
+      include: { feed: true }
+    });
+
+    if (!devEnvState) {
+      throw new NotFoundError('Feed not active in development environment');
+    }
+
+    let localization = await FeedLocalization.findOne({ 
+      feedVersionId: devEnvState.activeVersionId, 
+      languageCode: language 
+    });
+
+    if (!localization) {
+      const project = await prisma.project.findUnique({ where: { id: devEnvState.feed.projectId } });
+      const supportedLanguages = (project?.supportedLanguages as string[]) || ['en'];
+      
+      if (!supportedLanguages.includes(language)) {
+        throw new BadRequestError('Language not supported by project');
+      }
+
+      localization = await FeedLocalization.create({
+        feedVersionId: devEnvState.activeVersionId,
+        languageCode: language,
+        status: 'PENDING',
+        localizedContent: {}
+      });
+    } else {
+      localization.status = 'PENDING';
+      localization.set('lastError', undefined);
+      await localization.save();
+    }
+
+    const { translationQueue } = require('./feed/infrastructure/queue/translation.queue');
+    const version = await FeedVersion.findById(devEnvState.activeVersionId).lean();
+    const finalSelectedKeys = selectedKeys || (version ? version.selectedKeys : undefined);
+    await translationQueue.add('translate', {
+      localizationId: localization._id.toString(),
+      feedVersionId: devEnvState.activeVersionId,
+      targetLang: language,
+      selectedKeys: finalSelectedKeys,
+    });
+
+    return true;
+  }
+};
