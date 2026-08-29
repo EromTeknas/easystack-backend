@@ -2,10 +2,10 @@ import logger from '../utils/logger';
 
 // Mock config: you can change these to simulate different failure scenarios
 export const MockLLMConfig = {
-  failureRate: 0.5, // 50% chance to fail
-  minDelayMs: 5000,   // 5 seconds minimum delay
-  maxDelayMs: 60000,  // 60 seconds maximum delay
-  permanentFailureRate: 0.8 // 10% chance to throw a permanent schema error
+  failureRate: 0.1, // 10% chance to fail
+  minDelayMs: 2000,   // 2 seconds minimum delay
+  maxDelayMs: 5000,  // 10 seconds maximum delay
+  permanentFailureRate: 0.1 // 10% chance to throw a permanent schema error
 };
 
 export class TransientLLMError extends Error {
@@ -59,8 +59,8 @@ export const LLMService = {
         
         // If selectedKeys are provided, only translate matching paths
         if (selectedKeys && selectedKeys.length > 0) {
-          const genericPath = path.replace(/\.\d+/g, '');
-          const shouldTranslate = selectedKeys.some(sk => genericPath.startsWith(sk) || sk.startsWith(genericPath));
+          const wildcardPath = path.replace(/\.\d+/g, '.*');
+          const shouldTranslate = selectedKeys.some(sk => wildcardPath === sk || wildcardPath.startsWith(sk + '.') || sk.startsWith(wildcardPath + '.'));
           if (!shouldTranslate) continue;
         }
 

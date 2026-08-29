@@ -130,12 +130,15 @@ export const retryLocalization = asyncHandler(async (req: any, res: Response) =>
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
   const { selectedKeys } = req.body;
+  const userId = req.user?.id || 1;
+
+  console.log("aaaaaaaaaaaaa", userId)
 
   if (!feedId || !language) {
     throw new BadRequestError('feedId and language are required');
   }
 
-  await FeedService.retryLocalization(feedId, language, selectedKeys);
+  await FeedService.retryLocalization(feedId, language, userId, selectedKeys);
 
   return ok(res, { message: 'Translation queued successfully' });
 });
@@ -176,4 +179,49 @@ export const validateFeedSchema = asyncHandler(async (req: any, res: Response) =
     }
     throw error;
   }
+});
+
+/**
+ * PUT /api/projects/:projectId/feeds/:feedId/draft
+ * Updates the base content of the active development draft
+ */
+export const updateDraftBaseContent = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const { jsonContent, notes, selectedKeys } = req.body;
+  const userId = req.user?.id || 1; // Assuming auth middleware provides req.user
+
+  if (!jsonContent) throw new BadRequestError('jsonContent is required');
+
+  await FeedService.updateDraftBaseContent(projectId, feedId, userId, jsonContent, notes, selectedKeys);
+  return ok(res, { message: 'Draft base content updated successfully' });
+});
+
+/**
+ * PUT /api/projects/:projectId/feeds/:feedId/localizations/:language
+ * Manually updates a translation
+ */
+export const updateDraftLocalization = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const { language } = req.params;
+  const { localizedContent, notes } = req.body;
+  const userId = req.user?.id || 1;
+
+  if (!localizedContent) throw new BadRequestError('localizedContent is required');
+
+  await FeedService.updateDraftLocalization(projectId, feedId, userId, language, localizedContent, notes);
+  return ok(res, { message: 'Translation updated successfully' });
+});
+
+/**
+ * GET /api/projects/:projectId/feeds/:feedId/audit
+ * Gets the audit log history of the active draft
+ */
+export const getAuditLogs = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+
+  const logs = await FeedService.getAuditLogs(projectId, feedId);
+  return ok(res, { logs });
 });

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getLocalizationStatus, getLocalizationContent, retryLocalization } from './feeds.controller';
+import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getLocalizationStatus, getLocalizationContent, retryLocalization, updateDraftBaseContent, updateDraftLocalization, getAuditLogs } from './feeds.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
 import { PERMISSIONS } from '../../services/authorization/constants/permission.constants';
@@ -63,4 +63,24 @@ router.post(
   validateFeedSchema
 );
 
+
+router.put(
+  '/:feedId/draft',
+  authenticate,
+  updateDraftBaseContent
+);
+
+router.put(
+  '/:feedId/localizations/:language',
+  authenticate,
+  updateDraftLocalization
+);
+
+router.get(
+  '/:feedId/audit',
+  authenticate,
+  getAuditLogs
+);
+
 export default router;
+

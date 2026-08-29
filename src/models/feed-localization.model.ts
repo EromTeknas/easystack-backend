@@ -3,7 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IFeedLocalization extends Document {
   feedVersionId: mongoose.Types.ObjectId; // References MongoDB FeedVersion _id
   languageCode: string;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE';
   localizedContent: Record<string, any>;
   attempts: number;
   startedAt?: Date;
@@ -19,7 +19,7 @@ const FeedLocalizationSchema = new Schema(
     languageCode: { type: String, required: true },
     status: {
       type: String,
-      enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
+      enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'STALE'],
       default: 'PENDING',
     },
     localizedContent: { type: Schema.Types.Mixed, required: true, default: {} },

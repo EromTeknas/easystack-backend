@@ -143,6 +143,39 @@ export const JsonValidationService = {
     return Object.keys(obj).sort();
   },
 
+  
+  /**
+   * Deeply compares two JSON objects to ensure their structure (keys and value types) match exactly.
+   */
+  validateStructureMatch(baseContent: any, targetContent: any, currentPath: string = 'root') {
+    const baseType = this.getTypeCategory(baseContent);
+    const targetType = this.getTypeCategory(targetContent);
+
+    if (baseType !== targetType) {
+      throw new JsonValidationError(`Type mismatch at '${currentPath}': Expected '${baseType}', got '${targetType}'.`);
+    }
+
+    if (baseType === 'object') {
+      const baseKeys = Object.keys(baseContent).sort();
+      const targetKeys = Object.keys(targetContent).sort();
+
+      if (!this.compareShapes(baseKeys, targetKeys)) {
+        throw new JsonValidationError(`Structure mismatch at '${currentPath}': Keys do not match. Expected [${baseKeys.join(', ')}], got [${targetKeys.join(', ')}].`);
+      }
+
+      for (const key of baseKeys) {
+        this.validateStructureMatch(baseContent[key], targetContent[key], `${currentPath}.${key}`);
+      }
+    } else if (baseType === 'array') {
+      if (baseContent.length !== targetContent.length) {
+        throw new JsonValidationError(`Array length mismatch at '${currentPath}': Expected ${baseContent.length}, got ${targetContent.length}.`);
+      }
+      for (let i = 0; i < baseContent.length; i++) {
+        this.validateStructureMatch(baseContent[i], targetContent[i], `${currentPath}[${i}]`);
+      }
+    }
+  },
+
   compareShapes(shape1: string[], shape2: string[]): boolean {
     if (shape1.length !== shape2.length) return false;
     for (let i = 0; i < shape1.length; i++) {
