@@ -304,6 +304,114 @@ export const ProjectService = {
 
     return project;
   }
-};
 
-export default ProjectService;
+  , async getProjectMembers(projectId: number) {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const projectMembers = await prisma.projectMember.findMany({
+      where: { projectId },
+      include: {
+        role: true,
+        workspaceMember: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+          }
+        }
+      }
+    });
+
+    const explicitMemberIds = projectMembers.map(pm => pm.workspaceMember.id);
+
+    const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
+      where: {
+        workspaceId: project.workspaceId,
+        ...(explicitMemberIds.length > 0 ? { id: { notIn: explicitMemberIds } } : {}),
+        role: {
+          key: {
+            in: ['WORKSPACE_OWNER', 'WORKSPACE_ADMIN']
+          }
+        }
+      },
+      include: {
+        role: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+      }
+    });
+
+    const results = projectMembers.map(pm => ({
+      projectMemberId: pm.id,
+      role: pm.role.name,
+      joinedAt: pm.joinedAt,
+      user: pm.workspaceMember.user
+    }));
+
+    const privilegedResults = privilegedWorkspaceMembers.map(wm => ({
+      projectMemberId: null,
+      role: wm.role.name,
+      joinedAt: wm.joinedAt,
+      user: wm.user
+    }));
+
+    return [...results, ...privilegedResults];
+  }
+
+  , async searchProjectMembers(projectId: number, query: string) {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const projectMembers = await prisma.projectMember.findMany({
+      where: {
+        projectId,
+        workspaceMember: {
+          user: {
+            OR: [
+              { firstName: { contains: query } },
+              { lastName: { contains: query } },
+              { email: { contains: query } }
+            ]
+          }
+        }
+      },
+      include: {
+        workspaceMember: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+          }
+        }
+      },
+      take: 10
+    });
+
+    const explicitMemberIds = new Set(projectMembers.map(pm => pm.workspaceMember.id));
+
+    const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
+      where: {
+        workspaceId: project.workspaceId,
+        ...(explicitMemberIds.size > 0 ? { id: { notIn: Array.from(explicitMemberIds) } } : {}),
+        role: {
+          key: {
+            in: [APP_ROLES.WORKSPACE.WORKSPACE_OWNER, APP_ROLES.WORKSPACE.WORKSPACE_ADMIN]
+          }
+        },
+        user: {
+          OR: [
+            { firstName: { contains: query } },
+            { lastName: { contains: query } },
+            { email: { contains: query } }
+          ]
+        }
+      },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+      },
+      take: 10
+    });
+
+    const explicitUsers = projectMembers.map(pm => pm.workspaceMember.user);
+    const privilegedUsers = privilegedWorkspaceMembers.map(wm => wm.user);
+
+    // Limit to 10 total results
+    return [...explicitUsers, ...privilegedUsers].slice(0, 10);
+  }
+};

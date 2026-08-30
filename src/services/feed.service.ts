@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { FeedVersion } from '../models/feed-version.model';
 import { FeedLocalization } from '../models/feed-localization.model';
 import { FeedAuditLog } from '../models/feed-audit-log.model';
+import { FeedReviewRequest } from '../models/feed-review-request.model';
 import { BadRequestError, NotFoundError } from '../errors';
 
 function getDeepKeys(obj: any, prefix = ''): string[] {
@@ -53,6 +54,20 @@ export const FeedService = {
       }
     );
 
+    // Get all those localization IDs
+    const staleLocs = await FeedLocalization.find(
+      { feedVersionId: feedVersion._id, languageCode: { $ne: feedVersion.baseLanguage } },
+      { _id: 1 }
+    ).lean();
+    
+    // Reset any APPROVED reviews back to PENDING because the base changed!
+    if (staleLocs.length > 0) {
+      await FeedReviewRequest.updateMany(
+        { feedLocalizationId: { $in: staleLocs.map(l => l._id) }, status: 'APPROVED' },
+        { $set: { status: 'PENDING' } }
+      );
+    }
+
     if (structureChanged) {
       // Mark all COMPLETED translations (except base language) as STALE
       await FeedLocalization.updateMany(
@@ -94,6 +109,12 @@ export const FeedService = {
     loc.localizedContent = localizedContent;
     loc.status = 'COMPLETED';
     await loc.save();
+
+    // Reset any APPROVED reviews back to PENDING because the translation content was manually edited
+    await FeedReviewRequest.updateMany(
+      { feedLocalizationId: loc._id, status: 'APPROVED' },
+      { $set: { status: 'PENDING' } }
+    );
 
     await FeedAuditLog.create({
       feedId,

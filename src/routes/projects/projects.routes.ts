@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import {
   createProject,
+  deleteProject,
   getProjectById,
   listProjectsByWorkspace,
   updateProject,
   patchProject,
-  deleteProject,
   getProjectLanguages,
-  updateProjectLanguages
+  updateProjectLanguages,
+  getProjectMembers,
+  searchProjectMembers
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -259,5 +261,19 @@ router.put(
   attachWorkspaceFromProject,
   updateProjectLanguages
 );
+
+router.get('/:projectId/members', authenticate, 
+//   authorize({
+//   scope: 'project',
+//   permission: PERMISSIONS.PROJECT.READ,
+//   scopeId: req => req.params.projectId as string,
+// }), 
+getProjectMembers);
+
+router.get('/:projectId/members/search', authenticate, authorize({
+  scope: 'project',
+  permission: PERMISSIONS.PROJECT.READ,
+  scopeId: req => req.params.projectId as string,
+}), searchProjectMembers);
 
 export default router;

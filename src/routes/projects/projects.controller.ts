@@ -196,3 +196,22 @@ export const updateProjectLanguages = asyncHandler(async (req: any, res: Respons
     message: 'Project languages updated successfully'
   });
 });
+export const getProjectMembers = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  
+  // Assuming ProjectService handles authorization check inside
+  const members = await ProjectService.getProjectMembers(projectId);
+
+  return ok(res, {
+    members,
+    message: 'Project members retrieved successfully'
+  });
+});
+
+export const searchProjectMembers = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const q = req.query.q as string || '';
+
+  const users = await ProjectService.searchProjectMembers(projectId, q);
+  return ok(res, users);
+});

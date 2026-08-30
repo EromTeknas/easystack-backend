@@ -1,3 +1,4 @@
+import { requestReview, respondToReview, createComment, getRootComments, getReplies, updateComment, deleteComment, getCollaborationData } from './collaboration.controller';
 import { Router } from 'express';
 import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getLocalizationStatus, getLocalizationContent, retryLocalization, updateDraftBaseContent, updateDraftLocalization, getAuditLogs } from './feeds.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
@@ -81,6 +82,17 @@ router.get(
   authenticate,
   getAuditLogs
 );
+
+
+// Collaboration Routes (Reviews & Comments)
+router.post('/:feedId/localizations/:language/reviews', authenticate, requestReview);
+router.put('/:feedId/localizations/:language/reviews/status', authenticate, respondToReview);
+router.post('/:feedId/localizations/:language/comments', authenticate, createComment);
+router.get('/:feedId/localizations/:language/comments', authenticate, getRootComments);
+router.get('/:feedId/localizations/:language/comments/:commentId/replies', authenticate, getReplies);
+router.patch('/:feedId/localizations/:language/comments/:commentId', authenticate, updateComment);
+router.delete('/:feedId/localizations/:language/comments/:commentId', authenticate, deleteComment);
+router.get('/:feedId/localizations/:language/collaboration', authenticate, getCollaborationData);
 
 export default router;
 

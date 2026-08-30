@@ -4,7 +4,7 @@ export interface IFeedAuditLog extends Document {
   feedId: number;
   feedVersionId: mongoose.Types.ObjectId;
   userId: number;
-  action: 'CREATED_VERSION' | 'UPDATED_BASE' | 'UPDATED_TRANSLATION' | 'GENERATED_TRANSLATION';
+  action: 'CREATED_VERSION' | 'UPDATED_BASE' | 'UPDATED_TRANSLATION' | 'GENERATED_TRANSLATION' | 'REQUESTED_REVIEW' | 'APPROVED_TRANSLATION' | 'REQUESTED_CHANGES' | 'ADDED_COMMENT' | 'RESOLVED_COMMENT';
   languageCode?: string;
   notes?: string;
   createdAt: Date;
@@ -18,7 +18,7 @@ const FeedAuditLogSchema = new Schema(
     userId: { type: Number, required: true },
     action: {
       type: String,
-      enum: ['CREATED_VERSION', 'UPDATED_BASE', 'UPDATED_TRANSLATION', 'GENERATED_TRANSLATION'],
+      enum: ['CREATED_VERSION', 'UPDATED_BASE', 'UPDATED_TRANSLATION', 'GENERATED_TRANSLATION', 'REQUESTED_REVIEW', 'APPROVED_TRANSLATION', 'REQUESTED_CHANGES', 'ADDED_COMMENT', 'RESOLVED_COMMENT'],
       required: true
     },
     languageCode: { type: String },
