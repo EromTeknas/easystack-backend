@@ -8,9 +8,14 @@ import { verifyEmailController } from './verify-email.controller';
 import { resendOtpController } from './resend-otp.controller';
 import { forgotPasswordController } from './forgot-password.controller';
 import { resetPasswordController } from './reset-password.controller';
-import { authRateLimiter } from '../../middlewares/rateLimit.middleware';
+import { authRateLimiter, strictRateLimiter } from '../../middlewares/rateLimit.middleware';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { googleLoginController, linkGoogleController, addPasswordController, getAuthProvidersController, unlinkProviderController, changePasswordController } from './provider.controller';
+import {
+  listSessionsController,
+  revokeSessionController,
+  revokeOtherSessionsController,
+} from './sessions.controller';
 
 const router = Router();
 
@@ -130,9 +135,42 @@ router.delete('/providers/:provider', authenticate, unlinkProviderController);
 /**
  * POST /auth/change-password
  * Change password for the currently authenticated user
- * Protected endpoint
+ * Protected endpoint — revokes other sessions, keeps current
  */
-router.post('/change-password', authenticate, changePasswordController);
+router.post(
+  '/change-password',
+  authenticate,
+  strictRateLimiter,
+  changePasswordController,
+);
+
+/**
+ * GET /auth/sessions
+ * List active sessions for the current user
+ */
+router.get('/sessions', authenticate, listSessionsController);
+
+/**
+ * POST /auth/sessions/revoke-others
+ * Sign out all other devices; keep the current session
+ */
+router.post(
+  '/sessions/revoke-others',
+  authenticate,
+  strictRateLimiter,
+  revokeOtherSessionsController,
+);
+
+/**
+ * DELETE /auth/sessions/:sessionId
+ * Revoke a specific session (cannot revoke current session)
+ */
+router.delete(
+  '/sessions/:sessionId',
+  authenticate,
+  strictRateLimiter,
+  revokeSessionController,
+);
 
 /**
  * POST /auth/refresh

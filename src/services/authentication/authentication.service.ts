@@ -510,7 +510,11 @@ export class AuthenticationService {
     };
   }
 
-  async changePassword(userId: string, input: ChangePasswordInput) {
+  async changePassword(
+    userId: string,
+    input: ChangePasswordInput,
+    currentRefreshToken?: string,
+  ) {
     const validated = this.validation.validateChangePassword(input);
     const numericUserId = Number(userId);
     const user = await this.users.findUserById(numericUserId);
@@ -532,7 +536,44 @@ export class AuthenticationService {
       passwordHash,
     );
 
-    return { message: "Password changed successfully" };
+    const revokedCount =
+      await this.sessions.revokeOtherSessionsAfterPasswordChange(
+        numericUserId,
+        currentRefreshToken,
+      );
+
+    return {
+      message: "Password changed successfully",
+      revokedOtherSessions: revokedCount >= 0 ? revokedCount : undefined,
+    };
+  }
+
+  async listSessions(userId: string, currentRefreshToken?: string) {
+    const sessions = await this.sessions.listActiveSessions(
+      Number(userId),
+      currentRefreshToken,
+    );
+
+    return { sessions };
+  }
+
+  async revokeSession(
+    userId: string,
+    sessionId: number,
+    currentRefreshToken?: string,
+  ) {
+    return this.sessions.revokeSessionForUser(
+      Number(userId),
+      sessionId,
+      currentRefreshToken,
+    );
+  }
+
+  async revokeOtherSessions(userId: string, currentRefreshToken?: string) {
+    return this.sessions.revokeOtherSessions(
+      Number(userId),
+      currentRefreshToken,
+    );
   }
 
   private async verifyCurrentPasswordForUser(
