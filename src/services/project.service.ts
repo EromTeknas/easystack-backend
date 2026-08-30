@@ -56,9 +56,9 @@ export const ProjectService = {
    */
   async createProject(
     workspaceId: number,
-    data: { name: string; subdomain: string; description?: string; createdById: number }
+    data: { name: string; subdomain: string; description?: string; createdById: number; supportedLanguages?: string[] }
   ): Promise<number> {
-    const { name, subdomain, description, createdById } = data;
+    const { name, subdomain, description, createdById, supportedLanguages = ["en"] } = data;
 
     if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
       throw new BadRequestError('workspaceId must be a positive number');
@@ -119,12 +119,22 @@ export const ProjectService = {
           name: name.trim(),
           slug: normalizedSubdomain,
           description: description?.trim() || null,
+          supportedLanguages,
         });
 
         await ProjectRepository.createProjectMember(tx, {
           projectId: createdProject.id,
           workspaceMemberId: workspaceMember.id,
           roleId: projectOwnerRole.id,
+        });
+
+        // Generate default environments
+        await tx.environment.createMany({
+          data: [
+            { projectId: createdProject.id, name: 'development' },
+            { projectId: createdProject.id, name: 'staging' },
+            { projectId: createdProject.id, name: 'production' }
+          ]
         });
 
         return createdProject;
@@ -271,7 +281,137 @@ export const ProjectService = {
     }
 
     return project;
+  },
+
+  /**
+   * Update the supported languages for a project
+   */
+  async updateProjectLanguages(
+    projectId: number,
+    userId: number,
+    supportedLanguages: string[]
+  ): Promise<any> {
+    await this.assertProjectAccess(projectId, userId);
+
+    if (!Array.isArray(supportedLanguages) || supportedLanguages.length === 0) {
+      throw new BadRequestError('supportedLanguages must be a non-empty array of language codes');
+    }
+
+    const project = await prisma.project.update({
+      where: { id: projectId },
+      data: { supportedLanguages },
+    });
+
+    return project;
+  }
+
+  , async getProjectMembers(projectId: number) {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const projectMembers = await prisma.projectMember.findMany({
+      where: { projectId },
+      include: {
+        role: true,
+        workspaceMember: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+          }
+        }
+      }
+    });
+
+    const explicitMemberIds = projectMembers.map(pm => pm.workspaceMember.id);
+
+    const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
+      where: {
+        workspaceId: project.workspaceId,
+        ...(explicitMemberIds.length > 0 ? { id: { notIn: explicitMemberIds } } : {}),
+        role: {
+          key: {
+            in: ['WORKSPACE_OWNER', 'WORKSPACE_ADMIN']
+          }
+        }
+      },
+      include: {
+        role: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+      }
+    });
+
+    const results = projectMembers.map(pm => ({
+      projectMemberId: pm.id,
+      role: pm.role.name,
+      joinedAt: pm.joinedAt,
+      user: pm.workspaceMember.user
+    }));
+
+    const privilegedResults = privilegedWorkspaceMembers.map(wm => ({
+      projectMemberId: null,
+      role: wm.role.name,
+      joinedAt: wm.joinedAt,
+      user: wm.user
+    }));
+
+    return [...results, ...privilegedResults];
+  }
+
+  , async searchProjectMembers(projectId: number, query: string) {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const projectMembers = await prisma.projectMember.findMany({
+      where: {
+        projectId,
+        workspaceMember: {
+          user: {
+            OR: [
+              { firstName: { contains: query } },
+              { lastName: { contains: query } },
+              { email: { contains: query } }
+            ]
+          }
+        }
+      },
+      include: {
+        workspaceMember: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+          }
+        }
+      },
+      take: 10
+    });
+
+    const explicitMemberIds = new Set(projectMembers.map(pm => pm.workspaceMember.id));
+
+    const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
+      where: {
+        workspaceId: project.workspaceId,
+        ...(explicitMemberIds.size > 0 ? { id: { notIn: Array.from(explicitMemberIds) } } : {}),
+        role: {
+          key: {
+            in: [APP_ROLES.WORKSPACE.WORKSPACE_OWNER, APP_ROLES.WORKSPACE.WORKSPACE_ADMIN]
+          }
+        },
+        user: {
+          OR: [
+            { firstName: { contains: query } },
+            { lastName: { contains: query } },
+            { email: { contains: query } }
+          ]
+        }
+      },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
+      },
+      take: 10
+    });
+
+    const explicitUsers = projectMembers.map(pm => pm.workspaceMember.user);
+    const privilegedUsers = privilegedWorkspaceMembers.map(wm => wm.user);
+
+    // Limit to 10 total results
+    return [...explicitUsers, ...privilegedUsers].slice(0, 10);
   }
 };
-
-export default ProjectService;

@@ -52,3 +52,27 @@ export const getProjectBySubdomain = asyncHandler(async (req: any, res: Response
     project: serializeProject(project),
   });
 });
+
+/**
+ * GET /projects/languages/supported
+ * Get a list of all languages supported by Easystack for translation.
+ */
+export const getSupportedLanguages = asyncHandler(async (req: any, res: Response) => {
+  // A static list of commonly supported languages for AI localization
+  const supportedLanguages = [
+    { code: 'en', name: 'English' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'it', name: 'Italian' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'nl', name: 'Dutch' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ko', name: 'Korean' },
+    { code: 'zh', name: 'Chinese (Simplified)' }
+  ];
+
+  return ok(res, {
+    languages: supportedLanguages
+  });
+});

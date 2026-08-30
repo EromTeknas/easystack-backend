@@ -160,3 +160,58 @@ export const deleteProject = asyncHandler(async (req: any, res: Response) => {
 
   return ok(res, { message: 'Project deleted successfully' });
 });
+
+/**
+ * GET /projects/:projectId/languages
+ * Get the supported languages for a project
+ */
+export const getProjectLanguages = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const userId = Number(req.user!.id);
+
+  const project = await ProjectService.assertProjectAccess(projectId, userId);
+
+  return ok(res, {
+    supportedLanguages: project.supportedLanguages || ["en"]
+  });
+});
+
+/**
+ * PUT /projects/:projectId/languages
+ * Update the supported languages for a project
+ */
+export const updateProjectLanguages = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const userId = Number(req.user!.id);
+  const { supportedLanguages } = req.body;
+
+  if (!Array.isArray(supportedLanguages)) {
+    throw new BadRequestError('supportedLanguages must be an array of language codes');
+  }
+
+  const updatedProject = await ProjectService.updateProjectLanguages(projectId, userId, supportedLanguages);
+
+  return ok(res, {
+    supportedLanguages: updatedProject.supportedLanguages,
+    message: 'Project languages updated successfully'
+  });
+});
+export const getProjectMembers = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  
+  // Assuming ProjectService handles authorization check inside
+  const members = await ProjectService.getProjectMembers(projectId);
+
+  return ok(res, {
+    members,
+    message: 'Project members retrieved successfully'
+  });
+});
+
+export const searchProjectMembers = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const q = req.query.q as string || '';
+
+  const users = await ProjectService.searchProjectMembers(projectId, q);
+  return ok(res, users);
+});

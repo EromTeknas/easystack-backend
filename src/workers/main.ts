@@ -3,6 +3,7 @@ import { workersConfig } from "../config/workers";
 import { closeQueues } from "../infrastructure/queue";
 import logger from "../utils/logger";
 import { isWorkerGroup, WorkerGroup, workerRegistry } from "./registry";
+import { initDatabases } from "../db/index";
 
 type WorkerSelection = WorkerGroup | "all";
 
@@ -15,6 +16,7 @@ function parseSelection(): WorkerSelection {
 }
 
 async function main(): Promise<void> {
+  await initDatabases();
   const selection = parseSelection();
   const groups = selection === "all"
     ? Object.keys(workerRegistry) as WorkerGroup[]
