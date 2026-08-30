@@ -251,14 +251,7 @@ export const CollaborationService = {
       console.log(`[BULLMQ MOCK] Queued COMMENT_MENTION job for comment ${comment._id} targeting users: ${payload.mentions.join(', ')}`);
     }
 
-    await FeedAuditLog.create({
-      feedId,
-      feedVersionId: activeVersionId,
-      userId: authorId,
-      action: 'ADDED_COMMENT' as any,
-      languageCode: language,
-      notes: `Added a comment`
-    });
+
 
     return comment;
   },
