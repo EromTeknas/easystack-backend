@@ -3,7 +3,7 @@ import { prisma } from '../db';
 import { FeedVersion } from '../models/feed-version.model';
 import { FeedLocalization } from '../models/feed-localization.model';
 import { FeedAuditLog } from '../models/feed-audit-log.model';
-import { FeedReviewRequest } from '../models/feed-review-request.model';
+import { FeedComment } from '../models/feed-comment.model';
 import { BadRequestError, NotFoundError } from '../errors';
 
 function getDeepKeys(obj: any, prefix = ''): string[] {
@@ -54,18 +54,49 @@ export const FeedService = {
       }
     );
 
-    // Get all those localization IDs
-    const staleLocs = await FeedLocalization.find(
-      { feedVersionId: feedVersion._id, languageCode: { $ne: feedVersion.baseLanguage } },
+    // Get ALL localization IDs for this version (including the base language!)
+    const allLocs = await FeedLocalization.find(
+      { feedVersionId: feedVersion._id },
       { _id: 1 }
     ).lean();
     
-    // Reset any APPROVED reviews back to PENDING because the base changed!
-    if (staleLocs.length > 0) {
-      await FeedReviewRequest.updateMany(
-        { feedLocalizationId: { $in: staleLocs.map(l => l._id) }, status: 'APPROVED' },
-        { $set: { status: 'PENDING' } }
-      );
+    // Reset approvals because the base content changed!
+    if (allLocs.length > 0) {
+      const activeReviews = await FeedComment.find({ feedLocalizationId: { $in: allLocs.map(l => l._id) }, type: 'REVIEW_REQUEST', status: 'ACTIVE' });
+      for (const review of activeReviews) {
+        const hasApprovals = review.reviewers && review.reviewers.some((r: any) => r.status === 'APPROVED');
+        if (hasApprovals) {
+          await FeedComment.updateOne(
+            { _id: review._id },
+            { $set: { "reviewers.$[].status": "PENDING" } }
+          );
+          
+          const author = await prisma.user.findUnique({ where: { id: userId } });
+          await FeedComment.create({
+            workspaceId: review.workspaceId,
+            projectId,
+            feedLocalizationId: review.feedLocalizationId,
+            authorId: -1,
+            parentId: review._id,
+            type: 'GENERAL',
+            isSystem: true,
+            content: { 
+              type: 'doc', 
+              content: [
+                { 
+                  type: 'paragraph', 
+                  content: [
+                    { type: 'mention', attrs: { id: userId.toString(), label: author?.firstName || 'System' } },
+                    { type: 'text', text: ' made changes to the base content. Approvals have been reset.' }
+                  ] 
+                }
+              ] 
+            },
+            mentions: [userId],
+            status: 'ACTIVE'
+          });
+        }
+      }
     }
 
     if (structureChanged) {
@@ -91,6 +122,37 @@ export const FeedService = {
     return { success: true };
   },
 
+
+  async markLocalizationCompleted(projectId: number, feedId: number, userId: number, language: string) {
+    const devEnvState = await prisma.environmentState.findFirst({
+      where: { feedId, feed: { projectId }, environment: { name: 'development' } }
+    });
+    if (!devEnvState) throw new NotFoundError('Feed not found or no active development draft');
+
+    const feedVersion = await FeedVersion.findById(devEnvState.activeVersionId).lean();
+    if (!feedVersion) throw new NotFoundError('FeedVersion not found');
+
+    const loc = await FeedLocalization.findOne({ feedVersionId: devEnvState.activeVersionId, languageCode: language });
+    if (!loc) throw new NotFoundError('Localization not found');
+
+    // Strongly enforce structure match before allowing it to be marked as completed
+    JsonValidationService.validateStructureMatch(feedVersion.baseContent, loc.localizedContent);
+
+    loc.status = 'COMPLETED';
+    await loc.save();
+
+    await FeedAuditLog.create({
+      feedId,
+      feedVersionId: devEnvState.activeVersionId,
+      userId,
+      action: 'UPDATED_TRANSLATION' as any,
+      languageCode: language,
+      notes: 'Marked STALE translation as COMPLETED without changes'
+    });
+
+    return loc;
+  },
+
   async updateDraftLocalization(projectId: number, feedId: number, userId: number, language: string, localizedContent: any, notes?: string) {
     const devEnvState = await prisma.environmentState.findFirst({
       where: { feedId, feed: { projectId }, environment: { name: 'development' } }
@@ -110,11 +172,50 @@ export const FeedService = {
     loc.status = 'COMPLETED';
     await loc.save();
 
-    // Reset any APPROVED reviews back to PENDING because the translation content was manually edited
-    await FeedReviewRequest.updateMany(
-      { feedLocalizationId: loc._id, status: 'APPROVED' },
-      { $set: { status: 'PENDING' } }
-    );
+    // Reset approvals on any active review requests
+    const activeReview = await FeedComment.findOne({ feedLocalizationId: loc._id, type: 'REVIEW_REQUEST', status: 'ACTIVE' });
+    console.log("DEBUG loc activeReview:", activeReview ? activeReview._id : "None");
+    if (activeReview) {
+      const hasApprovals = activeReview.reviewers.some((r: any) => r.status === 'APPROVED');
+      console.log("DEBUG loc hasApprovals:", hasApprovals);
+      console.log("DEBUG loc reviewers before:", JSON.stringify(activeReview.reviewers));
+      if (hasApprovals) {
+        // Use raw MongoDB update to guarantee nested array update
+        const updateRes = await FeedComment.updateOne(
+          { _id: activeReview._id },
+          { $set: { "reviewers.$[elem].status": "PENDING" } },
+          { arrayFilters: [ { "elem.status": "APPROVED" } ] }
+        );
+        console.log("DEBUG loc updateRes:", updateRes);
+        
+        const author = await prisma.user.findUnique({ where: { id: userId } });
+        
+        // Add system comment
+        await FeedComment.create({
+          workspaceId: activeReview.workspaceId,
+          projectId,
+          feedLocalizationId: loc._id,
+          authorId: -1,
+          parentId: activeReview._id,
+          type: 'GENERAL',
+          isSystem: true,
+          content: { 
+            type: 'doc', 
+            content: [
+              { 
+                type: 'paragraph', 
+                content: [
+                  { type: 'mention', attrs: { id: userId.toString(), label: author?.firstName || 'System' } },
+                  { type: 'text', text: ' made changes to the translation. Approvals have been reset.' }
+                ] 
+              }
+            ] 
+          },
+          mentions: [userId],
+          status: 'ACTIVE'
+        });
+      }
+    }
 
     await FeedAuditLog.create({
       feedId,
@@ -531,9 +632,25 @@ export const FeedService = {
     
     const version = await FeedVersion.findById(devEnvState.activeVersionId).lean();
 
+    let canBeMarkedCompleted = false;
+    let staleReason = null;
+
+    if (localization.status === 'STALE') {
+      try {
+        if (version) JsonValidationService.validateStructureMatch(version.baseContent, localization.localizedContent);
+        canBeMarkedCompleted = true;
+        staleReason = "The base English text was updated, so this translation was marked as STALE. If this translation is still accurate, you can mark it as correct.";
+      } catch (err: any) {
+        canBeMarkedCompleted = false;
+        staleReason = "The structure of the base English content was changed. " + err.message;
+      }
+    }
+
     return { 
       content: localization.localizedContent,
-      selectedKeys: version?.selectedKeys || []
+      selectedKeys: version?.selectedKeys || [],
+      canBeMarkedCompleted,
+      staleReason
     };
   },
 

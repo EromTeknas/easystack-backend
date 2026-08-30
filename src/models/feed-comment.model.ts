@@ -12,8 +12,12 @@ export interface IFeedComment extends Document {
   content: any; // Tiptap JSON
   mentions: number[];
   
-  status: 'ACTIVE' | 'DELETED';
+  type: 'GENERAL' | 'REVIEW_REQUEST';
+  reviewers: { userId: number; status: 'PENDING' | 'APPROVED' }[];
+
+  status: 'ACTIVE' | 'DELETED' | 'OUTDATED';
   edited: boolean;
+  isSystem: boolean;
   
   deletedAt?: Date;
   deletedBy?: number;
@@ -31,8 +35,16 @@ const FeedCommentSchema = new Schema(
     jsonPath: { type: String },
     content: { type: Schema.Types.Mixed, required: true },
     mentions: [{ type: Number }],
-    status: { type: String, enum: ['ACTIVE', 'DELETED'], default: 'ACTIVE' },
+    type: { type: String, enum: ['GENERAL', 'REVIEW_REQUEST'], default: 'GENERAL' },
+    reviewers: [
+      {
+        userId: { type: Number, required: true },
+        status: { type: String, enum: ['PENDING', 'APPROVED'], default: 'PENDING' }
+      }
+    ],
+    status: { type: String, enum: ['ACTIVE', 'DELETED', 'OUTDATED'], default: 'ACTIVE' },
     edited: { type: Boolean, default: false },
+    isSystem: { type: Boolean, default: false },
     deletedAt: { type: Date },
     deletedBy: { type: Number }
   },

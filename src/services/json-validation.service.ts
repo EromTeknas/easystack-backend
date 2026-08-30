@@ -1,4 +1,6 @@
-export class JsonValidationError extends Error {
+import { BadRequestError } from '../errors/AppError';
+
+export class JsonValidationError extends BadRequestError {
   constructor(message: string) {
     super(message);
     this.name = 'JsonValidationError';

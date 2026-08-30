@@ -118,9 +118,9 @@ export const getLocalizationContent = asyncHandler(async (req: any, res: Respons
     throw new BadRequestError('feedId and language are required');
   }
 
-  const { content, selectedKeys } = await FeedService.getLocalizationContent(feedId, language);
+  const data = await FeedService.getLocalizationContent(feedId, language);
 
-  return ok(res, { language, content, selectedKeys });
+  return ok(res, { language, ...data });
 });
 
 /**
@@ -224,4 +224,14 @@ export const getAuditLogs = asyncHandler(async (req: any, res: Response) => {
 
   const logs = await FeedService.getAuditLogs(projectId, feedId);
   return ok(res, { logs });
+});
+
+export const markLocalizationCompleted = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const { language } = req.params;
+  const userId = req.user?.id || 1;
+
+  const loc = await FeedService.markLocalizationCompleted(projectId, feedId, userId, language);
+  return ok(res, { message: 'Translation marked as correct', loc });
 });
