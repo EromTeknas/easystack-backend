@@ -78,6 +78,10 @@ export const createFeed = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('Feed name is required');
   }
 
+  if (!/^[a-z0-9_-]+$/.test(name)) {
+    throw new BadRequestError('Feed name can only contain lowercase letters, numbers, hyphens, and underscores (no spaces or .json).');
+  }
+
   if (!jsonContent || typeof jsonContent !== 'object') {
     throw new BadRequestError('jsonContent object is required');
   }
