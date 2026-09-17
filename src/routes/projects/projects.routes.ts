@@ -212,7 +212,7 @@ router.delete(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.PROJECT.UPDATE,
+    permission: PERMISSIONS.PROJECT.DELETE,
     scopeId: req => req.params.projectId as string,
   }),
   attachWorkspaceFromProject,

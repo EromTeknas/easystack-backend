@@ -5,6 +5,8 @@ import { ProjectRepository } from '../repositories/project.repository';
 import ResourceIdService from './resource-id.service';
 import { AuthorizationService } from './authorization/services/authorization.service';
 import { PERMISSIONS } from './authorization/constants/permission.constants';
+import logger from '../utils/logger';
+
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
 const isPrivilegedWorkspaceRole = (roleKey: string) => {
@@ -238,8 +240,21 @@ export const ProjectService = {
    * Delete a project
    */
   async deleteProject(projectId: number, userId: number): Promise<void> {
-    await this.assertProjectAccess(projectId, userId);
+    const project = await this.assertProjectAccess(projectId, userId);
+    
+    const projectWithFeeds = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { feeds: { select: { id: true } } }
+    });
+    
+    const feedIds = projectWithFeeds?.feeds.map(f => f.id) || [];
+
     await ProjectRepository.deleteProject(prisma, projectId);
+
+    const { cleanupProjectExternalData } = require('./project-cleanup.service');
+    cleanupProjectExternalData(projectId, feedIds, project.resourceId).catch((err: any) => {
+      logger.error('Unhandled error in cleanupProjectExternalData', { err });
+    });
   },
 
   /**
