@@ -576,9 +576,9 @@ export const FeedService = {
   /**
    * Get statuses of all localizations for a feed's development environment
    */
-  async getLocalizationStatuses(feedId: number) {
+  async getLocalizationStatuses(projectId: number, feedId: number) {
     const devEnvState = await prisma.environmentState.findFirst({
-      where: { feedId, environment: { name: 'development' } }
+      where: { feedId, feed: { projectId }, environment: { name: 'development' } }
     });
 
     if (!devEnvState) {
@@ -612,9 +612,9 @@ export const FeedService = {
   /**
    * Get content for a specific localization
    */
-  async getLocalizationContent(feedId: number, language: string) {
+  async getLocalizationContent(projectId: number, feedId: number, language: string) {
     const devEnvState = await prisma.environmentState.findFirst({
-      where: { feedId, environment: { name: 'development' } }
+      where: { feedId, feed: { projectId }, environment: { name: 'development' } }
     });
 
     if (!devEnvState) {
@@ -657,9 +657,9 @@ export const FeedService = {
   /**
    * Retry a failed localization manually
    */
-  async retryLocalization(feedId: number, language: string, userId: number, selectedKeys?: string[]) {
+  async retryLocalization(projectId: number, feedId: number, language: string, userId: number, selectedKeys?: string[]) {
     const devEnvState = await prisma.environmentState.findFirst({
-      where: { feedId, environment: { name: 'development' } },
+      where: { feedId, feed: { projectId }, environment: { name: 'development' } },
       include: { feed: true }
     });
 

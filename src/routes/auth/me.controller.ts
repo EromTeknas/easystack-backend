@@ -56,9 +56,10 @@ export const getMeController = asyncHandler(async (req, res) => {
       id: workspace.id,
       resourceId: workspace.resourceId,
       name: workspace.name,
-      logoUrl: workspace.logo_url,
+      logoUrl: workspace.logo_url || workspace.logoUrl,
       role: workspace.role,
-      createdAt: workspace.created_at,
+      permissions: workspace.permissions,
+      createdAt: workspace.created_at || workspace.createdAt,
     })),
     billing: {
       plan: effectivePlan,

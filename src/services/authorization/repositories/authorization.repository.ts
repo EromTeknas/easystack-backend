@@ -90,16 +90,14 @@ export class AuthorizationRepository {
           const adminPermissions = projectAdminRole.permissions.map(rp => rp.permission.key);
           
           for (const proj of allWorkspaceProjects) {
-            if (!explicitProjectIds.has(proj.id)) {
-              assignments.push({
-                scope: "project",
-                scopeId: proj.id.toString(),
-                roles: [projectAdminRole.key],
-                permissions: adminPermissions,
-                customPermissions: [],
-                deniedPermissions: [],
-              });
-            }
+            assignments.push({
+              scope: "project",
+              scopeId: proj.id.toString(),
+              roles: [projectAdminRole.key],
+              permissions: adminPermissions,
+              customPermissions: [],
+              deniedPermissions: [],
+            });
           }
         }
       }

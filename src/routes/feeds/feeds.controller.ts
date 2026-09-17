@@ -96,13 +96,14 @@ export const createFeed = asyncHandler(async (req: any, res: Response) => {
  * GET /api/projects/:projectId/feeds/:feedId/localizations/status
  */
 export const getLocalizationStatus = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
 
-  if (!feedId) {
-    throw new BadRequestError('feedId is required');
+  if (!projectId || !feedId) {
+    throw new BadRequestError('projectId and feedId are required');
   }
 
-  const statuses = await FeedService.getLocalizationStatuses(feedId);
+  const statuses = await FeedService.getLocalizationStatuses(projectId, feedId);
 
   return ok(res, statuses);
 });
@@ -111,14 +112,15 @@ export const getLocalizationStatus = asyncHandler(async (req: any, res: Response
  * GET /api/projects/:projectId/feeds/:feedId/localizations/:language/content
  */
 export const getLocalizationContent = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
 
-  if (!feedId || !language) {
-    throw new BadRequestError('feedId and language are required');
+  if (!projectId || !feedId || !language) {
+    throw new BadRequestError('projectId, feedId and language are required');
   }
 
-  const data = await FeedService.getLocalizationContent(feedId, language);
+  const data = await FeedService.getLocalizationContent(projectId, feedId, language);
 
   return ok(res, { language, ...data });
 });
@@ -127,18 +129,17 @@ export const getLocalizationContent = asyncHandler(async (req: any, res: Respons
  * POST /api/projects/:projectId/feeds/:feedId/localizations/:language/retry
  */
 export const retryLocalization = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
   const { selectedKeys } = req.body;
   const userId = req.user?.id || 1;
 
-  console.log("aaaaaaaaaaaaa", userId)
-
-  if (!feedId || !language) {
-    throw new BadRequestError('feedId and language are required');
+  if (!projectId || !feedId || !language) {
+    throw new BadRequestError('projectId, feedId and language are required');
   }
 
-  await FeedService.retryLocalization(feedId, language, userId, selectedKeys);
+  await FeedService.retryLocalization(projectId, feedId, language, userId, selectedKeys);
 
   return ok(res, { message: 'Translation queued successfully' });
 });

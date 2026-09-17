@@ -44,9 +44,14 @@ export class UserInviteService {
 
       let workspaceMemberId: number;
       if (existingMember) {
+        const updateData: any = { removedAt: null };
+        if (existingMember.removedAt) {
+          updateData.roleId = invitation.workspaceRoleId;
+        }
+        
         await tx.workspaceMember.update({
           where: { id: existingMember.id },
-          data: { roleId: invitation.workspaceRoleId, removedAt: null }
+          data: updateData
         });
         workspaceMemberId = existingMember.id;
       } else {

@@ -65,6 +65,29 @@ export class WorkspaceInviteService {
       }
     }
 
+    if (data.projectAssignments && data.projectAssignments.length > 0) {
+      const projectIds = data.projectAssignments.map(pa => pa.projectId);
+      const validProjects = await prisma.project.findMany({
+        where: {
+          id: { in: projectIds },
+          workspaceId: workspaceId
+        },
+        select: { id: true }
+      });
+      
+      if (validProjects.length !== projectIds.length) {
+        throw new BadRequestError("One or more assigned projects do not belong to this workspace");
+      }
+
+      const roleKeys = await prisma.role.findMany({
+        where: { id: { in: data.projectAssignments.map(pa => pa.roleId) } },
+        select: { key: true }
+      });
+      if (roleKeys.some(r => r.key === 'PROJECT_OWNER')) {
+         throw new BadRequestError("PROJECT_OWNER cannot be assigned via invitation");
+      }
+    }
+
     const token = crypto.randomUUID();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);

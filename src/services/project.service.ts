@@ -3,7 +3,8 @@ import { BadRequestError, ForbiddenError, InternalServerError, NotFoundError } f
 import { APP_ROLES } from './authorization/constants/role.constants';
 import { ProjectRepository } from '../repositories/project.repository';
 import ResourceIdService from './resource-id.service';
-
+import { AuthorizationService } from './authorization/services/authorization.service';
+import { PERMISSIONS } from './authorization/constants/permission.constants';
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
 const isPrivilegedWorkspaceRole = (roleKey: string) => {
@@ -21,31 +22,9 @@ export const ProjectService = {
       throw new BadRequestError('Invalid projectId');
     }
 
-    if (!Number.isInteger(userId) || userId <= 0) {
-      throw new BadRequestError('Invalid userId');
-    }
-
     const project = await ProjectRepository.findProjectById(prisma, projectId);
     if (!project) {
       throw new NotFoundError('Project not found');
-    }
-
-    const workspaceMember = await ProjectRepository.findWorkspaceMemberWithRoleAndProjectMembership(
-      prisma,
-      project.workspaceId,
-      userId,
-      projectId
-    );
-
-    if (!workspaceMember) {
-      throw new ForbiddenError('You do not have access to this project');
-    }
-
-    const hasPrivilegedRole = isPrivilegedWorkspaceRole(workspaceMember.role.key);
-    const isProjectMember = workspaceMember.projectMemberships.length > 0;
-
-    if (!hasPrivilegedRole && !isProjectMember) {
-      throw new ForbiddenError('You do not have access to this project');
     }
 
     return project;
@@ -175,25 +154,37 @@ export const ProjectService = {
       throw new BadRequestError('userId must be a positive number');
     }
 
-    const workspaceMember = await ProjectRepository.findWorkspaceMemberWithRole(prisma, workspaceId, userId);
-
-    if (!workspaceMember) {
-      throw new ForbiddenError('Not a workspace member');
-    }
-
-    const hasPrivilegedRole = isPrivilegedWorkspaceRole(workspaceMember.role.key);
-
-    if (hasPrivilegedRole) {
-      return ProjectRepository.listWorkspaceProjects(prisma, workspaceId);
-    }
-
-    const memberships = await ProjectRepository.listProjectsByWorkspaceMember(
-      prisma,
-      workspaceMember.id,
-      workspaceId
+    // Verify workspace access
+    const hasWorkspaceAccess = await AuthorizationService.can(
+      userId.toString(),
+      PERMISSIONS.WORKSPACE.READ,
+      'workspace',
+      workspaceId.toString()
     );
 
-    const projects = memberships.map((membership) => membership.project);
+    if (!hasWorkspaceAccess) {
+      throw new ForbiddenError('Not a workspace member or insufficient permissions');
+    }
+
+    // 1. Ask Authorization Engine for ALL projects where user has PROJECT.READ
+    const readableProjectIds = await AuthorizationService.getScopeIdsWithPermission(
+      userId.toString(),
+      'project',
+      PERMISSIONS.PROJECT.READ
+    );
+
+    if (readableProjectIds.length === 0) {
+      return [];
+    }
+
+    // 2. Fetch those projects, scoped to the requested workspace
+    const projects = await prisma.project.findMany({
+      where: {
+        workspaceId,
+        id: { in: readableProjectIds.map(Number) }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
     return projects;
   },
@@ -342,6 +333,7 @@ export const ProjectService = {
     const results = projectMembers.map(pm => ({
       projectMemberId: pm.id,
       role: pm.role.name,
+      roleKey: pm.role.key,
       joinedAt: pm.joinedAt,
       user: pm.workspaceMember.user
     }));
@@ -349,6 +341,7 @@ export const ProjectService = {
     const privilegedResults = privilegedWorkspaceMembers.map(wm => ({
       projectMemberId: null,
       role: wm.role.name,
+      roleKey: wm.role.key,
       joinedAt: wm.joinedAt,
       user: wm.user
     }));

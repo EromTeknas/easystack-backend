@@ -11,6 +11,7 @@ export const STORAGE_PRESETS = {
       maxSizeBytes: 5 * 1024 * 1024,
       allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
     } as StoragePolicyOverrides,
+    requiredPermission: "workspace:update",
   },
 } as const;
 

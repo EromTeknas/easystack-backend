@@ -58,7 +58,12 @@ class WorkspaceInvitationRepository {
       include: {
         workspace: { select: { id: true, name: true, logoAssetId: true } },
         inviter: { select: { id: true, firstName: true, lastName: true, email: true } },
-        role: { select: { id: true, name: true, key: true } }
+        role: { select: { id: true, name: true, key: true } },
+        projectAssignments: {
+          include: {
+            project: { select: { name: true } }
+          }
+        }
       },
       orderBy: { createdAt: "desc" }
     });

@@ -9,9 +9,28 @@ export default class WorkspaceRepository {
         return generateUniqueIdentifier(this.WORKSPACE_IDENTIFIER_PREFIX, this.WORKSPACE_IDENTIFIER_LENGTH);
     }
     static async getUserWorkspaces(userId: number) {
-        return prisma.workspace.findMany({
-            where: { members: { some: { userId } } },
+        const members = await prisma.workspaceMember.findMany({
+            where: { userId },
+            include: {
+                workspace: true,
+                role: {
+                    include: {
+                        permissions: {
+                            include: {
+                                permission: true
+                            }
+                        }
+                    }
+                },
+            }
         });
+        
+        return members.map(m => ({
+            ...m.workspace,
+            role: m.role.key,
+            roleName: m.role.name,
+            permissions: m.role.permissions.map(rp => `${rp.permission.resource}:${rp.permission.action}`),
+        }));
     }
 
     static async getUserWorkspaceById(userId: number, workspaceId: number) {

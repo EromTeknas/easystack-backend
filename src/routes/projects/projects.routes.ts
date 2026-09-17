@@ -9,7 +9,9 @@ import {
   getProjectLanguages,
   updateProjectLanguages,
   getProjectMembers,
-  searchProjectMembers
+  searchProjectMembers,
+  inviteToProject,
+  searchInvitableUsers
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -117,7 +119,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'workspace',
-    permission: PERMISSIONS.PROJECT.READ,
+    permission: PERMISSIONS.WORKSPACE.READ,
     scopeId: req => req.params.workspaceId as string,
   }),
   listProjectsByWorkspace
@@ -262,18 +264,52 @@ router.put(
   updateProjectLanguages
 );
 
-router.get('/:projectId/members', authenticate, 
-//   authorize({
-//   scope: 'project',
-//   permission: PERMISSIONS.PROJECT.READ,
-//   scopeId: req => req.params.projectId as string,
-// }), 
-getProjectMembers);
+router.get(
+  '/:projectId/members',
+  authenticate, 
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.READ,
+    scopeId: req => req.params.projectId as string,
+  }), 
+  getProjectMembers
+);
 
-router.get('/:projectId/members/search', authenticate, authorize({
-  scope: 'project',
-  permission: PERMISSIONS.PROJECT.READ,
-  scopeId: req => req.params.projectId as string,
-}), searchProjectMembers);
+router.get(
+  '/:projectId/members/search',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  searchProjectMembers
+);
+
+
+router.post(
+  '/:projectId/invitations',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.INVITE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  inviteToProject
+);
+
+
+router.get(
+  '/:projectId/invitable-users',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  searchInvitableUsers
+);
 
 export default router;

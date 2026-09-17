@@ -18,11 +18,11 @@ export const WorkspaceRoles = {
       name: "Admin",
       description: "Can perform some operation inside the workspace",
       permissions: [
-          ...PermissionGroups.PROJECT_ALL,
-
+          ...PermissionGroups.PROJECT_ADMIN_ALL,
       PERMISSIONS.WORKSPACE.READ,
       PERMISSIONS.WORKSPACE.UPDATE,
       PERMISSIONS.WORKSPACE.INVITE,
+      PERMISSIONS.WORKSPACE.MANAGE_MEMBERS,
     ],
   },
 
@@ -32,10 +32,7 @@ export const WorkspaceRoles = {
     description: "Can work on assigned projects.",
     permissions: [
       PERMISSIONS.WORKSPACE.READ,
-
       PERMISSIONS.PROJECT.CREATE,
-      PERMISSIONS.PROJECT.READ,
-      PERMISSIONS.PROJECT.UPDATE,
     ],
   },
 
@@ -45,7 +42,15 @@ export const WorkspaceRoles = {
     description: "Read-only access.",
     permissions: [
       PERMISSIONS.WORKSPACE.READ,
-      PERMISSIONS.PROJECT.READ
+    ],
+  },
+
+  WORKSPACE_GUEST: {
+    key: "WORKSPACE_GUEST",
+    name: "Guest",
+    description: "External members invited only to specific projects. Cannot see other workspace members or projects.",
+    permissions: [
+      PERMISSIONS.WORKSPACE.READ
     ],
   },
 } satisfies Record<string, RoleDefinition>;

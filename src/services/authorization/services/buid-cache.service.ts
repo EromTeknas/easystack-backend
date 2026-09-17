@@ -25,24 +25,28 @@ export class AuthorizationBuilder {
     const now = Date.now();
 
     for (const assignment of assignments) {
-      const node: AuthorizationNode = {
-        roles: assignment.roles,
+      const resolvedPermissions = PermissionResolver.resolve({
+        permissions: assignment.permissions,
+        customPermissions: assignment.customPermissions,
+        deniedPermissions: assignment.deniedPermissions,
+      });
 
-        permissions:
-          PermissionResolver.resolve({
-            permissions: assignment.permissions,
-
-            customPermissions: assignment.customPermissions,
-
-            deniedPermissions: assignment.deniedPermissions,
-          }),
-
-        version: 1,
-
-        updatedAt: now,
-      };
-
-      cache.authorization[assignment.scope][assignment.scopeId] = node;
+      const existingNode = cache.authorization[assignment.scope][assignment.scopeId];
+      
+      if (existingNode) {
+        // Merge with existing node
+        existingNode.roles = Array.from(new Set([...existingNode.roles, ...assignment.roles]));
+        existingNode.permissions = Array.from(new Set([...existingNode.permissions, ...resolvedPermissions]));
+        existingNode.updatedAt = now;
+      } else {
+        // Create new node
+        cache.authorization[assignment.scope][assignment.scopeId] = {
+          roles: assignment.roles,
+          permissions: resolvedPermissions,
+          version: 1,
+          updatedAt: now,
+        };
+      }
     }
 
     return cache;

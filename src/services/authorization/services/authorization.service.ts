@@ -66,6 +66,19 @@ class AuthorizationService {
     return cache.authorization[scope][scopeId] ?? null;
   }
 
+  static async getScopeIdsWithPermission(
+    userId: string,
+    scope: AuthorizationScope,
+    permission: string,
+  ): Promise<string[]> {
+    const cache = await this.get(userId);
+    const scopeData = cache.authorization[scope] || {};
+    
+    return Object.entries(scopeData)
+      .filter(([_, node]) => this.hasPermission(node, permission))
+      .map(([scopeId]) => scopeId);
+  }
+
   static async hasRole(
     userId: string,
     scope: AuthorizationScope,

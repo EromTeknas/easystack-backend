@@ -29,7 +29,9 @@ const normalizeWorkspace = (workspace: Workspace) => {
     name: workspace.name,
     logoAssetId: workspace.logoAssetId,
     createdBy: workspace.createdById,
-    // role: workspace.createdById. ?? null,
+    role: (workspace as any).role,
+    roleName: (workspace as any).roleName,
+    permissions: (workspace as any).permissions,
     createdAt: createdAt ? new Date(createdAt).toISOString() : null,
     updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
   };

@@ -221,6 +221,7 @@ export const generateGetUrl = asyncHandler(async (req: any, res: Response) => {
 import { storageService } from '../../services/storage/storage.instance';
 import { STORAGE_PRESETS, PresetName } from '../../config/storage.presets';
 import { StorageTarget } from '../../services/storage/public/storage.contracts';
+import { AuthorizationService } from '../../services/authorization/services/authorization.service';
 
 export const createUploadIntent = asyncHandler(async (req: any, res: Response) => {
   const userId = String(req.user!.id);
@@ -246,6 +247,22 @@ export const createUploadIntent = asyncHandler(async (req: any, res: Response) =
     nodes: normalizedNodes,
     slot: presetConfig.slot,
   };
+
+  if ((presetConfig as any).requiredPermission) {
+    const requiredPermission = (presetConfig as any).requiredPermission;
+    const targetNode = normalizedNodes[0];
+    if (!targetNode) {
+        throw new BadRequestError("targetNode is missing");
+    }
+    let scope: 'workspace' | 'project' | 'organization' = 'workspace';
+    if (targetNode.collection === 'projects') scope = 'project';
+    if (targetNode.collection === 'organizations') scope = 'organization';
+
+    const hasAccess = await AuthorizationService.can(userId, requiredPermission, scope as any, targetNode.id);
+    if (!hasAccess) {
+      throw new AppError("Forbidden: Insufficient permissions to upload this asset", 403, "FORBIDDEN");
+    }
+  }
 
   const file = req.body?.file;
   if (!file || typeof file.originalName !== "string" || typeof file.mimeType !== "string" || typeof file.sizeBytes !== "number") {
