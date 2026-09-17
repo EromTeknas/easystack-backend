@@ -259,8 +259,7 @@ export class SessionService {
   private assertUserCanAuthenticate(user: AuthUser): void {
     if (
       user.status !== UserStatus.ACTIVE ||
-      !user.emailVerified ||
-      user.defaultWorkspaceId === null
+      !user.emailVerified
     ) {
       throw new UnauthorizedError("User account is not active");
     }

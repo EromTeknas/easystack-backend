@@ -47,7 +47,30 @@ export class WorkspaceService {
   }
 
   static async deleteWorkspace(workspaceId: number) {
-    return WorkspaceRepository.deleteWorkspace(workspaceId);
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        projects: {
+          include: { feeds: { select: { id: true } } }
+        }
+      }
+    });
+
+    if (!workspace) return;
+
+    const projectIds = workspace.projects.map(p => p.id);
+    const feedIds = workspace.projects.flatMap(p => p.feeds.map(f => f.id));
+
+    await WorkspaceRepository.deleteWorkspace(workspaceId);
+
+    const { enqueueCleanupJob } = require('../cleanup/infrastructure/queue/cleanup.queue');
+    await enqueueCleanupJob({
+      type: 'workspace',
+      workspaceId,
+      projectIds,
+      feedIds,
+      workspaceResourceId: workspace.resourceId
+    });
   }
 
   static async listWorkspaceMembers(workspaceId: number) {

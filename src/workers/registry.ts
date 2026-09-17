@@ -1,6 +1,6 @@
 import type { Worker } from "bullmq";
 
-export type WorkerGroup = "email" | "storage" | "translation";
+export type WorkerGroup = "email" | "storage" | "translation" | "cleanup";
 
 export interface WorkerGroupRegistration {
   create(): Promise<Worker[]>;
@@ -36,8 +36,16 @@ export const workerRegistry: Record<WorkerGroup, WorkerGroupRegistration> = {
       return createTranslationWorkers();
     },
   },
+  cleanup: {
+    create: async () => {
+      const { createCleanupWorkers } = await import(
+        "../services/cleanup/infrastructure/queue/createCleanupWorkers"
+      );
+      return createCleanupWorkers();
+    },
+  },
 };
 
-export function isWorkerGroup(value: string): value is WorkerGroup | "translation" {
+export function isWorkerGroup(value: string): value is WorkerGroup | "translation" | "cleanup" {
   return value in workerRegistry;
 }

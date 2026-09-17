@@ -251,9 +251,12 @@ export const ProjectService = {
 
     await ProjectRepository.deleteProject(prisma, projectId);
 
-    const { cleanupProjectExternalData } = require('./project-cleanup.service');
-    cleanupProjectExternalData(projectId, feedIds, project.resourceId).catch((err: any) => {
-      logger.error('Unhandled error in cleanupProjectExternalData', { err });
+    const { enqueueCleanupJob } = require('./cleanup/infrastructure/queue/cleanup.queue');
+    await enqueueCleanupJob({
+      type: 'project',
+      projectId,
+      feedIds,
+      projectResourceId: project.resourceId
     });
   },
 

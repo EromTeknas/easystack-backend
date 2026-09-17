@@ -54,4 +54,21 @@ const logger = winston.createLogger({ level: logLevel, transports });
 
 export default logger;
 
+export const deletionLogger = winston.createLogger({
+  level: logLevel,
+  transports: [
+    new winston.transports.Console({ format: combine(colorize(), timestamp(), addRequestId(), logFormat) }),
+    new DailyRotateFile({
+      dirname: logsPath,
+      filename: `deletion-queue-%DATE%.log`,
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: true,
+      maxSize: '20m',
+      maxFiles: '14d',
+      level: logLevel,
+      format: combine(timestamp(), addRequestId(), logFormat),
+    })
+  ]
+});
+
 export type Logger = winston.Logger;

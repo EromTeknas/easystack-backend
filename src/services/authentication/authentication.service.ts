@@ -174,14 +174,7 @@ export class AuthenticationService {
         throw new UnauthorizedError("User account is inactive");
       }
 
-      const user = providerAccount.user.defaultWorkspaceId
-        ? providerAccount.user
-        : (
-            await this.provisioning.activateExistingUser(
-              providerAccount.user.id,
-              "free",
-            )
-          ).user;
+      const user = providerAccount.user;
 
       await this.users.recordSuccessfulLogin(user.id, providerAccount.id);
 

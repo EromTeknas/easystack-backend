@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "npm run db:seed:users && npm run queues:register-schedules && concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/services/email --watch src/infrastructure/queue --exec npm run worker:email\" \"nodemon --watch src/services/storage --watch src/infrastructure/queue --exec npm run worker:storage\" \"nodemon --watch src/services/feed --watch src/infrastructure/queue --exec npm run worker:translation\"",
+    "dev": "npm run db:seed:users && npm run queues:register-schedules && concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/services/email --watch src/infrastructure/queue --exec npm run worker:email\" \"nodemon --watch src/services/storage --watch src/infrastructure/queue --exec npm run worker:storage\" \"nodemon --watch src/services/feed --watch src/infrastructure/queue --exec npm run worker:translation\" \"nodemon --watch src/services/cleanup --watch src/infrastructure/queue --exec npm run worker:cleanup\"",
     "build": "tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
@@ -19,6 +19,7 @@
     "worker:email": "ts-node src/workers/main.ts email",
     "worker:storage": "ts-node src/workers/main.ts storage",
     "worker:translation": "ts-node src/workers/main.ts translation",
+    "worker:cleanup": "ts-node src/workers/main.ts cleanup",
     "queues:register-schedules": "ts-node src/workers/register-schedules.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
     "test:billing": "node -r ts-node/register --test tests/**/*.test.ts",

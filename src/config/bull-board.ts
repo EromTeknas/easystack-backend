@@ -6,6 +6,7 @@ import redisConnectionOptions from './redis';
 import { TRANSLATION_QUEUE_NAME } from '../services/feed/infrastructure/queue/translation.queue';
 import { EMAIL_QUEUE_NAME } from '../services/email/infrastructure/queue/email.jobs';
 import { STORAGE_QUEUE_NAME } from '../services/storage/infrastructure/queue/storage.jobs';
+import { CLEANUP_QUEUE_NAME } from '../services/cleanup/infrastructure/queue/cleanup.queue';
 
 export const setupBullBoard = (app: any) => {
   const serverAdapter = new ExpressAdapter();
@@ -16,11 +17,14 @@ export const setupBullBoard = (app: any) => {
   const emailQueue = new Queue(EMAIL_QUEUE_NAME, { connection: redisConnectionOptions as any });
   const storageQueue = new Queue(STORAGE_QUEUE_NAME, { connection: redisConnectionOptions as any });
 
+  const cleanupQueue = new Queue(CLEANUP_QUEUE_NAME, { connection: redisConnectionOptions as any });
+
   createBullBoard({
     queues: [
       new BullMQAdapter(translationQueue),
       new BullMQAdapter(emailQueue),
-      new BullMQAdapter(storageQueue)
+      new BullMQAdapter(storageQueue),
+      new BullMQAdapter(cleanupQueue)
     ],
     serverAdapter: serverAdapter,
   });
