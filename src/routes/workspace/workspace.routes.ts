@@ -3,6 +3,7 @@ import { authenticate } from '../../services/authentication/middleware/express/a
 import * as workspaceController from './workspace.controller';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
 import { PERMISSIONS } from '../../services/authorization/constants/permission.constants';
+import { billingMiddleware } from '../../services/billing/middleware/express/billing.middleware';
 
 import * as workspaceInviteController from './workspace-invite.controller';
 
@@ -20,6 +21,9 @@ router.get('/roles', authenticate, workspaceInviteController.getWorkspaceRoles);
 // Get specific workspace
 router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);
 
+// Get workspace billing
+router.get('/:workspaceId/billing', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceController.getWorkspaceBilling);
+
 // Update workspace
 router.patch('/:workspaceId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.UPDATE, scopeId: req => req.params.workspaceId as string}), workspaceController.updateWorkspace);
 
@@ -32,7 +36,21 @@ router.get('/:workspaceId/members', authenticate, authorize({scope: 'workspace',
 // --- Invitations & Roles ---
 router.get('/roles', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.getWorkspaceRoles);
 router.get('/:workspaceId/invitation-context', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.getInvitationContext);
-router.post('/:workspaceId/invites', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.sendInvite);
+
+router.post(
+  '/:workspaceId/invites',
+  authenticate,
+  authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}),
+  billingMiddleware(
+    req => Number(req.params.workspaceId),
+    {
+      subscription: true,
+      quotas: [{ key: 'members', amount: 1, consume: false }]
+    }
+  ),
+  workspaceInviteController.sendInvite
+);
+
 router.get('/:workspaceId/invites', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.listWorkspaceInvites);
 router.delete('/:workspaceId/invites/:invitationId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.revokeInvite);
 

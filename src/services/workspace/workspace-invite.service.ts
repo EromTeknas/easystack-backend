@@ -92,31 +92,39 @@ export class WorkspaceInviteService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const invitation = await WorkspaceInvitationRepository.createInvitation({
-      workspaceId,
-      inviterId,
-      inviteeId: invitee?.id,
-      inviteeEmail,
-      workspaceRoleId: data.workspaceRoleId,
-      token,
-      expiresAt,
-      projectAssignments: {
-        create: data.projectAssignments?.map((pa: any) => ({
-          projectId: pa.projectId,
-          roleId: pa.roleId
-        })) || []
-      }
-    });
+    const { UsageService } = require('../billing');
+    await UsageService.consume(workspaceId, 'members', 1);
 
-    const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-    await sendWorkspaceInviteEmail(
-      inviteeEmail,
-      inviterName,
-      workspace?.name || "Workspace",
-      token
-    );
+    try {
+      const invitation = await WorkspaceInvitationRepository.createInvitation({
+        workspaceId,
+        inviterId,
+        inviteeId: invitee?.id,
+        inviteeEmail,
+        workspaceRoleId: data.workspaceRoleId,
+        token,
+        expiresAt,
+        projectAssignments: {
+          create: data.projectAssignments?.map((pa: any) => ({
+            projectId: pa.projectId,
+            roleId: pa.roleId
+          })) || []
+        }
+      });
 
-    return invitation;
+      const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+      await sendWorkspaceInviteEmail(
+        inviteeEmail,
+        inviterName,
+        workspace?.name || "Workspace",
+        token
+      );
+
+      return invitation;
+    } catch (err) {
+      await UsageService.release(workspaceId, 'members', 1);
+      throw err;
+    }
   }
 
   static async listSentInvites(workspaceId: number) {

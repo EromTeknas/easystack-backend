@@ -14,6 +14,7 @@ import { APP_ROLES } from "../../services/authorization/constants/role.constants
 import { Workspace } from "@prisma/client";
 import ResourceIdService from "../../services/resource-id.service";
 import { WorkspaceService } from "../../services/workspace/workspace.service";
+import { BillingService } from "../../services/billing";
 import { storageService } from "../../services/storage/storage.instance";
 import { StoragePrivateAccess } from "../../services/storage/public/storage.contracts";
 
@@ -32,6 +33,8 @@ const normalizeWorkspace = (workspace: Workspace) => {
     role: (workspace as any).role,
     roleName: (workspace as any).roleName,
     permissions: (workspace as any).permissions,
+    planKey: (workspace as any).subscription?.planVersion?.plan?.key || 'free',
+    subscriptionStatus: (workspace as any).subscription?.status || 'ACTIVE',
     createdAt: createdAt ? new Date(createdAt).toISOString() : null,
     updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
   };
@@ -148,13 +151,13 @@ export const createWorkspaceController = asyncHandler(
     logger.debug("POST /api/workspace start");
     
     const userId = Number(req.user!.id);
-    const { name, logoAssetId } = req.body;
+    const { name, logoAssetId, planKey = 'free' } = req.body;
 
     if (!name || typeof name !== "string" || !isValidName(name)) {
       throw new BadRequestError("Invalid workspace name");
     }
 
-    const result = await WorkspaceService.createWorkspace(userId, name, logoAssetId);
+    const result = await WorkspaceService.createWorkspace(userId, name, logoAssetId, planKey);
 
     const normalized = normalizeWorkspace(result);
     const hydratedList = normalized
@@ -185,6 +188,33 @@ export const getWorkspaceById = asyncHandler(
     const hydrated = hydratedList[0];
 
     return ok(res, { workspace: hydrated });
+  },
+);
+
+/**
+ * GET /workspace/:workspaceId/billing
+ * Get billing details for a specific workspace
+ */
+export const getWorkspaceBilling = asyncHandler(
+  async (req: any, res: Response) => {
+    const workspaceId = Number(req.params.workspaceId);
+
+    const billing = await BillingService.get(workspaceId);
+    const effectivePlan = await BillingService.getEffectivePlan(workspaceId);
+
+    if (!billing) {
+      throw new NotFoundError("Billing information not found for this workspace");
+    }
+
+    return ok(res, {
+      billing: {
+        plan: effectivePlan,
+        subscription: billing.subscription,
+        usage: billing.usage,
+        features: billing.features,
+        quotas: billing.quotas,
+      },
+    });
   },
 );
 

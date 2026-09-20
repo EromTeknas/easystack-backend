@@ -61,5 +61,9 @@ export const revokeInvite = asyncHandler(async (req: any, res: Response) => {
   const inviterId = Number(req.user!.id);
   
   const result = await WorkspaceInviteService.revokeInvite(workspaceId, invitationId, inviterId);
+  
+  const { UsageService } = require('../../services/billing');
+  await UsageService.release(workspaceId, 'members', 1);
+
   return ok(res, result);
 });

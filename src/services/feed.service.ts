@@ -470,10 +470,22 @@ export const FeedService = {
   async createFeed(projectId: number, userId: number, data: { name: string, baseLanguage?: string, jsonContent: any, selectedKeys?: string[] }) {
     const { name, baseLanguage = 'en', jsonContent, selectedKeys } = data;
 
+    // Validate Quota
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { workspaceId: true, supportedLanguages: true }
+    });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const { UsageService } = require('./billing/services/usage.service');
+    await UsageService.consume(project.workspaceId, 'feeds', 1);
+
     // 1. Validate JSON and Selected Keys
     try {
       JsonValidationService.validate(jsonContent, selectedKeys);
     } catch (error: any) {
+      // Release quota if validation fails
+      await UsageService.release(project.workspaceId, 'feeds', 1);
       if (error instanceof JsonValidationError) {
         throw new BadRequestError(`JSON Validation Failed: ${error.message}`);
       }
@@ -491,6 +503,7 @@ export const FeedService = {
         }
       });
     } catch (error: any) {
+      await UsageService.release(project.workspaceId, 'feeds', 1);
       if (error.code === 'P2002') {
         throw new BadRequestError('A feed with this name already exists in this project');
       }
@@ -540,7 +553,6 @@ export const FeedService = {
     }
 
     // TRIGGER TRANSLATIONS for non-base languages supported by the project
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (project && project.supportedLanguages && Array.isArray(project.supportedLanguages)) {
       const { translationQueue } = require('./feed/infrastructure/queue/translation.queue');
       const supportedLanguages = project.supportedLanguages as string[];

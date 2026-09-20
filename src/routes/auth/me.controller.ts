@@ -43,12 +43,6 @@ export const getMeController = asyncHandler(async (req, res) => {
 
   const user = await authenticationService.getCurrentUser(userId);
   const workspaces = await WorkspaceRepository.getUserWorkspaces(Number(userId));
-  const billing = user.defaultWorkspaceId
-    ? await BillingService.get(user.defaultWorkspaceId)
-    : null;
-  const effectivePlan = user.defaultWorkspaceId
-    ? await BillingService.getEffectivePlan(user.defaultWorkspaceId)
-    : null;
 
   return ok(res, {
     user,
@@ -61,11 +55,5 @@ export const getMeController = asyncHandler(async (req, res) => {
       permissions: workspace.permissions,
       createdAt: workspace.created_at || workspace.createdAt,
     })),
-    billing: {
-      plan: effectivePlan,
-      subscription: billing?.subscription ?? null,
-      usage: billing?.usage ?? {},
-      features: billing?.features ?? {},
-    },
   });
 });

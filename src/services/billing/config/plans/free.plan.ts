@@ -24,5 +24,7 @@ export const FreePlan: PlanDefinition = {
   quotas: {
     [Quotas.PROJECTS.key]: 2,
     [Quotas.API_REQUESTS.key]: 10,
+    [Quotas.FEEDS.key]: 5,
+    [Quotas.MEMBERS.key]: 3,
   },
 };

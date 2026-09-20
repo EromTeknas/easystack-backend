@@ -23,6 +23,22 @@ export const Quotas = {
     unit: "requests",
     resetPolicy: QuotaResetPolicy.DAILY,
   },
+
+  FEEDS: {
+    key: "feeds",
+    displayName: "Feeds",
+    description: "Maximum feedback feeds",
+    unit: "count",
+    resetPolicy: QuotaResetPolicy.NEVER,
+  },
+
+  MEMBERS: {
+    key: "members",
+    displayName: "Members",
+    description: "Maximum team members",
+    unit: "count",
+    resetPolicy: QuotaResetPolicy.NEVER,
+  },
 } as const;
 
 export type QuotaKey = (typeof Quotas)[keyof typeof Quotas]['key'];

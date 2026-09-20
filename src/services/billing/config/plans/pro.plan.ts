@@ -37,5 +37,7 @@ export const ProPlan: PlanDefinition = {
   },
   quotas: {
     [Quotas.PROJECTS.key]: 10,
+    [Quotas.FEEDS.key]: 20,
+    [Quotas.MEMBERS.key]: 10,
   },
 };

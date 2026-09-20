@@ -12,7 +12,17 @@ export default class WorkspaceRepository {
         const members = await prisma.workspaceMember.findMany({
             where: { userId },
             include: {
-                workspace: true,
+                workspace: {
+                    include: {
+                        subscription: {
+                            include: {
+                                planVersion: {
+                                    include: { plan: true }
+                                }
+                            }
+                        }
+                    }
+                },
                 role: {
                     include: {
                         permissions: {
