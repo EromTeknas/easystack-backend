@@ -477,15 +477,23 @@ export const FeedService = {
     });
     if (!project) throw new NotFoundError('Project not found');
 
-    const { UsageService } = require('./billing/services/usage.service');
-    await UsageService.consume(project.workspaceId, 'feeds', 1);
+    const { BillingService } = require('./billing/services/billing.service');
+    await BillingService.authorize(project.workspaceId, {
+      quotas: [{ 
+        key: 'feeds_per_project', 
+        amount: 1, 
+        consume: true, 
+        scope: 'PROJECT', 
+        scopeId: projectId.toString() 
+      }]
+    });
 
     // 1. Validate JSON and Selected Keys
     try {
       JsonValidationService.validate(jsonContent, selectedKeys);
     } catch (error: any) {
       // Release quota if validation fails
-      await UsageService.release(project.workspaceId, 'feeds', 1);
+      await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
       if (error instanceof JsonValidationError) {
         throw new BadRequestError(`JSON Validation Failed: ${error.message}`);
       }
@@ -503,7 +511,7 @@ export const FeedService = {
         }
       });
     } catch (error: any) {
-      await UsageService.release(project.workspaceId, 'feeds', 1);
+      await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
       if (error.code === 'P2002') {
         throw new BadRequestError('A feed with this name already exists in this project');
       }

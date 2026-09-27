@@ -3,11 +3,6 @@ export interface BillingQuotaRequest {
 
   /**
    * Amount to validate against the quota.
-   *
-   * Example:
-   * 1 Project
-   * 5 GB Storage
-   * 100 API Calls
    */
   amount?: number;
 
@@ -15,6 +10,16 @@ export interface BillingQuotaRequest {
    * Consume quota if validation succeeds.
    */
   consume?: boolean;
+
+  /**
+   * The scope of the usage bucket.
+   */
+  scope?: string;
+
+  /**
+   * The identifier for the scope.
+   */
+  scopeId?: string;
 }
 
 export interface BillingAuthorizationRequest {

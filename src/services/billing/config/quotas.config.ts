@@ -24,11 +24,12 @@ export const Quotas = {
     resetPolicy: QuotaResetPolicy.DAILY,
   },
 
-  FEEDS: {
-    key: "feeds",
-    displayName: "Feeds",
-    description: "Maximum feedback feeds",
-    unit: "count",
+  FEEDS_PER_PROJECT: {
+    key: "feeds_per_project",
+    displayName: "Feeds per Project",
+    description: "Maximum feedback feeds allowed in a single project",
+    unit: "per project",
+    scope: "PROJECT",
     resetPolicy: QuotaResetPolicy.NEVER,
   },
 

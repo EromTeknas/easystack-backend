@@ -30,6 +30,7 @@ export class BillingBuilder {
     const features: Record<string, boolean> = {};
     const quotas: Record<string, number | null> = {};
     const usage: Record<string, number> = {};
+    const scopedUsage: Record<string, Record<string, Record<string, number>>> = {};
 
     if (subscription?.planVersion) {
       for (const planFeature of subscription.planVersion.features) {
@@ -42,7 +43,16 @@ export class BillingBuilder {
     }
 
     for (const row of usageRows) {
-      usage[row.quota.key] = row.value;
+      const scope = (row as any).scope || 'WORKSPACE';
+      const scopeId = (row as any).scopeId || 'ALL';
+      
+      if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+        usage[row.quota.key] = row.value;
+      } else {
+        if (!scopedUsage[row.quota.key]) scopedUsage[row.quota.key] = {};
+        if (!scopedUsage[row.quota.key]![scope]) scopedUsage[row.quota.key]![scope] = {};
+        scopedUsage[row.quota.key]![scope]![scopeId] = row.value;
+      }
     }
 
     return {
@@ -72,6 +82,7 @@ export class BillingBuilder {
       features,
       quotas,
       usage,
+      scopedUsage,
     };
   }
 }

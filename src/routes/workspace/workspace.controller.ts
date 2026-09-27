@@ -211,6 +211,7 @@ export const getWorkspaceBilling = asyncHandler(
         plan: effectivePlan,
         subscription: billing.subscription,
         usage: billing.usage,
+        scopedUsage: billing.scopedUsage,
         features: billing.features,
         quotas: billing.quotas,
       },

@@ -818,6 +818,9 @@ model Usage {
   workspaceId Int
   quotaId     Int
 
+  scope       String  @default("WORKSPACE") // WORKSPACE, PROJECT, ENVIRONMENT
+  scopeId     String  @default("ALL")       // e.g. "10" for projectId 10
+
   value Int @default(0)
 
   resetAt DateTime?
@@ -829,7 +832,7 @@ model Usage {
   quota     Quota     @relation(fields: [quotaId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, quotaId])
+  @@unique([workspaceId, quotaId, scope, scopeId])
   @@index([workspaceId])
 }
 

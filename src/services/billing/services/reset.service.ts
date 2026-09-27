@@ -74,7 +74,7 @@ export class ResetService {
       for (const usage of quota.usage) {
         await prisma.usage.update({
           where: {
-            workspaceId_quotaId: {
+            workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
               workspaceId: usage.workspaceId,
               quotaId: quota.id,
             },

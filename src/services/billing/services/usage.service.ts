@@ -6,17 +6,30 @@ import { BillingContextService } from "../cache/billing.context.service.ts";
 import { BillingQuotaResult } from "../types/index.ts";
 import { BillingLockService } from "../cache/billing.lock.service.ts";
 
+export interface UsageOptions {
+  scope?: string;
+  scopeId?: string;
+}
+
 export class UsageService {
   private static readonly usageCache = new UsageCache();
   private static readonly syncTimers = new Map<number, NodeJS.Timeout>();
 
-  static async get(workspaceId: number) {
+  static async get(workspaceId: number, quotaKey: string, options?: UsageOptions) {
     const cache = await BillingContextService.get(workspaceId);
-    return cache.usage;
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
+
+    if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+      return cache.usage[quotaKey] ?? 0;
+    }
+
+    return cache.scopedUsage?.[quotaKey]?.[scope]?.[scopeId] ?? 0;
   }
 
   static async list(workspaceId: number) {
-    return await this.get(workspaceId);
+    const cache = await BillingContextService.get(workspaceId);
+    return { usage: cache.usage, scopedUsage: cache.scopedUsage };
   }
 
   static async initialize(workspaceId: number, _planVersionId?: number) {
@@ -30,10 +43,12 @@ export class UsageService {
 
       for (const quota of quotas) {
         await prisma.usage.upsert({
-          where: { workspaceId_quotaId: { workspaceId, quotaId: quota.id } },
+          where: { workspaceId_quotaId_scope_scopeId: { workspaceId, quotaId: quota.id, scope: 'WORKSPACE', scopeId: 'ALL' } },
           create: {
             workspaceId,
             quotaId: quota.id,
+            scope: 'WORKSPACE',
+            scopeId: 'ALL',
             value: cache.usage[quota.key] ?? 0,
           },
           update: {
@@ -47,83 +62,128 @@ export class UsageService {
     return cache.usage;
   }
 
-  static async consume(workspaceId: number, quotaKey: string, amount: number = 1) {
+  static async consume(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
     return await BillingLockService.withWorkspaceLock(workspaceId, () =>
-      this.consumeWithinLock(workspaceId, quotaKey, amount),
+      this.consumeWithinLock(workspaceId, quotaKey, amount, options),
     );
   }
 
-  static async consumeWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
+  static async consumeWithinLock(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
     const cache = await BillingContextService.get(workspaceId);
-    const currentValue = cache.usage[quotaKey] ?? 0;
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
+    
+    let currentValue = 0;
+
+    if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+      currentValue = cache.usage[quotaKey] ?? 0;
+      cache.usage[quotaKey] = currentValue + amount;
+      await this.usageCache.set(workspaceId, quotaKey, cache.usage[quotaKey]);
+    } else {
+      if (!cache.scopedUsage) cache.scopedUsage = {};
+      if (!cache.scopedUsage[quotaKey]) cache.scopedUsage[quotaKey] = {};
+      if (!cache.scopedUsage[quotaKey][scope]) cache.scopedUsage[quotaKey][scope] = {};
+      currentValue = cache.scopedUsage[quotaKey][scope][scopeId] ?? 0;
+      cache.scopedUsage[quotaKey][scope][scopeId] = currentValue + amount;
+    }
+
     const nextValue = currentValue + amount;
-
-    cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(workspaceId, quotaKey, nextValue);
     this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async release(workspaceId: number, quotaKey: string, amount: number = 1) {
+  static async release(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
     return await BillingLockService.withWorkspaceLock(workspaceId, () =>
-      this.releaseWithinLock(workspaceId, quotaKey, amount),
+      this.releaseWithinLock(workspaceId, quotaKey, amount, options),
     );
   }
 
-  static async releaseWithinLock(workspaceId: number, quotaKey: string, amount: number = 1) {
+  static async releaseWithinLock(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
     const cache = await BillingContextService.get(workspaceId);
-    const currentValue = cache.usage[quotaKey] ?? 0;
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
+    
+    let currentValue = 0;
+
+    if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+      currentValue = cache.usage[quotaKey] ?? 0;
+      cache.usage[quotaKey] = Math.max(0, currentValue - amount);
+      await this.usageCache.set(workspaceId, quotaKey, cache.usage[quotaKey]);
+    } else {
+      if (!cache.scopedUsage) cache.scopedUsage = {};
+      if (!cache.scopedUsage[quotaKey]) cache.scopedUsage[quotaKey] = {};
+      if (!cache.scopedUsage[quotaKey][scope]) cache.scopedUsage[quotaKey][scope] = {};
+      currentValue = cache.scopedUsage[quotaKey][scope][scopeId] ?? 0;
+      cache.scopedUsage[quotaKey][scope][scopeId] = Math.max(0, currentValue - amount);
+    }
+
     const nextValue = Math.max(0, currentValue - amount);
-
-    cache.usage[quotaKey] = nextValue;
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(workspaceId, quotaKey, nextValue);
     this.scheduleSync(workspaceId);
 
     return nextValue;
   }
 
-  static async increment(workspaceId: number, quotaKey: string, amount: number = 1) {
-    return await this.consume(workspaceId, quotaKey, amount);
+  static async increment(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
+    return await this.consume(workspaceId, quotaKey, amount, options);
   }
 
-  static async decrement(workspaceId: number, quotaKey: string, amount: number = 1) {
-    return await this.release(workspaceId, quotaKey, amount);
+  static async decrement(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions) {
+    return await this.release(workspaceId, quotaKey, amount, options);
   }
 
-  static async set(workspaceId: number, quotaKey: string, value: number) {
+  static async set(workspaceId: number, quotaKey: string, value: number, options?: UsageOptions) {
     return await BillingLockService.withWorkspaceLock(workspaceId, () =>
-      this.setWithinLock(workspaceId, quotaKey, value),
+      this.setWithinLock(workspaceId, quotaKey, value, options),
     );
   }
 
-  static async setWithinLock(workspaceId: number, quotaKey: string, value: number) {
+  static async setWithinLock(workspaceId: number, quotaKey: string, value: number, options?: UsageOptions) {
     const cache = await BillingContextService.get(workspaceId);
-    cache.usage[quotaKey] = value;
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
+
+    if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+      cache.usage[quotaKey] = value;
+      await this.usageCache.set(workspaceId, quotaKey, value);
+    } else {
+      if (!cache.scopedUsage) cache.scopedUsage = {};
+      if (!cache.scopedUsage[quotaKey]) cache.scopedUsage[quotaKey] = {};
+      if (!cache.scopedUsage[quotaKey][scope]) cache.scopedUsage[quotaKey][scope] = {};
+      cache.scopedUsage[quotaKey][scope][scopeId] = value;
+    }
+
     await BillingCacheService.set(cache, BILLING_CACHE_TTL_SECONDS);
-    await this.usageCache.set(workspaceId, quotaKey, value);
     this.scheduleSync(workspaceId);
     return value;
   }
 
-  static async reset(workspaceId: number, quotaKey?: string) {
+  static async reset(workspaceId: number, quotaKey?: string, options?: UsageOptions) {
     return await BillingLockService.withWorkspaceLock(workspaceId, () =>
-      this.resetWithinLock(workspaceId, quotaKey),
+      this.resetWithinLock(workspaceId, quotaKey, options),
     );
   }
 
-  static async resetWithinLock(workspaceId: number, quotaKey?: string) {
+  static async resetWithinLock(workspaceId: number, quotaKey?: string, options?: UsageOptions) {
     const cache = await BillingContextService.get(workspaceId);
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
 
-    if (quotaKey) {
-      cache.usage[quotaKey] = 0;
-      await this.usageCache.set(workspaceId, quotaKey, 0);
+    if (scope === 'WORKSPACE' && scopeId === 'ALL') {
+      if (quotaKey) {
+        cache.usage[quotaKey] = 0;
+        await this.usageCache.set(workspaceId, quotaKey, 0);
+      } else {
+        for (const key of Object.keys(cache.usage)) {
+          cache.usage[key] = 0;
+          await this.usageCache.set(workspaceId, key, 0);
+        }
+      }
     } else {
-      for (const key of Object.keys(cache.usage)) {
-        cache.usage[key] = 0;
-        await this.usageCache.set(workspaceId, key, 0);
+      if (quotaKey && cache.scopedUsage?.[quotaKey]?.[scope]?.[scopeId]) {
+        cache.scopedUsage[quotaKey][scope][scopeId] = 0;
       }
     }
 
@@ -133,7 +193,7 @@ export class UsageService {
     return cache.usage;
   }
 
-  static async remaining(workspaceId: number, quotaKey: string): Promise<number | null> {
+  static async remaining(workspaceId: number, quotaKey: string, options?: UsageOptions): Promise<number | null> {
     const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
@@ -141,10 +201,11 @@ export class UsageService {
       return null;
     }
 
-    return Math.max(0, limit - (cache.usage[quotaKey] ?? 0));
+    const used = await this.get(workspaceId, quotaKey, options);
+    return Math.max(0, limit - used);
   }
 
-  static async percent(workspaceId: number, quotaKey: string): Promise<number | null> {
+  static async percent(workspaceId: number, quotaKey: string, options?: UsageOptions): Promise<number | null> {
     const cache = await BillingContextService.get(workspaceId);
     const limit = cache.quotas[quotaKey] ?? null;
 
@@ -152,26 +213,51 @@ export class UsageService {
       return null;
     }
 
-    return Math.min(100, Math.round(((cache.usage[quotaKey] ?? 0) / limit) * 100));
+    const used = await this.get(workspaceId, quotaKey, options);
+    return Math.min(100, Math.round((used / limit) * 100));
   }
 
-  static async hasRemaining(workspaceId: number, quotaKey: string, amount: number = 1): Promise<boolean> {
-    const remaining = await this.remaining(workspaceId, quotaKey);
+  static async hasRemaining(workspaceId: number, quotaKey: string, amount: number = 1, options?: UsageOptions): Promise<boolean> {
+    const remaining = await this.remaining(workspaceId, quotaKey, options);
     return remaining === null ? true : remaining >= amount;
   }
 
   static async sync(workspaceId: number) {
     const cache = await BillingContextService.get(workspaceId);
-    const rows = await prisma.usage.findMany({ where: { workspaceId }, include: { quota: true } });
+    
+    // Fetch all quotas once to map quotaKey to quotaId
+    const allQuotas = await prisma.quota.findMany();
+    const quotaMap = new Map(allQuotas.map(q => [q.key, q.id]));
 
-    for (const [quotaKey, value] of Object.entries(cache.usage)) {
-      const row = rows.find((item) => item.quota.key === quotaKey);
-
-      if (row) {
-        await prisma.usage.update({
-          where: { workspaceId_quotaId: { workspaceId, quotaId: row.quotaId } },
-          data: { value },
+    // Sync global usage
+    for (const [quotaKey, value] of Object.entries(cache.usage || {})) {
+      const quotaId = quotaMap.get(quotaKey);
+      if (quotaId) {
+        await prisma.usage.upsert({
+          where: { workspaceId_quotaId_scope_scopeId: { workspaceId, quotaId, scope: 'WORKSPACE', scopeId: 'ALL' } },
+          create: { workspaceId, quotaId, scope: 'WORKSPACE', scopeId: 'ALL', value },
+          update: { value },
         });
+      }
+    }
+
+    // Sync scoped usage
+    if (cache.scopedUsage) {
+      for (const [quotaKey, scopes] of Object.entries(cache.scopedUsage)) {
+        const quotaId = quotaMap.get(quotaKey);
+        if (quotaId && scopes) {
+          for (const [scope, scopeIds] of Object.entries(scopes)) {
+            if (scopeIds) {
+              for (const [scopeId, value] of Object.entries(scopeIds)) {
+                await prisma.usage.upsert({
+                  where: { workspaceId_quotaId_scope_scopeId: { workspaceId, quotaId, scope, scopeId } },
+                  create: { workspaceId, quotaId, scope, scopeId, value: value as number },
+                  update: { value: value as number },
+                });
+              }
+            }
+          }
+        }
       }
     }
   }

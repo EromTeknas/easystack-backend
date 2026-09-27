@@ -7,11 +7,12 @@ export class QuotaValidator {
     const seen = new Set<string>();
 
     for (const quota of quotas) {
-      if (!quota.key || seen.has(quota.key)) {
+      const scopeKey = `${quota.key}:${quota.scope || 'WORKSPACE'}:${quota.scopeId || 'ALL'}`;
+      if (!quota.key || seen.has(scopeKey)) {
         throw new InvalidQuotaError(quota.key || "unknown");
       }
 
-      seen.add(quota.key);
+      seen.add(scopeKey);
 
       if (!Object.prototype.hasOwnProperty.call(cache.quotas, quota.key)) {
         throw new QuotaNotFoundError(quota.key);
@@ -24,7 +25,11 @@ export class QuotaValidator {
       }
 
       const limit = cache.quotas[quota.key] ?? null;
-      const used = cache.usage[quota.key] ?? 0;
+      const scope = quota.scope || 'WORKSPACE';
+      const scopeId = quota.scopeId || 'ALL';
+      const used = scope === 'WORKSPACE' && scopeId === 'ALL'
+        ? (cache.usage[quota.key] ?? 0)
+        : (cache.scopedUsage?.[quota.key]?.[scope]?.[scopeId] ?? 0);
 
       if (limit !== null && used + amount > limit) {
         throw new QuotaExceededError(quota.key, limit, used, amount);

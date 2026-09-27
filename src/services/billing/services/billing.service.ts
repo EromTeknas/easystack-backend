@@ -114,6 +114,7 @@ export class BillingService {
   static async canPerformAction(
     workspaceId: number,
     quotaKey: string,
+    options?: { scope?: string; scopeId?: string }
   ): Promise<{
     allowed: boolean;
     limit: number | null;
@@ -122,7 +123,12 @@ export class BillingService {
   }> {
     const cache = await this.get(workspaceId);
     const limit = QuotaCache.getLimit(cache, quotaKey);
-    const used = cache.usage[quotaKey] ?? 0;
+    
+    const scope = options?.scope || 'WORKSPACE';
+    const scopeId = options?.scopeId || 'ALL';
+    const used = scope === 'WORKSPACE' && scopeId === 'ALL' 
+      ? (cache.usage[quotaKey] ?? 0)
+      : (cache.scopedUsage?.[quotaKey]?.[scope]?.[scopeId] ?? 0);
 
     if (limit === null) {
       return { allowed: true, limit: null, used, remaining: null };
@@ -142,16 +148,18 @@ export class BillingService {
     workspaceId: number,
     quotaKey: string,
     amount: number = 1,
+    options?: { scope?: string; scopeId?: string }
   ) {
-    return await UsageService.consume(workspaceId, quotaKey, amount);
+    return await UsageService.consume(workspaceId, quotaKey, amount, options);
   }
 
   static async releaseQuota(
     workspaceId: number,
     quotaKey: string,
     amount: number = 1,
+    options?: { scope?: string; scopeId?: string }
   ) {
-    return await UsageService.release(workspaceId, quotaKey, amount);
+    return await UsageService.release(workspaceId, quotaKey, amount, options);
   }
 
   static async remaining(
@@ -286,7 +294,12 @@ export class BillingService {
       for (const quota of request.quotas) {
         const amount = quota.amount ?? 1;
         const limit = QuotaCache.getLimit(cache, quota.key);
-        const used = cache.usage[quota.key] ?? 0;
+        
+        const scope = quota.scope || 'WORKSPACE';
+        const scopeId = quota.scopeId || 'ALL';
+        const used = scope === 'WORKSPACE' && scopeId === 'ALL'
+          ? (cache.usage[quota.key] ?? 0)
+          : (cache.scopedUsage?.[quota.key]?.[scope]?.[scopeId] ?? 0);
 
         quotaResults.push({
           key: quota.key,
@@ -295,20 +308,8 @@ export class BillingService {
           remaining: limit === null ? null : Math.max(0, limit - (used + amount)),
         });
 
-        if (!consumeQuotas || !quota.consume) {
-          continue;
-        }
-
-        consumedUsage.set(quota.key, used + amount);
-      }
-
-      if (consumeQuotas && consumedUsage.size > 0) {
-        for (const [quotaKey, nextValue] of consumedUsage.entries()) {
-          // Delegate to UsageService: Updates Redis, BillingCache, AND triggers scheduleSync()
-          await UsageService.setWithinLock(workspaceId, quotaKey, nextValue);
-          
-          // Keep our local result object in sync to return to the middleware
-          cache.usage[quotaKey] = nextValue;
+        if (consumeQuotas && quota.consume) {
+          await UsageService.consumeWithinLock(workspaceId, quota.key, amount, { scope, scopeId });
         }
       }
     }

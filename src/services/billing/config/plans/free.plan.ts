@@ -22,9 +22,12 @@ export const FreePlan: PlanDefinition = {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
+    // Workspace Scoped
     [Quotas.PROJECTS.key]: 2,
     [Quotas.API_REQUESTS.key]: 10,
-    [Quotas.FEEDS.key]: 5,
     [Quotas.MEMBERS.key]: 3,
+    
+    // Project Scoped
+    [Quotas.FEEDS_PER_PROJECT.key]: 5,
   },
 };

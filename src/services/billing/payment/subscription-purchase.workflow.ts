@@ -100,7 +100,7 @@ export class SubscriptionPurchaseWorkflow {
       if (planVersion?.quotas.length) {
         for (const quota of planVersion.quotas) {
           await tx.usage.upsert({
-            where: { workspaceId_quotaId: { workspaceId, quotaId: quota.quotaId } },
+            where: { workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL',  workspaceId, quotaId: quota.quotaId } },
             create: { workspaceId, quotaId: quota.quotaId, value: 0 },
             update: { value: 0 },
           });

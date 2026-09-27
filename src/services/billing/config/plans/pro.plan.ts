@@ -1,14 +1,13 @@
-import { Features } from "../features.config";
+import { Features, FeatureKey } from "../features.config";
 import { Quotas } from "../quotas.config";
 import { PlanDefinition } from "../../types/plan.type";
-import { BillingCycle } from "@prisma/client";
 
 export const ProPlan: PlanDefinition = {
   key: "pro",
   version: 1,
   metadata: {
     displayName: "Pro",
-    description: "For professionals and growing teams.",
+    description: "Advanced features for growing teams.",
     isPublic: true,
     isEnterprise: false,
     isActive: true,
@@ -20,24 +19,28 @@ export const ProPlan: PlanDefinition = {
   },
   pricing: [
     {
-      currency: "INR",
-      billingCycle: BillingCycle.MONTHLY,
-      amount: 499,
+      currency: "USD",
+      billingCycle: "MONTHLY",
+      amount: 2000,
       isDefault: true,
     },
     {
-      currency: "INR",
-      billingCycle: BillingCycle.YEARLY,
-      amount: 4999,
-      compareAtAmount: 5988,
+      currency: "USD",
+      billingCycle: "YEARLY",
+      amount: 20000,
+      compareAtAmount: 24000,
+      isDefault: false,
     },
   ],
   features: {
     [Features.API_ACCESS.key]: true,
   },
   quotas: {
+    // Workspace Scoped
     [Quotas.PROJECTS.key]: 10,
-    [Quotas.FEEDS.key]: 20,
     [Quotas.MEMBERS.key]: 10,
+    
+    // Project Scoped
+    [Quotas.FEEDS_PER_PROJECT.key]: 20,
   },
 };

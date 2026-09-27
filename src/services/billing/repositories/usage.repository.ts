@@ -24,7 +24,7 @@ export class UsageRepository extends BaseRepository {
       }
       return this.prisma.usage.upsert({
         where: {
-          workspaceId_quotaId: {
+          workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
             workspaceId,
             quotaId: quota.quotaId,
           },
@@ -49,7 +49,7 @@ export class UsageRepository extends BaseRepository {
 
       return this.prisma.usage.update({
         where: {
-          workspaceId_quotaId: {
+          workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
             workspaceId,
             quotaId: quota.quotaId,
           },
@@ -73,7 +73,7 @@ export class UsageRepository extends BaseRepository {
 
       return this.prisma.usage.update({
         where: {
-          workspaceId_quotaId: {
+          workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
             workspaceId,
             quotaId: quota.quotaId,
           },
@@ -97,7 +97,7 @@ export class UsageRepository extends BaseRepository {
 
       return this.prisma.usage.update({
         where: {
-          workspaceId_quotaId: {
+          workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
             workspaceId,
             quotaId: quota.quotaId,
           },
@@ -119,7 +119,7 @@ export class UsageRepository extends BaseRepository {
 
       return this.prisma.usage.delete({
         where: {
-          workspaceId_quotaId: {
+          workspaceId_quotaId_scope_scopeId: { scope: 'WORKSPACE', scopeId: 'ALL', 
             workspaceId,
             quotaId: quota.quotaId,
           },

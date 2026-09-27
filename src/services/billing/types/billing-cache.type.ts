@@ -27,4 +27,5 @@ export interface BillingCache {
   features: Record<string, boolean>;
   quotas: Record<string, number | null>;
   usage: Record<string, number>;
+  scopedUsage?: Record<string, Record<string, Record<string, number>>>;
 }
