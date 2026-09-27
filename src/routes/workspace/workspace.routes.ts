@@ -17,6 +17,7 @@ router.get('/', authenticate, workspaceController.listWorkspaces);
 
 // --- Invitations & Roles ---
 router.get('/roles', authenticate, workspaceInviteController.getWorkspaceRoles);
+router.get('/project-roles', authenticate, workspaceInviteController.getProjectRoles);
 
 // Get specific workspace
 router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);
@@ -25,6 +26,8 @@ router.get('/:workspaceId', authenticate, workspaceController.getWorkspaceById);
 router.get('/:workspaceId/billing', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceController.getWorkspaceBilling);
 
 // Update workspace
+router.get('/:workspaceId/members/:userId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.MANAGE_MEMBERS, scopeId: req => req.params.workspaceId as string}), workspaceController.getWorkspaceMemberProfile);
+
 router.patch('/:workspaceId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.UPDATE, scopeId: req => req.params.workspaceId as string}), workspaceController.updateWorkspace);
 
 // Delete workspace
@@ -53,5 +56,12 @@ router.post(
 
 router.get('/:workspaceId/invites', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.listWorkspaceInvites);
 router.delete('/:workspaceId/invites/:invitationId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.revokeInvite);
+
+
+// Update member role
+router.patch('/:workspaceId/members/:userId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.MANAGE_MEMBERS, scopeId: req => req.params.workspaceId as string}), workspaceController.updateWorkspaceMember);
+
+// Remove member
+router.delete('/:workspaceId/members/:userId', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.MANAGE_MEMBERS, scopeId: req => req.params.workspaceId as string}), workspaceController.removeWorkspaceMember);
 
 export default router;

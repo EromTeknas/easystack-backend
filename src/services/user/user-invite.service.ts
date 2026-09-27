@@ -7,6 +7,18 @@ export class UserInviteService {
     return WorkspaceInvitationRepository.getReceivedInvitations(userId, userEmail);
   }
 
+  
+  static async respondToInviteByToken(userId: number, userEmail: string, token: string) {
+    const invitation = await WorkspaceInvitationRepository.findByToken(token);
+    if (!invitation) {
+      throw new BadRequestError("Invitation not found");
+    }
+    
+    // We already have respondToInvite logic, just call it with the id and action = 'ACCEPT'
+    return this.respondToInvite(userId, userEmail, invitation.id, "ACCEPT");
+  }
+
+
   static async respondToInvite(userId: number, userEmail: string, invitationId: number, action: "ACCEPT" | "DECLINE") {
     const invitation = await WorkspaceInvitationRepository.findById(invitationId);
 

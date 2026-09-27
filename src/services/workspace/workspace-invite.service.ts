@@ -5,7 +5,7 @@ import UserRepository from "../../repositories/user.repository";
 import { prisma } from "../../db";
 import { BadRequestError } from "../../errors";
 import crypto from "crypto";
-import { sendWorkspaceInviteEmail } from "../email.service";
+import { enqueueSendWorkspaceInviteEmailJob } from "../email/infrastructure/queue/email.producer";
 
 export class WorkspaceInviteService {
   static async getWorkspaceRoles() {
@@ -113,12 +113,12 @@ export class WorkspaceInviteService {
       });
 
       const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-      await sendWorkspaceInviteEmail(
-        inviteeEmail,
+      await enqueueSendWorkspaceInviteEmailJob({
+        email: inviteeEmail,
         inviterName,
-        workspace?.name || "Workspace",
+        workspaceName: workspace?.name || "Workspace",
         token
-      );
+      });
 
       return invitation;
     } catch (err) {

@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
-import { BadRequestError } from '../../errors';
+import { BadRequestError, NotFoundError } from '../../errors';
 import { ProjectService } from '../../services/project.service';
 import logger from '../../utils/logger';
 import { WorkspaceInviteService } from '../../services/workspace/workspace-invite.service';
@@ -235,7 +235,11 @@ export const inviteToProject = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const { email, roleId } = req.body;
   const inviterId = Number(req.user!.id);
-  const workspaceId = Number(req.workspace!.id);
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
 
   if (!email) {
     throw new BadRequestError('Email is required');
@@ -244,16 +248,11 @@ export const inviteToProject = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('roleId is required');
   }
 
-  // Get WORKSPACE_GUEST role
-  // We can hardcode or query it. But we don't have RoleService imported. Let's just pass APP_ROLES.WORKSPACE.WORKSPACE_GUEST.
-  // Wait, sendInvite takes workspaceRoleId as number. We need to look it up.
   const { prisma } = require('../../db');
-  const guestRole = await prisma.role.findUnique({
-    where: { key: APP_ROLES.WORKSPACE.WORKSPACE_GUEST }
-  });
-
+  
+  // Verify project role
   const projectRole = await prisma.role.findUnique({
-    where: { key: typeof roleId === 'string' ? roleId : 'PROJECT_EDITOR' } // Fallback just in case
+    where: { id: Number(roleId) }
   });
 
   if (!projectRole || projectRole.scope !== 'PROJECT') {
@@ -264,12 +263,7 @@ export const inviteToProject = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('PROJECT_OWNER cannot be assigned via invitation');
   }
 
-  // Prevent PROJECT_ADMIN from assigning another PROJECT_ADMIN
-  // We can enforce this by checking if the user has workspace-level admin or project-level owner access, 
-  // but to keep it simple and robust, let's just reject PROJECT_ADMIN for now if requested by the spec
-  // actually, let's just check if they are trying to assign PROJECT_ADMIN and block it unless we check their role.
   if (projectRole.key === 'PROJECT_ADMIN') {
-    // Only allow if inviter is WORKSPACE_OWNER, WORKSPACE_ADMIN, or PROJECT_OWNER
     const { AuthorizationService } = require('../../services/authorization/services/authorization.service');
     const isProjectOwner = await AuthorizationService.hasRole(inviterId.toString(), 'project', projectId.toString(), 'PROJECT_OWNER');
     const isWorkspaceAdmin = await AuthorizationService.hasRole(inviterId.toString(), 'workspace', workspaceId.toString(), 'WORKSPACE_ADMIN');
@@ -280,11 +274,57 @@ export const inviteToProject = asyncHandler(async (req: any, res: Response) => {
     }
   }
 
+  // Check if user exists
+  const targetUser = await prisma.user.findUnique({ where: { email } });
+  
+  if (targetUser) {
+    // Check if they are a workspace member
+    const existingMember = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUser.id } }
+    });
+    
+    if (existingMember && !existingMember.removedAt) {
+      // They are already in the workspace! Just add them to the project directly.
+      const existingProjectMember = await prisma.projectMember.findUnique({
+        where: { projectId_workspaceMemberId: { projectId, workspaceMemberId: existingMember.id } }
+      });
+      
+      if (existingProjectMember && !existingProjectMember.removedAt) {
+        throw new BadRequestError('User is already assigned to this project');
+      }
+      
+      if (existingProjectMember && existingProjectMember.removedAt) {
+        // Reactivate soft-deleted project member
+        await prisma.projectMember.update({
+          where: { id: existingProjectMember.id },
+          data: { removedAt: null, roleId: projectRole.id }
+        });
+      } else {
+        // Create new project member
+        await prisma.projectMember.create({
+          data: {
+            projectId,
+            workspaceMemberId: existingMember.id,
+            roleId: projectRole.id
+          }
+        });
+      }
+      
+      const { AuthorizationCacheService } = require('../../services/authorization/cache/cache.service');
+      await AuthorizationCacheService.evict(targetUser.id.toString());
+      
+      return ok(res, { message: 'Workspace member added to project successfully' });
+    }
+  }
+
+  // Not an active workspace member, so we fallback to workspace invite flow (as Guest)
+  const guestRole = await prisma.role.findUnique({
+    where: { key: APP_ROLES.WORKSPACE.WORKSPACE_GUEST }
+  });
   if (!guestRole) {
     throw new BadRequestError('Guest role not found');
   }
 
-  // The inviterName can be fetched from req.user but req.user usually just has id. Let's lookup inviter.
   const inviter = await prisma.user.findUnique({ where: { id: inviterId } });
 
   const invitation = await WorkspaceInviteService.sendInvite(
@@ -304,7 +344,11 @@ export const inviteToProject = asyncHandler(async (req: any, res: Response) => {
 
 export const searchInvitableUsers = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
-  const workspaceId = Number(req.workspace!.id);
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
   const q = (req.query.q as string || '').trim();
   
   const { prisma } = require('../../db');
@@ -320,6 +364,8 @@ export const searchInvitableUsers = asyncHandler(async (req: any, res: Response)
   const invitableMembers = await prisma.workspaceMember.findMany({
     where: {
       workspaceId,
+      removedAt: null,
+      role: { key: { notIn: ['WORKSPACE_OWNER', 'WORKSPACE_ADMIN'] } },
       id: { notIn: excludedIds },
       ...(q ? {
         user: {
@@ -339,4 +385,183 @@ export const searchInvitableUsers = asyncHandler(async (req: any, res: Response)
   });
 
   return ok(res, { users: invitableMembers });
+});
+
+
+export const updateProjectMemberRole = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const targetUserId = Number(req.params.userId);
+  const { roleId } = req.body;
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
+
+  if (!roleId) throw new BadRequestError("roleId is required");
+
+  const { prisma } = require('../../db');
+
+  // Verify role
+  const projectRole = await prisma.role.findUnique({ where: { id: Number(roleId) } });
+  if (!projectRole || projectRole.scope !== 'PROJECT') throw new BadRequestError('Invalid project role');
+  if (projectRole.key === 'PROJECT_OWNER') throw new BadRequestError('PROJECT_OWNER cannot be assigned via update');
+
+  // Find workspace member
+  const workspaceMember = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } }
+  });
+
+  if (!workspaceMember || workspaceMember.removedAt) {
+    throw new NotFoundError("Member not found in this workspace");
+  }
+
+  // Find project member
+  const projectMember = await prisma.projectMember.findUnique({
+    where: { projectId_workspaceMemberId: { projectId, workspaceMemberId: workspaceMember.id } }
+  });
+
+  if (!projectMember || projectMember.removedAt) {
+    throw new NotFoundError("User is not assigned to this project");
+  }
+
+  await prisma.projectMember.update({
+    where: { id: projectMember.id },
+    data: { roleId: projectRole.id }
+  });
+
+  const { AuthorizationCacheService } = require('../../services/authorization/cache/cache.service');
+  await AuthorizationCacheService.evict(targetUserId.toString());
+
+  return ok(res, { message: "Project role updated successfully" });
+});
+
+export const removeProjectMember = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const targetUserId = Number(req.params.userId);
+  const actorUserId = Number(req.user!.id);
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
+
+  if (targetUserId === actorUserId) {
+    throw new BadRequestError("You cannot remove yourself this way.");
+  }
+
+  const { prisma } = require('../../db');
+
+  const workspaceMember = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    include: { role: true }
+  });
+
+  if (!workspaceMember || workspaceMember.removedAt) {
+    throw new NotFoundError("Member not found in this workspace");
+  }
+
+  const projectMember = await prisma.projectMember.findUnique({
+    where: { projectId_workspaceMemberId: { projectId, workspaceMemberId: workspaceMember.id } },
+    include: { role: true }
+  });
+
+  if (!projectMember || projectMember.removedAt) {
+    throw new NotFoundError("User is not assigned to this project");
+  }
+
+  if (projectMember.role.key === 'PROJECT_OWNER') {
+    throw new BadRequestError("Cannot remove the project owner.");
+  }
+
+  await prisma.projectMember.update({
+    where: { id: projectMember.id },
+    data: { removedAt: new Date() }
+  });
+
+  const { AuthorizationCacheService } = require('../../services/authorization/cache/cache.service');
+  await AuthorizationCacheService.evict(targetUserId.toString());
+
+  return ok(res, { message: "User removed from project successfully" });
+});
+
+export const getProjectRoles = asyncHandler(async (req: any, res: Response) => {
+  const { prisma } = require('../../db');
+  const roles = await prisma.role.findMany({
+    where: { scope: 'PROJECT' },
+    select: { id: true, key: true, name: true, description: true }
+  });
+  return ok(res, roles);
+});
+
+export const listProjectInvitations = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
+
+  const { prisma } = require('../../db');
+
+  const invitations = await prisma.workspaceInvitation.findMany({
+    where: {
+      workspaceId,
+      status: 'PENDING',
+      projectAssignments: {
+        some: { projectId }
+      }
+    },
+    include: {
+      inviter: { select: { id: true, firstName: true, lastName: true, email: true } },
+      invitee: { select: { id: true, firstName: true, lastName: true, email: true } },
+      role: { select: { id: true, name: true } },
+      projectAssignments: {
+        where: { projectId },
+        include: {
+          role: { select: { id: true, name: true, description: true } }
+        }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  return ok(res, { invitations });
+});
+
+export const revokeProjectInvitation = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+
+  const project_w = await require('../../db').prisma.project.findUnique({ where: { id: projectId } });
+  if (!project_w) throw new NotFoundError('Project not found');
+  const workspaceId = project_w.workspaceId;
+
+  const invitationId = Number(req.params.invitationId);
+
+  const { prisma } = require('../../db');
+
+  const invite = await prisma.workspaceInvitation.findUnique({
+    where: { id: invitationId },
+    include: { projectAssignments: true }
+  });
+
+  if (!invite || invite.workspaceId !== workspaceId) {
+    throw new NotFoundError("Invitation not found");
+  }
+
+  // Check if it's ONLY for this project
+  if (invite.projectAssignments.length === 1 && invite.projectAssignments[0].projectId === projectId) {
+    // Delete the whole invite if it was exclusively for this project
+    await prisma.workspaceInvitation.delete({ where: { id: invitationId } });
+  } else {
+    // Just remove the project assignment from the invite
+    await prisma.projectAssignment.deleteMany({
+      where: {
+        workspaceInvitationId: invitationId,
+        projectId
+      }
+    });
+  }
+
+  return ok(res, { message: "Project invitation revoked successfully" });
 });

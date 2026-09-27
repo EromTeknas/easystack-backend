@@ -33,3 +33,20 @@ export const respondToInvite = asyncHandler(async (req: any, res: Response) => {
   const result = await UserInviteService.respondToInvite(userId, userEmail, invitationId, action);
   return ok(res, result);
 });
+
+/**
+ * POST /api/user/invites/accept-by-token
+ * Accept an invitation via its public token
+ */
+export const respondToInviteByToken = asyncHandler(async (req: any, res: Response) => {
+  const userId = Number(req.user!.id);
+  const userEmail = req.user!.email;
+  const { token } = req.body;
+
+  if (!token) {
+    throw new BadRequestError("Token is required.");
+  }
+
+  const result = await UserInviteService.respondToInviteByToken(userId, userEmail, token);
+  return ok(res, result);
+});

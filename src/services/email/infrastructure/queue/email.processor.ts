@@ -1,5 +1,5 @@
 import type { Job } from "bullmq";
-import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail } from "../../../email.service";
+import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail, sendWorkspaceInviteEmail } from "../../../email.service";
 import {
   EmailJobData,
   SendOtpEmailJobData,
@@ -8,18 +8,22 @@ import {
   sendOtpEmailJob,
   sendPasswordResetEmailJob,
   sendWelcomeEmailJob,
+  SendWorkspaceInviteEmailJobData,
+  sendWorkspaceInviteEmailJob,
 } from "./email.jobs";
 
 export interface EmailJobHandlers {
   sendOtp(email: string, firstName: string, otpCode: string): Promise<boolean>;
   sendPasswordReset(email: string, firstName: string, token: string): Promise<boolean>;
   sendWelcome(email: string, firstName: string): Promise<boolean>;
+  sendWorkspaceInvite(email: string, inviterName: string, workspaceName: string, token: string): Promise<boolean>;
 }
 
 const defaultHandlers: EmailJobHandlers = {
   sendOtp: sendOtpEmail,
   sendPasswordReset: sendPasswordResetEmail,
   sendWelcome: sendWelcomeEmail,
+  sendWorkspaceInvite: sendWorkspaceInviteEmail,
 };
 
 export class EmailJobProcessor {
@@ -33,6 +37,8 @@ export class EmailJobProcessor {
         return this.sendPasswordReset(job.data as SendPasswordResetEmailJobData);
       case sendWelcomeEmailJob.jobName:
         return this.sendWelcome(job.data as SendWelcomeEmailJobData);
+      case sendWorkspaceInviteEmailJob.jobName:
+        return this.sendWorkspaceInvite(job.data as SendWorkspaceInviteEmailJobData);
       default:
         throw new Error(`Unsupported email job: ${job.name}`);
     }
@@ -53,6 +59,11 @@ export class EmailJobProcessor {
   private async sendWelcome(data: SendWelcomeEmailJobData): Promise<void> {
     if (!(await this.handlers.sendWelcome(data.email, data.firstName))) {
       throw new Error("Failed to send welcome email");
+    }
+  }
+  private async sendWorkspaceInvite(data: SendWorkspaceInviteEmailJobData): Promise<void> {
+    if (!(await this.handlers.sendWorkspaceInvite(data.email, data.inviterName, data.workspaceName, data.token))) {
+      throw new Error("Failed to send workspace invite email");
     }
   }
 }

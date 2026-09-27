@@ -249,3 +249,75 @@ export const listWorkspaceMembers = asyncHandler(async (req: any, res: Response)
   
   return ok(res, { members });
 });
+
+export const updateWorkspaceMember = asyncHandler(async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  const targetUserId = Number(req.params.userId);
+  const { roleId } = req.body;
+  if (!roleId) throw new BadRequestError("roleId is required");
+
+  await WorkspaceService.updateWorkspaceMemberRole(workspaceId, targetUserId, roleId);
+  return ok(res, { message: "Role updated successfully" });
+});
+
+export const removeWorkspaceMember = asyncHandler(async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  const targetUserId = Number(req.params.userId);
+  const actorUserId = Number(req.user!.id);
+
+  if (targetUserId === actorUserId) {
+     throw new BadRequestError("You cannot remove yourself this way. Please use the leave workspace option.");
+  }
+
+  await WorkspaceService.removeWorkspaceMember(workspaceId, targetUserId, actorUserId);
+  return ok(res, { message: "Member removed successfully" });
+});
+
+export const getWorkspaceMemberProfile = asyncHandler(async (req: any, res: Response) => {
+  const workspaceId = Number(req.params.workspaceId);
+  const targetUserId = Number(req.params.userId);
+
+  const { prisma } = require('../../db');
+
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    include: {
+      role: true,
+      user: {
+        select: { id: true, firstName: true, lastName: true, email: true }
+      }
+    }
+  });
+
+  if (!member || member.removedAt) {
+    throw new NotFoundError("Member not found in this workspace");
+  }
+
+  // Fetch all projects in workspace to cross-reference
+  const projects = await prisma.project.findMany({
+    where: { workspaceId }
+  });
+
+  const projectMembers = await prisma.projectMember.findMany({
+    where: { workspaceMemberId: member.id, removedAt: null },
+    include: {
+      project: true,
+      role: true
+    }
+  });
+
+  return ok(res, {
+    member: {
+      id: member.id,
+      joinedAt: member.joinedAt,
+      role: member.role,
+      user: member.user,
+      projectAssignments: projectMembers.map((pm: any) => ({
+        id: pm.id,
+        projectId: pm.projectId,
+        projectName: pm.project.name,
+        role: pm.role
+      }))
+    }
+  });
+});

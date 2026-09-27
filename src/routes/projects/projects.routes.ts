@@ -11,7 +11,12 @@ import {
   getProjectMembers,
   searchProjectMembers,
   inviteToProject,
-  searchInvitableUsers
+  searchInvitableUsers,
+  getProjectRoles,
+  listProjectInvitations,
+  revokeProjectInvitation,
+  updateProjectMemberRole,
+  removeProjectMember
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -310,6 +315,69 @@ router.get(
   }),
   attachWorkspaceFromProject,
   searchInvitableUsers
+);
+
+
+// Update project member role
+router.patch(
+  '/:projectId/members/:userId',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.UPDATE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  updateProjectMemberRole
+);
+
+// Remove project member
+router.delete(
+  '/:projectId/members/:userId',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.REMOVE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  removeProjectMember
+);
+
+
+router.get(
+  '/:projectId/roles',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectRoles
+);
+
+
+router.get(
+  '/:projectId/invitations',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  listProjectInvitations
+);
+
+router.delete(
+  '/:projectId/invitations/:invitationId',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT_MEMBER.INVITE, // or remove, but invite usually grants revoke ability for pending
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  revokeProjectInvitation
 );
 
 export default router;

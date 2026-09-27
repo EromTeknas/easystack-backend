@@ -319,23 +319,32 @@ export const ProjectService = {
     if (!project) throw new NotFoundError('Project not found');
 
     const projectMembers = await prisma.projectMember.findMany({
-      where: { projectId },
+      where: { projectId, removedAt: null, workspaceMember: { removedAt: null } },
       include: {
         role: true,
         workspaceMember: {
           include: {
+            role: true, // We need to know if the explicit member is actually a Workspace Admin!
             user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
           }
         }
       }
     });
 
-    const explicitMemberIds = projectMembers.map(pm => pm.workspaceMember.id);
+    const explicitPrivilegedMemberIds = new Set(
+      projectMembers
+        .filter(pm => pm.workspaceMember.role.key === 'WORKSPACE_OWNER' || pm.workspaceMember.role.key === 'WORKSPACE_ADMIN')
+        .map(pm => pm.workspaceMember.id)
+    );
+    
+    // Explicit members who are NOT workspace admins
+    const standardProjectMembers = projectMembers.filter(pm => !explicitPrivilegedMemberIds.has(pm.workspaceMember.id));
 
+    // Get ALL workspace admins/owners (including those who had explicit roles)
     const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
       where: {
         workspaceId: project.workspaceId,
-        ...(explicitMemberIds.length > 0 ? { id: { notIn: explicitMemberIds } } : {}),
+        removedAt: null,
         role: {
           key: {
             in: ['WORKSPACE_OWNER', 'WORKSPACE_ADMIN']
@@ -348,18 +357,20 @@ export const ProjectService = {
       }
     });
 
-    const results = projectMembers.map(pm => ({
+    const results = standardProjectMembers.map(pm => ({
       projectMemberId: pm.id,
       role: pm.role.name,
       roleKey: pm.role.key,
+      roleId: pm.role.id,
       joinedAt: pm.joinedAt,
       user: pm.workspaceMember.user
     }));
 
     const privilegedResults = privilegedWorkspaceMembers.map(wm => ({
-      projectMemberId: null,
+      projectMemberId: null, // Force UI to treat them as implicit admins
       role: wm.role.name,
       roleKey: wm.role.key,
+      roleId: wm.role.id,
       joinedAt: wm.joinedAt,
       user: wm.user
     }));
@@ -387,6 +398,7 @@ export const ProjectService = {
       include: {
         workspaceMember: {
           include: {
+            role: true,
             user: { select: { id: true, firstName: true, lastName: true, email: true, resourceId: true } }
           }
         }
@@ -394,15 +406,22 @@ export const ProjectService = {
       take: 10
     });
 
-    const explicitMemberIds = new Set(projectMembers.map(pm => pm.workspaceMember.id));
+    const explicitPrivilegedMemberIds = new Set(
+      projectMembers
+        .filter(pm => pm.workspaceMember.role.key === 'WORKSPACE_OWNER' || pm.workspaceMember.role.key === 'WORKSPACE_ADMIN')
+        .map(pm => pm.workspaceMember.id)
+    );
+
+    const standardExplicitUsers = projectMembers
+      .filter(pm => !explicitPrivilegedMemberIds.has(pm.workspaceMember.id))
+      .map(pm => pm.workspaceMember.user);
 
     const privilegedWorkspaceMembers = await prisma.workspaceMember.findMany({
       where: {
         workspaceId: project.workspaceId,
-        ...(explicitMemberIds.size > 0 ? { id: { notIn: Array.from(explicitMemberIds) } } : {}),
         role: {
           key: {
-            in: [APP_ROLES.WORKSPACE.WORKSPACE_OWNER, APP_ROLES.WORKSPACE.WORKSPACE_ADMIN]
+            in: ['WORKSPACE_OWNER', 'WORKSPACE_ADMIN']
           }
         },
         user: {
@@ -419,10 +438,12 @@ export const ProjectService = {
       take: 10
     });
 
-    const explicitUsers = projectMembers.map(pm => pm.workspaceMember.user);
     const privilegedUsers = privilegedWorkspaceMembers.map(wm => wm.user);
 
-    // Limit to 10 total results
-    return [...explicitUsers, ...privilegedUsers].slice(0, 10);
+    // Filter duplicates just in case (though logic above should prevent it)
+    const combined = [...standardExplicitUsers, ...privilegedUsers];
+    const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+
+    return unique.slice(0, 10);
   }
 };

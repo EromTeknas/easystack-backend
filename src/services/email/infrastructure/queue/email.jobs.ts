@@ -21,6 +21,13 @@ export interface SendPasswordResetEmailJobData {
   token: string;
 }
 
+export interface SendWorkspaceInviteEmailJobData {
+  email: string;
+  inviterName: string;
+  workspaceName: string;
+  token: string;
+}
+
 export interface SendWelcomeEmailJobData {
   email: string;
   firstName: string;
@@ -29,7 +36,8 @@ export interface SendWelcomeEmailJobData {
 export type EmailJobData =
   | SendOtpEmailJobData
   | SendPasswordResetEmailJobData
-  | SendWelcomeEmailJobData;
+  | SendWelcomeEmailJobData
+  | SendWorkspaceInviteEmailJobData;
 
 export const sendOtpEmailJob: QueueDescriptor<SendOtpEmailJobData> = {
   queueName: EMAIL_QUEUE_NAME,
@@ -48,6 +56,13 @@ export const sendPasswordResetEmailJob: QueueDescriptor<SendPasswordResetEmailJo
 export const sendWelcomeEmailJob: QueueDescriptor<SendWelcomeEmailJobData> = {
   queueName: EMAIL_QUEUE_NAME,
   jobName: "SEND_WELCOME_EMAIL",
+  defaultJobOptions: EMAIL_JOB_OPTIONS,
+  describe: ({ email }) => ({ email }),
+};
+
+export const sendWorkspaceInviteEmailJob: QueueDescriptor<SendWorkspaceInviteEmailJobData> = {
+  queueName: EMAIL_QUEUE_NAME,
+  jobName: "SEND_WORKSPACE_INVITE_EMAIL",
   defaultJobOptions: EMAIL_JOB_OPTIONS,
   describe: ({ email }) => ({ email }),
 };

@@ -8,6 +8,7 @@ import onboardingRoutes from './onboarding/onboarding.routes';
 import workspaceRoutes from './workspace/workspace.routes';
 import projectsRoutes from './projects/projects.routes';
 import publicBillingRoutes from './public/billing/billing.routes';
+import publicInvitationsRoutes from './public/invitations/invitations.routes';
 import userRoutes from './user/user.routes';
 const router = Router();
 
@@ -40,5 +41,8 @@ router.use('/hello', helloRoutes);
 
 // Public Billing routes
 router.use('/public/billing', publicBillingRoutes);
+
+// Public Invitations routes
+router.use('/public/invitations', publicInvitationsRoutes);
 
 export default router;

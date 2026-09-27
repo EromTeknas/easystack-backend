@@ -5,12 +5,7 @@ class UserRepository {
   async searchUsers(query: string, take: number = 10) {
     return prisma.user.findMany({
       where: {
-        OR: [
-          { email: { contains: query } },
-          { firstName: { contains: query } },
-          { lastName: { contains: query } },
-          { resourceId: { contains: query } },
-        ]
+        email: query, // Exact email match only for privacy
       },
       select: {
         id: true,

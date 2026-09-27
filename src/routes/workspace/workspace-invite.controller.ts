@@ -7,6 +7,12 @@ import { WorkspaceInviteService } from "../../services/workspace/workspace-invit
  * GET /api/workspace/roles
  * Get all available workspace roles (excludes OWNER)
  */
+export const getProjectRoles = asyncHandler(async (req: any, res: Response) => {
+  const { prisma } = require('../../db');
+  const roles = await prisma.role.findMany({ where: { scope: 'PROJECT' } });
+  return ok(res, { roles });
+});
+
 export const getWorkspaceRoles = asyncHandler(async (req: any, res: Response) => {
   const roles = await WorkspaceInviteService.getWorkspaceRoles();
   return ok(res, { roles });

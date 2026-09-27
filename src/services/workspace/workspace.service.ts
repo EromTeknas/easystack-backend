@@ -12,7 +12,7 @@ function buildWorkspaceSlug(name: string, userId: number) {
 import { SubscriptionService } from "../billing/services/subscription.service";
 import { UsageService } from "../billing/services/usage.service";
 import { BillingService } from "../billing/services/billing.service";
-import { BadRequestError } from "../../errors";
+import { BadRequestError, NotFoundError } from "../../errors";
 
 export class WorkspaceService {
   static async createWorkspace(userId: number, name: string, logoAssetId?: string, planKey: string = 'free') {
@@ -184,5 +184,88 @@ export class WorkspaceService {
 
   static async listWorkspaceMembers(workspaceId: number) {
     return WorkspaceRepository.getWorkspaceMembers(workspaceId);
+  }
+
+  static async updateWorkspaceMemberRole(workspaceId: number, targetUserId: number, newRoleId: number) {
+    const member = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } }
+    });
+
+    if (!member || member.removedAt) {
+      throw new NotFoundError("Member not found in this workspace");
+    }
+    
+    const newRole = await prisma.role.findUnique({ where: { id: newRoleId } });
+    if (!newRole) {
+      throw new BadRequestError("Invalid role");
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedMember = await tx.workspaceMember.update({
+        where: { id: member.id },
+        data: { roleId: newRoleId }
+      });
+      
+      // If promoting to Admin or Owner, soft-delete all redundant explicit project memberships
+      // This prevents "hidden state" and security risks where a demoted admin retains old roles
+      if (newRole.key === 'WORKSPACE_OWNER' || newRole.key === 'WORKSPACE_ADMIN') {
+        await tx.projectMember.updateMany({
+          where: { workspaceMemberId: member.id, removedAt: null },
+          data: { removedAt: new Date() }
+        });
+      }
+
+      return updatedMember;
+    });
+
+    // Invalidate auth cache so their new role takes effect immediately
+    const { AuthorizationCacheService } = require('../authorization/cache/cache.service');
+    await AuthorizationCacheService.evict(targetUserId.toString());
+
+    return updated;
+  }
+
+  static async removeWorkspaceMember(workspaceId: number, targetUserId: number, actorUserId: number) {
+    const member = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      include: { role: true }
+    });
+
+    if (!member || member.removedAt) {
+      throw new NotFoundError("Member not found in this workspace");
+    }
+
+    if (member.role.key === 'WORKSPACE_OWNER') {
+      const ownerCount = await prisma.workspaceMember.count({
+        where: { workspaceId, removedAt: null, role: { key: 'WORKSPACE_OWNER' } }
+      });
+      if (ownerCount <= 1) {
+        throw new BadRequestError("Cannot remove the last workspace owner. Transfer ownership or delete the workspace.");
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Soft delete the workspace member
+      await tx.workspaceMember.update({
+        where: { id: member.id },
+        data: { removedAt: new Date() }
+      });
+
+      // 2. Soft delete all project member records for this workspace member
+      await tx.projectMember.updateMany({
+        where: { workspaceMemberId: member.id, removedAt: null },
+        data: { removedAt: new Date() }
+      });
+    });
+
+    // 3. Release billing quota
+    const { UsageService } = require('../billing');
+    await UsageService.release(workspaceId, 'members', 1);
+
+    // 4. Invalidate auth cache
+    const { AuthorizationCacheService } = require('../authorization/cache/cache.service');
+    await AuthorizationCacheService.evict(targetUserId.toString());
+
+    return { success: true };
   }
 }

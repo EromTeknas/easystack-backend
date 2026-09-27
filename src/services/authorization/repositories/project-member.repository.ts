@@ -10,6 +10,8 @@ export function findByProjectAndWorkspaceMember(
         projectId,
         workspaceMemberId,
       },
+      removedAt: null,
+      workspaceMember: { removedAt: null }
     },
     include: {
       role: true,
@@ -22,7 +24,9 @@ export function findProjectsByUser(userId: number) {
     where: {
       workspaceMember: {
         userId,
+        removedAt: null
       },
+      removedAt: null
     },
     include: {
       role: {

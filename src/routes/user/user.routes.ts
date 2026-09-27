@@ -10,6 +10,7 @@ router.get('/search', authenticate, userController.searchUsers);
 
 // Invites
 router.get('/invites', authenticate, userInviteController.listUserInvites);
+router.post('/invites/accept-by-token', authenticate, userInviteController.respondToInviteByToken);
 router.post('/invites/:invitationId/respond', authenticate, userInviteController.respondToInvite);
 
 export default router;

@@ -2,6 +2,22 @@ import { prisma } from "../db";
 import { WorkspaceInvitation, InvitationStatus } from "@prisma/client";
 
 class WorkspaceInvitationRepository {
+  async findByToken(token: string) {
+    return prisma.workspaceInvitation.findUnique({
+      where: { token },
+      include: {
+        workspace: { select: { id: true, name: true, logoAssetId: true } },
+        inviter: { select: { id: true, firstName: true, lastName: true, email: true } },
+        role: { select: { id: true, name: true, key: true, description: true } },
+        projectAssignments: {
+          include: {
+            project: { select: { name: true } }
+          }
+        }
+      }
+    });
+  }
+
   async createInvitation(data: any): Promise<WorkspaceInvitation> {
     return prisma.workspaceInvitation.create({ data });
   }
@@ -29,7 +45,7 @@ class WorkspaceInvitationRepository {
 
   async getSentInvitationsByWorkspaceId(workspaceId: number) {
     return prisma.workspaceInvitation.findMany({
-      where: { workspaceId },
+      where: { workspaceId, status: 'PENDING' },
       include: {
         inviter: { select: { id: true, firstName: true, lastName: true, email: true } },
         invitee: { select: { id: true, firstName: true, lastName: true, email: true } },
