@@ -33,11 +33,23 @@ export interface SendWelcomeEmailJobData {
   firstName: string;
 }
 
+export interface SendReleaseNotificationEmailJobData {
+  email: string;
+  recipientName: string;
+  releaseName: string;
+  version: string;
+  targetEnvironment: string;
+  action: 'SCHEDULED' | 'SCHEDULE_UPDATED' | 'SCHEDULE_CANCELLED' | 'DEPLOYED';
+  scheduledAt?: string | undefined;
+  actionBy?: string | undefined;
+}
+
 export type EmailJobData =
   | SendOtpEmailJobData
   | SendPasswordResetEmailJobData
   | SendWelcomeEmailJobData
-  | SendWorkspaceInviteEmailJobData;
+  | SendWorkspaceInviteEmailJobData
+  | SendReleaseNotificationEmailJobData;
 
 export const sendOtpEmailJob: QueueDescriptor<SendOtpEmailJobData> = {
   queueName: EMAIL_QUEUE_NAME,
@@ -66,3 +78,11 @@ export const sendWorkspaceInviteEmailJob: QueueDescriptor<SendWorkspaceInviteEma
   defaultJobOptions: EMAIL_JOB_OPTIONS,
   describe: ({ email }) => ({ email }),
 };
+
+export const sendReleaseNotificationEmailJob: QueueDescriptor<SendReleaseNotificationEmailJobData> = {
+  queueName: EMAIL_QUEUE_NAME,
+  jobName: "SEND_RELEASE_NOTIFICATION_EMAIL",
+  defaultJobOptions: EMAIL_JOB_OPTIONS,
+  describe: ({ email, action, releaseName }) => ({ email, action, releaseName }),
+};
+

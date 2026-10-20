@@ -7,6 +7,10 @@ import { TRANSLATION_QUEUE_NAME } from '../services/feed/infrastructure/queue/tr
 import { EMAIL_QUEUE_NAME } from '../services/email/infrastructure/queue/email.jobs';
 import { STORAGE_QUEUE_NAME } from '../services/storage/infrastructure/queue/storage.jobs';
 import { CLEANUP_QUEUE_NAME } from '../services/cleanup/infrastructure/queue/cleanup.queue';
+import { 
+  SCHEDULED_RELEASE_QUEUE_NAME, 
+  DEPLOYMENT_QUEUE_NAME 
+} from '../services/releases/infrastructure/queue/scheduled-release.queue';
 
 export const setupBullBoard = (app: any) => {
   const serverAdapter = new ExpressAdapter();
@@ -19,12 +23,18 @@ export const setupBullBoard = (app: any) => {
 
   const cleanupQueue = new Queue(CLEANUP_QUEUE_NAME, { connection: redisConnectionOptions as any });
 
+  const scheduledReleaseQueue = new Queue(SCHEDULED_RELEASE_QUEUE_NAME, { connection: redisConnectionOptions as any });
+
+  const deploymentQueue = new Queue(DEPLOYMENT_QUEUE_NAME, { connection: redisConnectionOptions as any });
+
   createBullBoard({
     queues: [
       new BullMQAdapter(translationQueue),
       new BullMQAdapter(emailQueue),
       new BullMQAdapter(storageQueue),
-      new BullMQAdapter(cleanupQueue)
+      new BullMQAdapter(cleanupQueue),
+      new BullMQAdapter(scheduledReleaseQueue),
+      new BullMQAdapter(deploymentQueue)
     ],
     serverAdapter: serverAdapter,
   });

@@ -6,6 +6,7 @@ import ResourceIdService from './resource-id.service';
 import { AuthorizationService } from './authorization/services/authorization.service';
 import { PERMISSIONS } from './authorization/constants/permission.constants';
 import logger from '../utils/logger';
+import { ProjectLanguageAuditLog } from '../models/project-language-audit-log.model';
 
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
@@ -112,9 +113,9 @@ export const ProjectService = {
         // Generate default environments
         await tx.environment.createMany({
           data: [
-            { projectId: createdProject.id, name: 'development' },
-            { projectId: createdProject.id, name: 'staging' },
-            { projectId: createdProject.id, name: 'production' }
+            { projectId: createdProject.id, name: 'development', rank: 10 },
+            { projectId: createdProject.id, name: 'staging', rank: 20, isEditable: false },
+            { projectId: createdProject.id, name: 'production', rank: 30, isEditable: false }
           ]
         });
 
@@ -306,15 +307,64 @@ export const ProjectService = {
       throw new BadRequestError('supportedLanguages must be a non-empty array of language codes');
     }
 
+    const existingProject = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!existingProject) throw new NotFoundError('Project not found');
+
+    const oldLanguages = (existingProject.supportedLanguages as string[]) || [];
+    const addedLanguages = supportedLanguages.filter(l => !oldLanguages.includes(l));
+    const removedLanguages = oldLanguages.filter(l => !supportedLanguages.includes(l));
+
     const project = await prisma.project.update({
       where: { id: projectId },
       data: { supportedLanguages },
     });
 
-    return project;
-  }
+    for (const lang of addedLanguages) {
+      await ProjectLanguageAuditLog.create({
+        projectId,
+        userId,
+        action: 'LANGUAGE_ADDED',
+        languageCode: lang,
+      });
+    }
 
-  , async getProjectMembers(projectId: number) {
+    for (const lang of removedLanguages) {
+      await ProjectLanguageAuditLog.create({
+        projectId,
+        userId,
+        action: 'LANGUAGE_REMOVED',
+        languageCode: lang,
+      });
+    }
+
+    return project;
+  },
+
+  async getProjectLanguageHistory(projectId: number) {
+    const logs = await ProjectLanguageAuditLog.find({ projectId })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    const userIds = Array.from(new Set(logs.map(l => l.userId).filter(Boolean)));
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, firstName: true, lastName: true, email: true }
+    });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return logs.map(l => ({
+      id: l._id.toString(),
+      projectId: l.projectId,
+      action: l.action,
+      languageCode: l.languageCode,
+      notes: l.notes,
+      createdAt: l.createdAt,
+      user: userMap.get(l.userId) || { id: l.userId, firstName: 'User', lastName: '', email: '' }
+    }));
+  },
+
+  async getProjectMembers(projectId: number) {
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundError('Project not found');
 
@@ -445,5 +495,44 @@ export const ProjectService = {
     const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
 
     return unique.slice(0, 10);
-  }
+  },
+
+  async getProjectEnvironments(projectId: number) {
+    return await prisma.environment.findMany({
+      where: { projectId },
+      orderBy: { id: 'asc' }
+    });
+  },
+
+  async updateProjectEnvironment(
+    projectId: number, 
+    environmentId: number, 
+    data: { 
+      requiresApproval?: boolean | undefined, 
+      defaultApproverIds?: number[] | undefined,
+      isEditable?: boolean | undefined 
+    }
+  ) {
+    const env = await prisma.environment.findFirst({
+      where: { id: environmentId, projectId }
+    });
+    if (!env) throw new NotFoundError('Environment not found');
+
+    const updateData: any = {};
+    if (typeof data.requiresApproval === 'boolean') {
+      updateData.requiresApproval = data.requiresApproval;
+    }
+    if (Array.isArray(data.defaultApproverIds)) {
+      updateData.defaultApproverIds = data.defaultApproverIds;
+    }
+    if (typeof data.isEditable === 'boolean') {
+      updateData.isEditable = data.isEditable;
+    }
+
+    return await prisma.environment.update({
+      where: { id: environmentId },
+      data: updateData
+    });
+  },
+
 };

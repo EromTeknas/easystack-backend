@@ -1,7 +1,7 @@
 import { requestReview, addReviewers, approveReview,
   closeReview, createComment, getRootComments, getReplies, updateComment, deleteComment, } from './collaboration.controller';
 import { Router } from 'express';
-import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getLocalizationStatus, getLocalizationContent, retryLocalization, updateDraftBaseContent, updateDraftLocalization,
+import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getFeedVersionDetail, getLocalizationStatus, getLocalizationContent, retryLocalization, updateDraftBaseContent, updateDraftLocalization,
   markLocalizationCompleted, getAuditLogs } from './feeds.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
@@ -43,6 +43,13 @@ router.get(
   authenticate,
   authorize({ scope: 'project', permission: PERMISSIONS.FEED.READ, scopeId: req => req.params.projectId as string }),
   getFeedDetail
+);
+
+router.get(
+  '/:feedId/versions/:versionId',
+  authenticate,
+  authorize({ scope: 'project', permission: PERMISSIONS.FEED.READ, scopeId: req => req.params.projectId as string }),
+  getFeedVersionDetail
 );
 
 router.get(

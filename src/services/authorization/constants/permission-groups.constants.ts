@@ -10,6 +10,7 @@ export const PermissionGroups = {
     ...Object.values(PERMISSIONS.LOCALIZATION),
     ...Object.values(PERMISSIONS.ENVIRONMENT),
     ...Object.values(PERMISSIONS.DEPLOYMENT),
+    ...Object.values(PERMISSIONS.RELEASE),
     ...Object.values(PERMISSIONS.ASSET),
   ],
 
@@ -22,5 +23,6 @@ export const PermissionGroups = {
     ...Object.values(PERMISSIONS.ENVIRONMENT),
     ...Object.values(PERMISSIONS.DEPLOYMENT),
     ...Object.values(PERMISSIONS.ASSET),
+    ...Object.values(PERMISSIONS.RELEASE)
   ]
 } satisfies Record<string, readonly Permission[]>;

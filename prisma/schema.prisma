@@ -47,8 +47,10 @@ model User {
   defaultWorkspace     Workspace?     @relation("UserDefaultWorkspace", fields: [defaultWorkspaceId], references: [id], map: "User_defaultWorkspace_fkey")
   billingSubscriptions Subscription[] @relation("SubscriptionBillingOwner")
 
-  invitesSent     WorkspaceInvitation[] @relation("InvitesSent")
-  invitesReceived WorkspaceInvitation[] @relation("InvitesReceived")
+  invitesSent      WorkspaceInvitation[] @relation("InvitesSent")
+  invitesReceived  WorkspaceInvitation[] @relation("InvitesReceived")
+  releases         Release[]
+  releaseApprovals ReleaseApproval[]
 
   @@index([status])
 }
@@ -199,6 +201,7 @@ model Project {
   invitationAssignments InvitationProjectAssignment[]
   environments          Environment[]
   feeds                 Feed[]
+  releases              Release[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -262,14 +265,20 @@ model InvitationProjectAssignment {
 //////////////////////////////////////////////////////////////
 
 model Environment {
-  id          Int      @id @default(autoincrement())
-  projectId   Int      @map("project_id")
-  name        String   // "development", "staging", "production"
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        Int      @id @default(autoincrement())
+  rank      Int      @default(0)
+  isEditable Boolean  @default(true) @map("is_editable")
+  requiresApproval Boolean  @default(false) @map("requires_approval")
+  defaultApproverIds Json?    @map("default_approver_ids")
+  projectId Int      @map("project_id")
+  name      String // "development", "staging", "production"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  states      EnvironmentState[]
+  project  Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  states   EnvironmentState[]
+  sourceReleases Release[] @relation("ReleaseSource")
+  targetReleases Release[] @relation("ReleaseTarget")
 
   @@unique([projectId, name])
   @@index([projectId])
@@ -278,26 +287,27 @@ model Environment {
 model Feed {
   id           Int      @id @default(autoincrement())
   projectId    Int      @map("project_id")
-  name         String   // e.g., "homepage-hero"
+  name         String // e.g., "homepage-hero"
   baseLanguage String   @default("en") @map("base_language")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   states       EnvironmentState[]
+  releaseItems ReleaseItem[]
 
   @@unique([projectId, name])
   @@index([projectId])
 }
 
 model EnvironmentState {
-  id              Int      @id @default(autoincrement())
-  environmentId   Int      @map("environment_id")
-  feedId          Int      @map("feed_id")
-  activeVersionId String   @map("active_version_id") // Maps to MongoDB ObjectId
+  id              Int    @id @default(autoincrement())
+  environmentId   Int    @map("environment_id")
+  feedId          Int    @map("feed_id")
+  activeVersionId String @map("active_version_id") // Maps to MongoDB ObjectId
 
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
-  feed            Feed        @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  environment Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  feed        Feed        @relation(fields: [feedId], references: [id], onDelete: Cascade)
 
   @@unique([environmentId, feedId])
   @@index([environmentId])
@@ -818,8 +828,8 @@ model Usage {
   workspaceId Int
   quotaId     Int
 
-  scope       String  @default("WORKSPACE") // WORKSPACE, PROJECT, ENVIRONMENT
-  scopeId     String  @default("ALL")       // e.g. "10" for projectId 10
+  scope   String @default("WORKSPACE") // WORKSPACE, PROJECT, ENVIRONMENT
+  scopeId String @default("ALL") // e.g. "10" for projectId 10
 
   value Int @default(0)
 
@@ -1164,3 +1174,80 @@ enum PaymentStatus {
 // SubscriptionSchedule
 // SubscriptionItem
 // PlanAddon
+
+//////////////////////////////////////////////////////////////
+// RELEASES
+//////////////////////////////////////////////////////////////
+
+enum ReleaseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  READY_TO_DEPLOY
+  SCHEDULED
+  DEPLOYING
+  DEPLOYED
+  ROLLED_BACK
+  FAILED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Release {
+  id                  Int           @id @default(autoincrement())
+  projectId           Int           @map("project_id")
+  sourceEnvironmentId Int           @map("source_environment_id")
+  targetEnvironmentId Int           @map("target_environment_id")
+  version             String
+  name                String
+  description         String?       @db.Text
+  status              ReleaseStatus @default(DRAFT)
+  scheduledAt         DateTime?     @map("scheduled_at")
+  deploymentStartedAt DateTime?     @map("deployment_started_at")
+  deploymentProgress  Json?         @map("deployment_progress")
+  createdById         Int           @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project           Project     @relation(fields: [projectId], references: [id])
+  sourceEnvironment Environment @relation("ReleaseSource", fields: [sourceEnvironmentId], references: [id])
+  targetEnvironment Environment @relation("ReleaseTarget", fields: [targetEnvironmentId], references: [id])
+  createdBy         User        @relation(fields: [createdById], references: [id])
+
+  items     ReleaseItem[]
+  approvals ReleaseApproval[]
+
+  @@index([projectId])
+  @@index([targetEnvironmentId])
+}
+
+model ReleaseItem {
+  id                Int     @id @default(autoincrement())
+  releaseId         Int     @map("release_id")
+  feedId            Int     @map("feed_id")
+  versionId         String  @map("version_id")
+  previousVersionId String? @map("previous_version_id")
+
+  release Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  feed    Feed    @relation(fields: [feedId], references: [id])
+
+  @@unique([releaseId, feedId])
+}
+
+model ReleaseApproval {
+  id         Int            @id @default(autoincrement())
+  releaseId  Int            @map("release_id")
+  approverId Int            @map("approver_id")
+  status     ApprovalStatus @default(PENDING)
+  notes      String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  release  Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  approver User    @relation(fields: [approverId], references: [id])
+
+  @@unique([releaseId, approverId])
+}

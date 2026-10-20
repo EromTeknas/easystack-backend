@@ -68,7 +68,8 @@ export const checkFeedNameAvailability = asyncHandler(async (req: any, res: Resp
 export const createFeed = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const userId = Number(req.user!.id);
-  const { name, baseLanguage, jsonContent, selectedKeys } = req.body;
+  const { name, baseLanguage, jsonContent, selectedKeys, environmentId, environmentName } = req.body;
+  const envName = (req.query.env as string) || environmentName || 'development';
 
   if (!projectId) {
     throw new BadRequestError('projectId is required');
@@ -86,7 +87,9 @@ export const createFeed = asyncHandler(async (req: any, res: Response) => {
     name,
     baseLanguage,
     jsonContent,
-    selectedKeys
+    selectedKeys,
+    environmentId: environmentId ? Number(environmentId) : undefined,
+    environmentName: envName
   });
 
   return ok(res, result, { statusCode: 201 });
@@ -98,12 +101,13 @@ export const createFeed = asyncHandler(async (req: any, res: Response) => {
 export const getLocalizationStatus = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
+  const envName = (req.query.env as string) || 'development';
 
   if (!projectId || !feedId) {
     throw new BadRequestError('projectId and feedId are required');
   }
 
-  const statuses = await FeedService.getLocalizationStatuses(projectId, feedId);
+  const statuses = await FeedService.getLocalizationStatuses(projectId, feedId, envName);
 
   return ok(res, statuses);
 });
@@ -115,12 +119,13 @@ export const getLocalizationContent = asyncHandler(async (req: any, res: Respons
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
+  const envName = (req.query.env as string) || 'development';
 
   if (!projectId || !feedId || !language) {
     throw new BadRequestError('projectId, feedId and language are required');
   }
 
-  const data = await FeedService.getLocalizationContent(projectId, feedId, language);
+  const data = await FeedService.getLocalizationContent(projectId, feedId, language, envName);
 
   return ok(res, { language, ...data });
 });
@@ -133,13 +138,14 @@ export const retryLocalization = asyncHandler(async (req: any, res: Response) =>
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
   const { selectedKeys } = req.body;
+  const envName = (req.query.env as string) || (req.body?.environmentName as string) || 'development';
   const userId = req.user?.id || 1;
 
   if (!projectId || !feedId || !language) {
     throw new BadRequestError('projectId, feedId and language are required');
   }
 
-  await FeedService.retryLocalization(projectId, feedId, language, userId, selectedKeys);
+  await FeedService.retryLocalization(projectId, feedId, language, userId, selectedKeys, envName);
 
   return ok(res, { message: 'Translation queued successfully' });
 });
@@ -150,14 +156,33 @@ export const retryLocalization = asyncHandler(async (req: any, res: Response) =>
 export const getFeedDetail = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
+  const envName = (req.query.env as string) || 'development';
 
   if (!projectId || !feedId) {
     throw new BadRequestError('projectId and feedId are required');
   }
 
-  const feedDetail = await FeedService.getFeedDetail(projectId, feedId);
+  const feedDetail = await FeedService.getFeedDetail(projectId, feedId, envName);
 
   return ok(res, feedDetail);
+});
+
+/**
+ * GET /api/projects/:projectId/feeds/:feedId/versions/:versionId
+ * Retrieves detailed snapshot of a specific feed version including localizations
+ */
+export const getFeedVersionDetail = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const versionId = req.params.versionId;
+
+  if (!projectId || !feedId || !versionId) {
+    throw new BadRequestError('projectId, feedId, and versionId are required');
+  }
+
+  const versionDetail = await FeedService.getFeedVersionDetail(projectId, feedId, versionId);
+
+  return ok(res, versionDetail);
 });
 
 /**
@@ -189,12 +214,22 @@ export const validateFeedSchema = asyncHandler(async (req: any, res: Response) =
 export const updateDraftBaseContent = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
-  const { jsonContent, notes, selectedKeys } = req.body;
+  const { jsonContent, notes, selectedKeys, environmentId, environmentName } = req.body;
+  const envName = (req.query.env as string) || environmentName || 'development';
   const userId = req.user?.id || 1; // Assuming auth middleware provides req.user
 
   if (!jsonContent) throw new BadRequestError('jsonContent is required');
 
-  await FeedService.updateDraftBaseContent(projectId, feedId, userId, jsonContent, notes, selectedKeys);
+  await FeedService.updateDraftBaseContent(
+    projectId, 
+    feedId, 
+    userId, 
+    jsonContent, 
+    environmentId ? Number(environmentId) : undefined, 
+    notes, 
+    selectedKeys,
+    envName
+  );
   return ok(res, { message: 'Draft base content updated successfully' });
 });
 
@@ -207,11 +242,12 @@ export const updateDraftLocalization = asyncHandler(async (req: any, res: Respon
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
   const { localizedContent, notes } = req.body;
+  const envName = (req.query.env as string) || (req.body?.environmentName as string) || 'development';
   const userId = req.user?.id || 1;
 
   if (!localizedContent) throw new BadRequestError('localizedContent is required');
 
-  await FeedService.updateDraftLocalization(projectId, feedId, userId, language, localizedContent, notes);
+  await FeedService.updateDraftLocalization(projectId, feedId, userId, language, localizedContent, notes, envName);
   return ok(res, { message: 'Translation updated successfully' });
 });
 
@@ -222,8 +258,9 @@ export const updateDraftLocalization = asyncHandler(async (req: any, res: Respon
 export const getAuditLogs = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
+  const envName = (req.query.env as string) || 'development';
 
-  const logs = await FeedService.getAuditLogs(projectId, feedId);
+  const logs = await FeedService.getAuditLogs(projectId, feedId, envName);
   return ok(res, { logs });
 });
 
@@ -231,8 +268,9 @@ export const markLocalizationCompleted = asyncHandler(async (req: any, res: Resp
   const projectId = Number(req.params.projectId);
   const feedId = Number(req.params.feedId);
   const { language } = req.params;
+  const envName = (req.query.env as string) || (req.body?.environmentName as string) || 'development';
   const userId = req.user?.id || 1;
 
-  const loc = await FeedService.markLocalizationCompleted(projectId, feedId, userId, language);
+  const loc = await FeedService.markLocalizationCompleted(projectId, feedId, userId, language, envName);
   return ok(res, { message: 'Translation marked as correct', loc });
 });

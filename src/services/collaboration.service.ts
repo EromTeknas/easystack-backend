@@ -6,16 +6,23 @@ import { NotFoundError, BadRequestError } from '../errors';
 
 export const CollaborationService = {
   
-  async getActiveLocalization(projectId: number, feedId: number, language: string) {
-    const devEnvState = await prisma.environmentState.findFirst({
-      where: { feedId, feed: { projectId }, environment: { name: 'development' } }
+  async getActiveLocalization(projectId: number, feedId: number, language: string, environmentName: string = 'development') {
+    const targetEnv = await prisma.environment.findUnique({
+      where: { projectId_name: { projectId, name: environmentName } }
+    }) || await prisma.environment.findFirst({
+      where: { projectId, name: 'development' }
     });
-    if (!devEnvState) throw new NotFoundError('Feed not found or no active development draft');
+    if (!targetEnv) throw new NotFoundError('Environment not found');
 
-    const loc = await FeedLocalization.findOne({ feedVersionId: devEnvState.activeVersionId, languageCode: language });
+    const envState = await prisma.environmentState.findFirst({
+      where: { feedId, environmentId: targetEnv.id }
+    });
+    if (!envState) throw new NotFoundError(`Feed not active in environment '${targetEnv.name}'`);
+
+    const loc = await FeedLocalization.findOne({ feedVersionId: envState.activeVersionId, languageCode: language });
     if (!loc) throw new NotFoundError('Localization not found');
     
-    return { loc, activeVersionId: devEnvState.activeVersionId };
+    return { loc, activeVersionId: envState.activeVersionId, isEditable: targetEnv.isEditable };
   },
 
       async closeReview(projectId: number, feedId: number, language: string, commentId: string, userId: number) {

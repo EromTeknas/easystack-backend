@@ -1,5 +1,12 @@
 import type { Job } from "bullmq";
-import { sendOtpEmail, sendPasswordResetEmail, sendWelcomeEmail, sendWorkspaceInviteEmail } from "../../../email.service";
+import { 
+  sendOtpEmail, 
+  sendPasswordResetEmail, 
+  sendWelcomeEmail, 
+  sendWorkspaceInviteEmail,
+  sendReleaseNotificationEmail,
+  ReleaseNotificationEmailParams 
+} from "../../../email.service";
 import {
   EmailJobData,
   SendOtpEmailJobData,
@@ -10,6 +17,8 @@ import {
   sendWelcomeEmailJob,
   SendWorkspaceInviteEmailJobData,
   sendWorkspaceInviteEmailJob,
+  SendReleaseNotificationEmailJobData,
+  sendReleaseNotificationEmailJob,
 } from "./email.jobs";
 
 export interface EmailJobHandlers {
@@ -17,6 +26,7 @@ export interface EmailJobHandlers {
   sendPasswordReset(email: string, firstName: string, token: string): Promise<boolean>;
   sendWelcome(email: string, firstName: string): Promise<boolean>;
   sendWorkspaceInvite(email: string, inviterName: string, workspaceName: string, token: string): Promise<boolean>;
+  sendReleaseNotification(params: ReleaseNotificationEmailParams): Promise<boolean>;
 }
 
 const defaultHandlers: EmailJobHandlers = {
@@ -24,6 +34,7 @@ const defaultHandlers: EmailJobHandlers = {
   sendPasswordReset: sendPasswordResetEmail,
   sendWelcome: sendWelcomeEmail,
   sendWorkspaceInvite: sendWorkspaceInviteEmail,
+  sendReleaseNotification: sendReleaseNotificationEmail,
 };
 
 export class EmailJobProcessor {
@@ -39,8 +50,16 @@ export class EmailJobProcessor {
         return this.sendWelcome(job.data as SendWelcomeEmailJobData);
       case sendWorkspaceInviteEmailJob.jobName:
         return this.sendWorkspaceInvite(job.data as SendWorkspaceInviteEmailJobData);
+      case sendReleaseNotificationEmailJob.jobName:
+        return this.sendReleaseNotification(job.data as SendReleaseNotificationEmailJobData);
       default:
         throw new Error(`Unsupported email job: ${job.name}`);
+    }
+  }
+
+  private async sendReleaseNotification(data: SendReleaseNotificationEmailJobData): Promise<void> {
+    if (!(await this.handlers.sendReleaseNotification(data))) {
+      throw new Error("Failed to send release notification email");
     }
   }
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  getProjectEnvironments,
   createProject,
   deleteProject,
   getProjectById,
@@ -8,6 +9,7 @@ import {
   patchProject,
   getProjectLanguages,
   updateProjectLanguages,
+  getProjectLanguageHistory,
   getProjectMembers,
   searchProjectMembers,
   inviteToProject,
@@ -16,7 +18,8 @@ import {
   listProjectInvitations,
   revokeProjectInvitation,
   updateProjectMemberRole,
-  removeProjectMember
+  removeProjectMember,
+  updateProjectEnvironment
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -31,11 +34,13 @@ import { Quotas } from '../../services/billing/config/quotas.config';
 import { ProjectService } from '../../services/project.service';
 import { BadRequestError } from '../../errors';
 import feedsRoutes from '../feeds/feeds.routes';
+import releaseRoutes from '../releases/release.routes';
 
 const router = Router();
 
 // Mount Feeds under Projects
 router.use('/:projectId/feeds', feedsRoutes);
+router.use('/:projectId/releases', releaseRoutes);
 
 const attachWorkspaceFromProject = async (req: any, _res: any, next: any) => {
   try {
@@ -269,6 +274,22 @@ router.put(
   updateProjectLanguages
 );
 
+/**
+ * GET /api/projects/:projectId/languages/history
+ * Get language change history for the project
+ */
+router.get(
+  '/:projectId/languages/history',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectLanguageHistory
+);
+
 router.get(
   '/:projectId/members',
   authenticate, 
@@ -378,6 +399,31 @@ router.delete(
   }),
   attachWorkspaceFromProject,
   revokeProjectInvitation
+);
+
+
+router.get(
+  '/:projectId/environments',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.ENVIRONMENT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectEnvironments
+);
+
+router.patch(
+  '/:projectId/environments/:environmentId',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.ENVIRONMENT.UPDATE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  updateProjectEnvironment
 );
 
 export default router;

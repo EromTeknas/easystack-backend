@@ -47,6 +47,15 @@ export const PermissionConfig = {
     "create",
   ],
 
+  release: [
+    "create",
+    "read",
+    "approve",
+    "execute",
+    "rollback",
+    "delete"
+  ],
+
   asset: [
     "create",
   ]

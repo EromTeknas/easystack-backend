@@ -210,6 +210,23 @@ export const updateProjectLanguages = asyncHandler(async (req: any, res: Respons
     message: 'Project languages updated successfully'
   });
 });
+
+/**
+ * GET /projects/:projectId/languages/history
+ * Get audit history of language changes for a project
+ */
+export const getProjectLanguageHistory = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const userId = Number(req.user!.id);
+
+  await ProjectService.assertProjectAccess(projectId, userId);
+  const history = await ProjectService.getProjectLanguageHistory(projectId);
+
+  return ok(res, {
+    history,
+    message: 'Project language history retrieved successfully'
+  });
+});
 export const getProjectMembers = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   
@@ -565,3 +582,30 @@ export const revokeProjectInvitation = asyncHandler(async (req: any, res: Respon
 
   return ok(res, { message: "Project invitation revoked successfully" });
 });
+
+export const getProjectEnvironments = async (req: any, res: any, next: any) => {
+  try {
+    const projectId = Number(req.params.projectId);
+    const envs = await ProjectService.getProjectEnvironments(projectId);
+    res.json({ success: true, data: envs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProjectEnvironment = async (req: any, res: any, next: any) => {
+  try {
+    const projectId = Number(req.params.projectId);
+    const environmentId = Number(req.params.environmentId);
+    const { requiresApproval, defaultApproverIds, isEditable } = req.body;
+
+    const env = await ProjectService.updateProjectEnvironment(projectId, environmentId, {
+      requiresApproval,
+      defaultApproverIds,
+      isEditable
+    });
+    res.json({ success: true, data: env });
+  } catch (error) {
+    next(error);
+  }
+};

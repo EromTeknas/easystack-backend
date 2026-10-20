@@ -45,6 +45,7 @@ class AuthorizationService {
     scope: AuthorizationScope,
     scopeId: string,
   ): Promise<boolean> {
+    console.log(`Checking permission for userId: ${userId}, permission: ${permission}, scope: ${scope}, scopeId: ${scopeId}`);
     const node = await this.getNode(userId, scope, scopeId);
     return this.hasPermission(node, permission);
   }

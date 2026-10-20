@@ -20,6 +20,7 @@
     "worker:storage": "ts-node src/workers/main.ts storage",
     "worker:translation": "ts-node src/workers/main.ts translation",
     "worker:cleanup": "ts-node src/workers/main.ts cleanup",
+    "worker:release": "ts-node src/workers/main.ts release",
     "queues:register-schedules": "ts-node src/workers/register-schedules.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
     "test:billing": "node -r ts-node/register --test tests/**/*.test.ts",

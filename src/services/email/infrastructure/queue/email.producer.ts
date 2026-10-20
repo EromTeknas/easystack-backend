@@ -8,6 +8,8 @@ import {
   sendWelcomeEmailJob,
   sendWorkspaceInviteEmailJob,
   SendWorkspaceInviteEmailJobData,
+  sendReleaseNotificationEmailJob,
+  SendReleaseNotificationEmailJobData,
 } from "./email.jobs";
 
 export const enqueueSendOtpEmailJob = (data: SendOtpEmailJobData): Promise<void> =>
@@ -22,3 +24,7 @@ export const enqueueSendWelcomeEmailJob = (data: SendWelcomeEmailJobData): Promi
 
 export const enqueueSendWorkspaceInviteEmailJob = (data: SendWorkspaceInviteEmailJobData): Promise<void> =>
   queueClient.enqueue(sendWorkspaceInviteEmailJob, data);
+
+export const enqueueSendReleaseNotificationEmailJob = (data: SendReleaseNotificationEmailJobData): Promise<void> =>
+  queueClient.enqueue(sendReleaseNotificationEmailJob, data);
+

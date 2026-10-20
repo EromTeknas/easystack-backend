@@ -383,3 +383,88 @@ export async function sendWorkspaceInviteEmail(
     htmlContent
   });
 }
+
+export interface ReleaseNotificationEmailParams {
+  email: string;
+  recipientName: string;
+  releaseName: string;
+  version: string;
+  targetEnvironment: string;
+  action: 'SCHEDULED' | 'SCHEDULE_UPDATED' | 'SCHEDULE_CANCELLED' | 'DEPLOYED';
+  scheduledAt?: string | undefined;
+  actionBy?: string | undefined;
+}
+
+export async function sendReleaseNotificationEmail(params: ReleaseNotificationEmailParams): Promise<boolean> {
+  const { email, recipientName, releaseName, version, targetEnvironment, action, scheduledAt, actionBy } = params;
+
+  let title = '';
+  let description = '';
+  let badgeColor = '#2f81f7';
+
+  switch (action) {
+    case 'SCHEDULED':
+      title = `Release Scheduled: ${releaseName} (${version})`;
+      description = `A new release has been scheduled for target environment <strong>${targetEnvironment}</strong>${scheduledAt ? ` on <strong>${new Date(scheduledAt).toLocaleString()}</strong>` : ''}${actionBy ? ` by ${actionBy}` : ''}.`;
+      badgeColor = '#388bfd';
+      break;
+    case 'SCHEDULE_UPDATED':
+      title = `Release Rescheduled: ${releaseName} (${version})`;
+      description = `The execution schedule for release <strong>${releaseName}</strong> has been updated to <strong>${scheduledAt ? new Date(scheduledAt).toLocaleString() : ''}</strong>${actionBy ? ` by ${actionBy}` : ''}.`;
+      badgeColor = '#d29922';
+      break;
+    case 'SCHEDULE_CANCELLED':
+      title = `Schedule Cancelled: ${releaseName} (${version})`;
+      description = `The scheduled release <strong>${releaseName}</strong> targeting <strong>${targetEnvironment}</strong> was cancelled${actionBy ? ` by ${actionBy}` : ''}.`;
+      badgeColor = '#f85149';
+      break;
+    case 'DEPLOYED':
+      title = `Release Deployed: ${releaseName} (${version})`;
+      description = `Release <strong>${releaseName}</strong> (${version}) has successfully deployed and is now live in <strong>${targetEnvironment}</strong>!`;
+      badgeColor = '#3fb950';
+      break;
+  }
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; margin: 0; padding: 40px 20px; }
+          .container { max-width: 600px; margin: 0 auto; background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 40px; }
+          .badge { display: inline-block; background-color: ${badgeColor}; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 16px; }
+          h2 { color: #f0f6fc; margin-top: 0; }
+          p { line-height: 1.6; color: #c9d1d9; }
+          .details { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin: 20px 0; }
+          .footer { font-size: 12px; color: #8b949e; margin-top: 32px; text-align: center; border-top: 1px solid #30363d; padding-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <span class="badge">${action.replace('_', ' ')}</span>
+          <h2>${title}</h2>
+          <p>Hi ${recipientName || 'there'},</p>
+          <p>${description}</p>
+          <div class="details">
+            <p style="margin: 4px 0;"><strong>Release:</strong> ${releaseName}</p>
+            <p style="margin: 4px 0;"><strong>Version:</strong> ${version}</p>
+            <p style="margin: 4px 0;"><strong>Target Environment:</strong> ${targetEnvironment}</p>
+            ${scheduledAt ? `<p style="margin: 4px 0;"><strong>Scheduled Time:</strong> ${new Date(scheduledAt).toLocaleString()}</p>` : ''}
+          </div>
+          <div class="footer">
+            <p>&copy; 2026 EasyStack. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendBrevoEmail({
+    email,
+    firstName: recipientName || email.split('@')[0]!,
+    subject: `[EasyStack] ${title}`,
+    htmlContent
+  });
+}
+

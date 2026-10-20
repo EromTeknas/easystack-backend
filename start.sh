@@ -1,4 +1,6 @@
-sudo systemctl restart docker
-sudo systemctl restart mongod
-cd /home/eteknas/Projects/easystack-backend/infra/storage
-sudo docker-compose up -d
+#!/usr/bin/env bash
+set -e
+
+sudo /usr/local/sbin/easystack-start
+
+npm run dev

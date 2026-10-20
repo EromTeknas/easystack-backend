@@ -7,6 +7,8 @@ export interface IFeedVersion extends Document {
   baseLanguage: string;
   baseContent: Record<string, any>; // The actual JSON payload
   selectedKeys?: string[]; // Keys to be translated
+  isLocked: boolean; // True if bundled into a Release
+  supportedLanguages?: string[]; // Configured languages snapshotted at version creation / lock time
   createdBy: number; // References MySQL User ID
   createdAt: Date;
   updatedAt: Date;
@@ -20,6 +22,8 @@ const FeedVersionSchema = new Schema(
     baseLanguage: { type: String, required: true },
     baseContent: { type: Schema.Types.Mixed, required: true, default: {} },
     selectedKeys: { type: [String], default: undefined },
+    isLocked: { type: Boolean, default: false },
+    supportedLanguages: { type: [String], default: undefined },
     createdBy: { type: Number, required: true },
   },
   { timestamps: true }
