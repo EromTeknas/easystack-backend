@@ -1,10 +1,29 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface SchemaFieldDefinition {
+  id: string;
+  key: string;
+  type: string;
+  label: string;
+  description?: string;
+  required: boolean;
+  isLocalized: boolean;
+  isClientEditable: boolean;
+  defaultValue?: any;
+  config?: Record<string, any>;
+}
+
+export interface SchemaDefinition {
+  version: number;
+  fields: SchemaFieldDefinition[];
+}
+
 export interface IFeedVersion extends Document {
   feedId: number; // References MySQL Feed ID
   versionNumber: number;
   notes: string;
   baseLanguage: string;
+  schemaDefinition?: SchemaDefinition;
   baseContent: Record<string, any>; // The actual JSON payload
   selectedKeys?: string[]; // Keys to be translated
   isLocked: boolean; // True if bundled into a Release
@@ -20,6 +39,7 @@ const FeedVersionSchema = new Schema(
     versionNumber: { type: Number, required: true },
     notes: { type: String, default: '' },
     baseLanguage: { type: String, required: true },
+    schemaDefinition: { type: Schema.Types.Mixed, default: undefined },
     baseContent: { type: Schema.Types.Mixed, required: true, default: {} },
     selectedKeys: { type: [String], default: undefined },
     isLocked: { type: Boolean, default: false },

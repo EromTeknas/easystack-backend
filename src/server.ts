@@ -11,11 +11,13 @@ import { requestLogger } from './middlewares/request-logger.middleware';
 import { delayMiddleware } from './middlewares/delay.middleware';
 import { setupBullBoard } from './config/bull-board';
 import { startReleaseWorker } from './services/releases/infrastructure/queue/release.worker';
+import { createTranslationWorkers } from './services/feed/infrastructure/queue/createTranslationWorkers';
 
 async function start() {
   try {
     await initDatabases();
     startReleaseWorker();
+    createTranslationWorkers();
 
     const app = express();
 

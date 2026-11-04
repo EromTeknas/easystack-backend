@@ -2,10 +2,10 @@ import logger from '../utils/logger';
 
 // Mock config: you can change these to simulate different failure scenarios
 export const MockLLMConfig = {
-  failureRate: 0.1, // 10% chance to fail
-  minDelayMs: 2000,   // 2 seconds minimum delay
-  maxDelayMs: 5000,  // 10 seconds maximum delay
-  permanentFailureRate: 0.1 // 10% chance to throw a permanent schema error
+  failureRate: 0.0,
+  minDelayMs: 600,
+  maxDelayMs: 1500,
+  permanentFailureRate: 0.0
 };
 
 export class TransientLLMError extends Error {

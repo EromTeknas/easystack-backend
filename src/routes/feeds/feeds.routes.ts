@@ -2,7 +2,7 @@ import { requestReview, addReviewers, approveReview,
   closeReview, createComment, getRootComments, getReplies, updateComment, deleteComment, } from './collaboration.controller';
 import { Router } from 'express';
 import { listFeeds, createFeed, validateFeedSchema, checkFeedNameAvailability, getFeedDetail, getFeedVersionDetail, getLocalizationStatus, getLocalizationContent, retryLocalization, updateDraftBaseContent, updateDraftLocalization,
-  markLocalizationCompleted, getAuditLogs } from './feeds.controller';
+  markLocalizationCompleted, getAuditLogs, getFeedSchema, updateDraftSchema } from './feeds.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
 import { PERMISSIONS } from '../../services/authorization/constants/permission.constants';
@@ -80,6 +80,20 @@ router.post(
   validateFeedSchema
 );
 
+
+router.get(
+  '/:feedId/schema',
+  authenticate,
+  authorize({ scope: 'project', permission: PERMISSIONS.FEED.READ, scopeId: req => req.params.projectId as string }),
+  getFeedSchema
+);
+
+router.put(
+  '/:feedId/schema',
+  authenticate,
+  authorize({ scope: 'project', permission: PERMISSIONS.FEED.UPDATE, scopeId: req => req.params.projectId as string }),
+  updateDraftSchema
+);
 
 router.put(
   '/:feedId/draft',

@@ -1,4 +1,5 @@
 import { JsonValidationService, JsonValidationError } from "../../services/json-validation.service";
+import { FeedSchemaValidationService } from "../../services/feed-schema-validation.service";
 import { Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ok } from '../../utils/response';
@@ -68,7 +69,7 @@ export const checkFeedNameAvailability = asyncHandler(async (req: any, res: Resp
 export const createFeed = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const userId = Number(req.user!.id);
-  const { name, baseLanguage, jsonContent, selectedKeys, environmentId, environmentName } = req.body;
+  const { name, baseLanguage, schemaDefinition, jsonContent, selectedKeys, environmentId, environmentName } = req.body;
   const envName = (req.query.env as string) || environmentName || 'development';
 
   if (!projectId) {
@@ -79,13 +80,14 @@ export const createFeed = asyncHandler(async (req: any, res: Response) => {
     throw new BadRequestError('Feed name is required');
   }
 
-  if (!jsonContent || typeof jsonContent !== 'object') {
-    throw new BadRequestError('jsonContent object is required');
+  if (!schemaDefinition && (!jsonContent || typeof jsonContent !== 'object')) {
+    throw new BadRequestError('Either schemaDefinition or jsonContent object is required');
   }
 
   const result = await FeedService.createFeed(projectId, userId, {
     name,
     baseLanguage,
+    schemaDefinition,
     jsonContent,
     selectedKeys,
     environmentId: environmentId ? Number(environmentId) : undefined,
@@ -187,13 +189,21 @@ export const getFeedVersionDetail = asyncHandler(async (req: any, res: Response)
 
 /**
  * POST /api/projects/:projectId/feeds/validate
- * Validates a JSON schema and selectedKeys without saving it.
+ * Validates a schemaDefinition or legacy JSON schema without saving it.
  */
 export const validateFeedSchema = asyncHandler(async (req: any, res: Response) => {
-  const { jsonContent, selectedKeys } = req.body;
+  const { schemaDefinition, jsonContent, selectedKeys } = req.body;
+
+  if (schemaDefinition) {
+    FeedSchemaValidationService.validateSchemaDefinition(schemaDefinition);
+    if (jsonContent) {
+      FeedSchemaValidationService.validateContentAgainstSchema(jsonContent, schemaDefinition);
+    }
+    return ok(res, { message: 'Feed schema definition is valid' });
+  }
 
   if (!jsonContent || typeof jsonContent !== 'object') {
-    throw new BadRequestError('jsonContent object is required for validation');
+    throw new BadRequestError('Either schemaDefinition or jsonContent object is required for validation');
   }
 
   try {
@@ -205,6 +215,46 @@ export const validateFeedSchema = asyncHandler(async (req: any, res: Response) =
     }
     throw error;
   }
+});
+
+/**
+ * GET /api/projects/:projectId/feeds/:feedId/schema
+ * Fetches the active schema definition
+ */
+export const getFeedSchema = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const env = (req.query.env as string) || 'development';
+
+  if (!projectId || !feedId) {
+    throw new BadRequestError('projectId and feedId are required');
+  }
+
+  const schemaDefinition = await FeedService.getFeedSchema(projectId, feedId, env);
+  return ok(res, { schemaDefinition });
+});
+
+/**
+ * PUT /api/projects/:projectId/feeds/:feedId/schema
+ * Updates the draft schema definition in development
+ */
+export const updateDraftSchema = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const feedId = Number(req.params.feedId);
+  const { schemaDefinition, environmentName } = req.body;
+  const envName = (req.query.env as string) || environmentName || 'development';
+  const userId = req.user?.id || 1;
+
+  if (!projectId || !feedId) {
+    throw new BadRequestError('projectId and feedId are required');
+  }
+
+  if (!schemaDefinition || typeof schemaDefinition !== 'object') {
+    throw new BadRequestError('schemaDefinition object is required');
+  }
+
+  const result = await FeedService.updateDraftSchema(projectId, feedId, userId, schemaDefinition, envName);
+  return ok(res, result);
 });
 
 /**

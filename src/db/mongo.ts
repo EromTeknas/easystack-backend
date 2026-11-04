@@ -13,6 +13,21 @@ export async function connectMongo() {
 
     logger.info('MongoDB connected');
 
+    try {
+      const coll = mongoose.connection.collection('contententries');
+      const existingIndexes = await coll.indexes();
+      if (existingIndexes.some((idx) => idx.name === 'projectId_1_schemaSlug_1_slug_1')) {
+        await coll.dropIndex('projectId_1_schemaSlug_1_slug_1');
+        logger.info('Dropped legacy unique index projectId_1_schemaSlug_1_slug_1 from contententries');
+      }
+      if (existingIndexes.some((idx) => idx.name === 'projectId_1_schemaSlug_1_updatedAt_-1')) {
+        await coll.dropIndex('projectId_1_schemaSlug_1_updatedAt_-1');
+        logger.info('Dropped legacy index projectId_1_schemaSlug_1_updatedAt_-1 from contententries');
+      }
+    } catch {
+      // Collection may not exist yet on fresh setup
+    }
+
     mongoose.connection.on('error', (err) => {
       logger.error(`MongoDB connection error: ${String(err)}`);
     });

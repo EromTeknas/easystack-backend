@@ -1,6 +1,7 @@
 import { JsonValidationService, JsonValidationError } from "./json-validation.service";
+import { FeedSchemaValidationService } from "./feed-schema-validation.service";
 import { prisma } from '../db';
-import { FeedVersion } from '../models/feed-version.model';
+import { FeedVersion, SchemaDefinition } from '../models/feed-version.model';
 import { FeedLocalization } from '../models/feed-localization.model';
 import { FeedAuditLog } from '../models/feed-audit-log.model';
 import { FeedComment } from '../models/feed-comment.model';
@@ -43,8 +44,12 @@ export const FeedService = {
     const feedVersion = await FeedVersion.findById(devEnvState.activeVersionId);
     if (!feedVersion) throw new NotFoundError('Draft version not found');
 
-    // Run JSON validation
-    JsonValidationService.validate(jsonContent, selectedKeys || feedVersion.selectedKeys);
+    // Run validation: If schema definition exists, validate against schema
+    if (feedVersion.schemaDefinition) {
+      FeedSchemaValidationService.validateContentAgainstSchema(jsonContent, feedVersion.schemaDefinition);
+    } else {
+      JsonValidationService.validate(jsonContent, selectedKeys || feedVersion.selectedKeys);
+    }
 
     // Check if structure changed
     const oldKeys = getDeepKeys(feedVersion.baseContent).sort().join(',');
@@ -208,7 +213,14 @@ export const FeedService = {
     if (!loc) throw new NotFoundError('Localization not found');
 
     // Strictly validate that the JSON structure matches the English base structure
-    JsonValidationService.validateStructureMatch(feedVersion.baseContent, localizedContent);
+    if (feedVersion.schemaDefinition) {
+      FeedSchemaValidationService.validateContentAgainstSchema(localizedContent, feedVersion.schemaDefinition, {
+        isLocalized: true,
+        locale: language
+      });
+    } else {
+      JsonValidationService.validateStructureMatch(feedVersion.baseContent, localizedContent);
+    }
 
     loc.localizedContent = localizedContent;
     loc.status = 'COMPLETED';
@@ -568,6 +580,7 @@ export const FeedService = {
         versionNumber: activeVersion.versionNumber,
         isLocked: activeVersion.isLocked,
         notes: activeVersion.notes,
+        schemaDefinition: activeVersion.schemaDefinition || null,
         selectedKeys: activeVersion.selectedKeys || [],
         keyCount: Object.keys(activeVersion.baseContent || {}).length,
         createdAt: activeVersion.createdAt,
@@ -626,6 +639,7 @@ export const FeedService = {
       versionNumber: version.versionNumber,
       notes: version.notes,
       baseLanguage: version.baseLanguage,
+      schemaDefinition: version.schemaDefinition || null,
       baseContent: version.baseContent || {},
       selectedKeys: version.selectedKeys || [],
       keyCount: Object.keys(version.baseContent || {}).length,
@@ -644,6 +658,75 @@ export const FeedService = {
     };
   },
 
+  async getFeedSchema(projectId: number, feedId: number, environmentName: string = 'development') {
+    const feed = await prisma.feed.findUnique({
+      where: { id: feedId },
+      include: { states: { include: { environment: true } } }
+    });
+    if (!feed || feed.projectId !== projectId) throw new NotFoundError('Feed not found');
+
+    const targetEnv = await prisma.environment.findUnique({
+      where: { projectId_name: { projectId, name: environmentName } }
+    }) || await prisma.environment.findFirst({
+      where: { projectId, name: 'development' }
+    });
+
+    const activeState = targetEnv ? feed.states.find(s => s.environmentId === targetEnv.id) : null;
+    if (!activeState?.activeVersionId) return null;
+
+    const feedVersion = await FeedVersion.findById(activeState.activeVersionId).lean();
+    return feedVersion?.schemaDefinition || null;
+  },
+
+  async updateDraftSchema(
+    projectId: number,
+    feedId: number,
+    userId: number,
+    schemaDefinition: SchemaDefinition,
+    environmentName: string = 'development'
+  ) {
+    const targetEnv = await prisma.environment.findUnique({
+      where: { projectId_name: { projectId, name: environmentName } }
+    }) || await prisma.environment.findFirst({
+      where: { projectId, name: 'development' }
+    });
+    if (!targetEnv) throw new NotFoundError('Environment not found');
+    if (!targetEnv.isEditable) throw new BadRequestError('Cannot edit schema in a read-only environment.');
+
+    const envState = await prisma.environmentState.findUnique({
+      where: { environmentId_feedId: { environmentId: targetEnv.id, feedId } }
+    });
+    if (!envState) throw new NotFoundError('Feed not found or no active draft in this environment');
+
+    const feedVersion = await FeedVersion.findById(envState.activeVersionId);
+    if (!feedVersion) throw new NotFoundError('Draft version not found');
+    if (feedVersion.isLocked) throw new BadRequestError('Cannot edit a locked version.');
+
+    // 1. Validate Schema Definition
+    FeedSchemaValidationService.validateSchemaDefinition(schemaDefinition);
+
+    // 2. Extract localized keys
+    const localizedKeys = FeedSchemaValidationService.extractLocalizedKeys(schemaDefinition);
+
+    feedVersion.schemaDefinition = schemaDefinition;
+    feedVersion.selectedKeys = localizedKeys;
+    await feedVersion.save();
+
+    await FeedAuditLog.create({
+      feedId,
+      feedVersionId: feedVersion._id,
+      userId,
+      action: 'UPDATED_SCHEMA' as any,
+      notes: `Updated schema definition to version ${schemaDefinition.version}`
+    });
+
+    return {
+      success: true,
+      schemaDefinition: feedVersion.schemaDefinition,
+      selectedKeys: feedVersion.selectedKeys
+    };
+  },
+
   async createFeed(
     projectId: number, 
     userId: number, 
@@ -652,11 +735,12 @@ export const FeedService = {
       environmentId?: number | undefined, 
       environmentName?: string | undefined,
       baseLanguage?: string | undefined, 
-      jsonContent: any, 
+      schemaDefinition?: SchemaDefinition | undefined,
+      jsonContent?: any, 
       selectedKeys?: string[] | undefined 
     }
   ) {
-    const { name, environmentId, environmentName, baseLanguage = 'en', jsonContent, selectedKeys } = data;
+    const { name, environmentId, environmentName, baseLanguage = 'en', schemaDefinition, jsonContent, selectedKeys } = data;
 
     let targetEnv = null;
     if (environmentId) {
@@ -690,16 +774,37 @@ export const FeedService = {
       }]
     });
 
-    // 1. Validate JSON and Selected Keys
-    try {
-      JsonValidationService.validate(jsonContent, selectedKeys);
-    } catch (error: any) {
-      // Release quota if validation fails
-      await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
-      if (error instanceof JsonValidationError) {
-        throw new BadRequestError(`JSON Validation Failed: ${error.message}`);
+    let finalJsonContent = jsonContent;
+    let finalSelectedKeys = selectedKeys;
+
+    if (schemaDefinition) {
+      try {
+        FeedSchemaValidationService.validateSchemaDefinition(schemaDefinition);
+        if (!finalJsonContent || Object.keys(finalJsonContent).length === 0) {
+          finalJsonContent = FeedSchemaValidationService.generateDefaultContent(schemaDefinition);
+        }
+        if (!finalSelectedKeys) {
+          finalSelectedKeys = FeedSchemaValidationService.extractLocalizedKeys(schemaDefinition);
+        }
+        FeedSchemaValidationService.validateContentAgainstSchema(finalJsonContent, schemaDefinition);
+      } catch (error: any) {
+        await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
+        throw error;
       }
-      throw error;
+    } else {
+      if (!finalJsonContent) {
+        await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
+        throw new BadRequestError('Either schemaDefinition or jsonContent must be provided.');
+      }
+      try {
+        JsonValidationService.validate(finalJsonContent, finalSelectedKeys);
+      } catch (error: any) {
+        await BillingService.releaseQuota(project.workspaceId, 'feeds_per_project', 1, { scope: 'PROJECT', scopeId: projectId.toString() });
+        if (error instanceof JsonValidationError) {
+          throw new BadRequestError(`JSON Validation Failed: ${error.message}`);
+        }
+        throw error;
+      }
     }
 
     let feed;
@@ -726,9 +831,10 @@ export const FeedService = {
       versionNumber: 0,
       notes: 'Initial upload',
       baseLanguage,
-      baseContent: jsonContent,
+      ...(schemaDefinition ? { schemaDefinition } : {}),
+      baseContent: finalJsonContent,
       supportedLanguages: (project.supportedLanguages as string[]) || [baseLanguage],
-      ...(selectedKeys ? { selectedKeys } : {}),
+      ...(finalSelectedKeys ? { selectedKeys: finalSelectedKeys } : {}),
       createdBy: userId,
     });
 
@@ -737,7 +843,7 @@ export const FeedService = {
       feedVersionId: feedVersion._id,
       languageCode: baseLanguage,
       status: 'COMPLETED',
-      localizedContent: jsonContent,
+      localizedContent: finalJsonContent,
     });
 
     await FeedAuditLog.create({
@@ -779,7 +885,7 @@ export const FeedService = {
           localizationId: (loc as any)._id.toString(),
           feedVersionId: (feedVersion as any)._id.toString(),
           targetLang: lang,
-          selectedKeys,
+          selectedKeys: finalSelectedKeys,
           userId,
         });
       }

@@ -13,6 +13,100 @@ export function createTranslationWorkers(): Worker[] {
   const worker = new Worker(
     TRANSLATION_QUEUE_NAME,
     async (job) => {
+      // ContentEntry Translation Branch
+      if (job.data.contentEntryId) {
+        const { contentEntryId, targetLang } = job.data;
+        logger.info(`Processing ContentEntry translation job`, { jobId: job.id, contentEntryId, targetLang });
+
+        const { ContentEntry } = await import('../../../../models/content-entry.model');
+        const { SchemaBlueprint } = await import('../../../../models/schema-blueprint.model');
+        const { FeedSchemaValidationService } = await import('../../../feed-schema-validation.service');
+
+        const entry = await ContentEntry.findById(contentEntryId);
+        if (!entry) {
+          logger.error(`ContentEntry not found`, { contentEntryId });
+          return { status: 'failed', error: 'ContentEntry not found' };
+        }
+
+        await ContentEntry.findByIdAndUpdate(contentEntryId, {
+          $set: {
+            [`translationStatuses.${targetLang}`]: {
+              status: 'processing',
+              updatedAt: new Date(),
+            },
+          },
+        });
+
+        try {
+          let blueprint: any = null;
+          if (entry.schemaId) {
+            blueprint = await SchemaBlueprint.findById(entry.schemaId);
+          }
+          if (!blueprint && entry.schemaSlug) {
+            blueprint = await SchemaBlueprint.findOne({
+              projectId: entry.projectId,
+              slug: entry.schemaSlug,
+            });
+          }
+          if (!blueprint && entry.schemaSlug) {
+            const { SchemaBlueprintVersion } = await import('../../../../models/schema-blueprint-version.model');
+            const verDoc = await SchemaBlueprintVersion.findOne({
+              projectId: entry.projectId,
+              slug: entry.schemaSlug,
+            }).sort({ versionNumber: -1 });
+            if (verDoc) blueprint = verDoc;
+          }
+
+          let localizedKeys: string[] = [];
+          if (blueprint && blueprint.schemaDefinition) {
+            localizedKeys = FeedSchemaValidationService.extractLocalizedKeys(blueprint.schemaDefinition);
+          }
+
+          const baseContent = JSON.parse(JSON.stringify(entry.content || {}));
+          const translated = await LLMService.mockTranslate(baseContent, targetLang, localizedKeys);
+
+          await ContentEntry.findByIdAndUpdate(contentEntryId, {
+            $set: {
+              [`translations.${targetLang}`]: translated,
+              [`translationStatuses.${targetLang}`]: {
+                status: 'completed',
+                updatedAt: new Date(),
+              },
+            },
+          });
+
+          try {
+            const { ContentAuditService } = await import('../../../content-audit.service');
+            await ContentAuditService.log({
+              projectId: entry.projectId,
+              schemaSlug: entry.schemaSlug,
+              contentEntryId: entry._id.toString(),
+              environment: entry.environment,
+              action: 'AI_TRANSLATED',
+              message: `AI translation completed for language '${targetLang.toUpperCase()}'`,
+              details: { language: targetLang, changedFields: Object.keys(translated || {}) },
+            });
+          } catch (auditErr) {
+            logger.warn('Failed to record audit log for AI translation', { error: auditErr });
+          }
+
+          logger.info(`ContentEntry translation completed`, { contentEntryId, targetLang });
+          return { status: 'completed' };
+        } catch (err: any) {
+          logger.error(`ContentEntry translation failed`, { contentEntryId, targetLang, error: err.message });
+          await ContentEntry.findByIdAndUpdate(contentEntryId, {
+            $set: {
+              [`translationStatuses.${targetLang}`]: {
+                status: 'failed',
+                error: err.message,
+                updatedAt: new Date(),
+              },
+            },
+          });
+          return { status: 'failed', error: err.message };
+        }
+      }
+
       const { localizationId, feedVersionId, targetLang, selectedKeys, userId } = job.data;
       
       logger.info(`Processing translation job`, { jobId: job.id, localizationId, targetLang });
@@ -134,5 +228,50 @@ export function createTranslationWorkers(): Worker[] {
     }
   });
 
+  // Initiate auto-healing for any orphaned processing statuses from prior crashed worker sessions
+  void autoHealStaleTranslations();
+
   return [worker];
 }
+
+async function autoHealStaleTranslations(): Promise<void> {
+  try {
+    const { ContentEntry } = await import('../../../../models/content-entry.model');
+    const staleThreshold = new Date(Date.now() - 3 * 60 * 1000); // 3 minutes ago
+    const staleEntries = await ContentEntry.find({
+      $or: [
+        { 'translationStatuses.fr.status': { $in: ['processing', 'pending'] } },
+        { 'translationStatuses.es.status': { $in: ['processing', 'pending'] } },
+        { 'translationStatuses.de.status': { $in: ['processing', 'pending'] } },
+        { 'translationStatuses.it.status': { $in: ['processing', 'pending'] } },
+        { 'translationStatuses.pt.status': { $in: ['processing', 'pending'] } },
+      ],
+    });
+
+    for (const entry of staleEntries) {
+      let changed = false;
+      const statuses = (entry.translationStatuses as Record<string, any>) || {};
+      for (const [lang, statusObj] of Object.entries(statuses)) {
+        if (
+          statusObj &&
+          (statusObj.status === 'processing' || statusObj.status === 'pending') &&
+          (!statusObj.updatedAt || new Date(statusObj.updatedAt) < staleThreshold)
+        ) {
+          statuses[lang] = {
+            status: 'failed',
+            error: 'Translation job timed out or worker was restarted',
+            updatedAt: new Date(),
+          };
+          changed = true;
+        }
+      }
+      if (changed) {
+        await ContentEntry.findByIdAndUpdate(entry._id, { $set: { translationStatuses: statuses } });
+        logger.info(`Auto-healed stale translation statuses for entry`, { entryId: entry._id.toString() });
+      }
+    }
+  } catch (err) {
+    logger.warn('Failed auto-healing stale translations', { error: err });
+  }
+}
+
