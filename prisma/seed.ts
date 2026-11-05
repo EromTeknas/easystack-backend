@@ -5,15 +5,17 @@ import { seedBillingFeatures } from "./seeders/billing-features.seeder";
 import { seedBillingQuotas } from "./seeders/billing-quotas.seeder";
 import { seedBillingPlans } from "./seeders/billing-plans.seeder";
 import { seedUsers } from "./seeders/users.seeder";
+import { seedTravelAgency } from "./seeders/travel-agency.seeder";
 
 const prisma = new PrismaClient();
 
 async function main() {
   const seedUsersFlag = process.argv.includes("--users");
+  const seedTravelFlag = process.argv.includes("--travel") || process.argv.includes("--users");
 
   console.log("");
   console.log("======================================");
-  console.log("🌱 Starting Database Seeding");
+  console.log("Starting Database Seeding");
   console.log("======================================");
 
   await seedAuthorization(prisma);
@@ -28,9 +30,13 @@ async function main() {
     await seedUsers(prisma);
   }
 
+  if (seedTravelFlag) {
+    await seedTravelAgency(prisma);
+  }
+
   console.log("");
   console.log("======================================");
-  console.log("✅ Database Seeded");
+  console.log("Database Seeded Successfully");
   console.log("======================================");
 
   // ADD THIS LINE

@@ -7,6 +7,7 @@ import { AuthorizationService } from './authorization/services/authorization.ser
 import { PERMISSIONS } from './authorization/constants/permission.constants';
 import logger from '../utils/logger';
 import { ProjectLanguageAuditLog } from '../models/project-language-audit-log.model';
+import { BillingService } from './billing/services/billing.service';
 
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
@@ -110,12 +111,11 @@ export const ProjectService = {
           roleId: projectOwnerRole.id,
         });
 
-        // Generate default environments
+        // Generate default environments (2 environments: development and production/live)
         await tx.environment.createMany({
           data: [
             { projectId: createdProject.id, name: 'development', rank: 10 },
-            { projectId: createdProject.id, name: 'staging', rank: 20, isEditable: false },
-            { projectId: createdProject.id, name: 'production', rank: 30, isEditable: false }
+            { projectId: createdProject.id, name: 'production', rank: 20, isEditable: false }
           ]
         });
 
@@ -500,7 +500,60 @@ export const ProjectService = {
   async getProjectEnvironments(projectId: number) {
     return await prisma.environment.findMany({
       where: { projectId },
-      orderBy: { id: 'asc' }
+      orderBy: { rank: 'asc' },
+    });
+  },
+
+  async createProjectEnvironment(
+    projectId: number,
+    data: {
+      name: string;
+      rank?: number;
+      isEditable?: boolean;
+      requiresApproval?: boolean;
+      defaultApproverIds?: number[];
+    }
+  ) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { workspaceId: true },
+    });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const existingEnvs = await prisma.environment.findMany({
+      where: { projectId },
+      orderBy: { rank: 'asc' },
+    });
+
+    const envLimit = await BillingService.getLimit(project.workspaceId, 'environments_per_project');
+    if (envLimit !== null && existingEnvs.length >= envLimit) {
+      throw new BadRequestError(
+        `Environment limit reached (${existingEnvs.length}/${envLimit}). Upgrading your plan is required to add additional environments like Staging or QA.`
+      );
+    }
+
+    const cleanName = data.name.trim().toLowerCase();
+    if (!cleanName) throw new BadRequestError('Environment name is required');
+
+    const duplicate = existingEnvs.find((e) => e.name.toLowerCase() === cleanName);
+    if (duplicate) throw new BadRequestError(`Environment '${cleanName}' already exists in this project`);
+
+    let assignedRank = data.rank;
+    if (assignedRank === undefined) {
+      const lastEnv = existingEnvs.length > 0 ? existingEnvs[existingEnvs.length - 1] : undefined;
+      const highestRank = lastEnv ? lastEnv.rank : 0;
+      assignedRank = highestRank + 10;
+    }
+
+    return await prisma.environment.create({
+      data: {
+        projectId,
+        name: cleanName,
+        rank: assignedRank,
+        isEditable: data.isEditable ?? false,
+        requiresApproval: data.requiresApproval ?? false,
+        defaultApproverIds: data.defaultApproverIds ?? [],
+      },
     });
   },
 
@@ -533,6 +586,49 @@ export const ProjectService = {
       where: { id: environmentId },
       data: updateData
     });
+  },
+
+  async getProjectUsage(projectId: number) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, workspaceId: true },
+    });
+    if (!project) throw new NotFoundError('Project not found');
+
+    const envCount = await prisma.environment.count({
+      where: { projectId },
+    });
+
+    const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+    const blueprintCount = await SchemaBlueprint.countDocuments({
+      projectId,
+      removedAt: null,
+    });
+
+    const { ContentEntry } = await import('../models/content-entry.model');
+    const dataEntriesCount = await ContentEntry.countDocuments({
+      projectId,
+      removedAt: null,
+    });
+
+    const envLimit = await BillingService.getLimit(project.workspaceId, 'environments_per_project');
+    const blueprintLimit = await BillingService.getLimit(project.workspaceId, 'blueprints_per_project');
+    const dataEntriesLimit = await BillingService.getLimit(project.workspaceId, 'data_entries_per_project');
+
+    return {
+      environments: {
+        used: envCount,
+        limit: envLimit,
+      },
+      blueprints: {
+        used: blueprintCount,
+        limit: blueprintLimit,
+      },
+      dataEntries: {
+        used: dataEntriesCount,
+        limit: dataEntriesLimit,
+      },
+    };
   },
 
 };

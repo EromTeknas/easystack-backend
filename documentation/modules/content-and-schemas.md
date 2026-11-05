@@ -71,7 +71,13 @@ graph TD
 - `GET /`: Lists all schema blueprints in the project.
 - `GET /check-slug?slug=posts`: Verifies slug availability.
 - `POST /`: Creates a new schema blueprint with field definitions.
+- `PUT /:schemaId`: Updates a blueprint definition in development. Blueprints in non-development environments cannot be updated directly (`BadRequestError`).
 - `POST /:schemaId/deploy`: Deploys the blueprint schema to a designated environment.
+
+### Environment Rank System & Blueprint Read-Only Enforcement
+- Projects initialize with 2 default environments ordered by rank: `development` (rank 10, isEditable: true) and `production`/Live (rank 20, isEditable: false).
+- Creating additional environments requires plan quota availability (`environments_per_project`).
+- Live environment blueprints are strictly read-only snapshots (`SchemaBlueprintVersion`). Users can view blueprints in Live mode, but editing is disabled and schema updates must be deployed through Releases.
 
 ### Content Endpoints (`/api/projects/:projectId/content/:schemaSlug`)
 - `GET /`: Paginated list of content entries under this schema.
@@ -79,5 +85,14 @@ graph TD
 - `POST /`: Creates a new content entry draft.
 - `PUT /:entryId`: Updates the draft content.
 - `POST /:entryId/publish`: Promotes the draft content to the published state.
+- `POST /:entryId/translate`: Enqueues automated translation jobs for localized fields.
 - `POST /sync-environments`: Syncs content data between environments (e.g., development to staging).
 - `GET /:entryId/audit-logs`: Retrieves audit logs for the content entry.
+
+---
+
+## 5. Background AI Translation Processing
+- Translation requests are dispatched via BullMQ to the `ai-translation` queue.
+- BullMQ Redis connections require `maxRetriesPerRequest: null` (configured in `src/config/redis.ts`) to allow blocking list operations (`BRPOPLPUSH`/`BLMOVE`) without triggering connection timeout errors.
+- Workers asynchronously process pending translations per language and persist completed entries with status tracking (`queued`, `translating`, `ready`, `failed`).
+

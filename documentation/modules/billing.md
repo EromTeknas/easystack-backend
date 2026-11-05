@@ -108,7 +108,11 @@ router.post(
 ### Quota Metrics
 - `projects`: Total active projects in workspace.
 - `members`: Total team members in workspace.
-- `environments`: Total environments configured per project.
+- `environments_per_project`: Environments permitted per project (Free: 2, Pro: 5). Default projects initialize with 2 environments (`development` rank 10, `production`/Live rank 20, `isEditable: false`). Creating additional environments requires upgrading to a paid tier.
+- `blueprints_per_project`: Total content blueprints permitted per project (Free: 5, Pro: 30).
+- `data_entries_per_project`: Total content entries across blueprints permitted per project (Free: 100, Pro: 5000).
 - `storage_mb`: Total asset bytes stored in S3.
 - `api_requests`: Metered API calls per billing month.
 - `ai_tokens`: Consumed LLM tokens for auto-translation.
+- `feeds_per_project`: Deprecated in favor of modern content blueprints and data entries metrics.
+

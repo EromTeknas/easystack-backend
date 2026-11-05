@@ -228,21 +228,29 @@ export const SchemaBlueprintService = {
       throw new NotFoundError(`Target environment '${cleanEnv}' not configured in this project`);
     }
 
+    const targetIndex = envs.findIndex((e) => e.id === targetEnvironment.id);
+    if (targetIndex <= 0) {
+      throw new BadRequestError(`Cannot deploy directly to the base environment ('${targetEnvironment.name}')`);
+    }
+
+    const predecessorEnv = envs[targetIndex - 1];
+    if (!predecessorEnv) {
+      throw new BadRequestError(`No valid predecessor environment found before '${targetEnvironment.name}'`);
+    }
+
     const envVersions: Record<string, number> = { ...(existing.environmentVersions || {}) };
-    const stagingVersion = envVersions['staging'] || 0;
-    if (cleanEnv === 'production' && stagingVersion === 0) {
+    const predecessorVersion =
+      envVersions[predecessorEnv.name.toLowerCase()] ||
+      (targetIndex === 1 ? existing.activeVersionNumber || 1 : 0);
+
+    if (predecessorVersion === 0) {
+      const envChain = envs.map((e) => e.name).join(' -> ');
       throw new BadRequestError(
-        'Blueprint must be deployed to Staging before deploying to Production. Follow the promotion cycle: Development -> Staging -> Production.'
+        `Blueprint must be deployed to '${predecessorEnv.name}' before deploying to '${targetEnvironment.name}'. Follow the promotion cycle: ${envChain}.`
       );
     }
 
-    const sourceEnvironment =
-      cleanEnv === 'production'
-        ? envs.find((e) => e.name.toLowerCase() === 'staging') || envs[0]
-        : envs.find((e) => e.name.toLowerCase() === 'development') || envs[0];
-    if (!sourceEnvironment) {
-      throw new BadRequestError('No valid source environment found for this project');
-    }
+    const sourceEnvironment = predecessorEnv;
 
     const currentVersionNum = existing.activeVersionNumber || 1;
     const prevTargetVersionNum = envVersions[cleanEnv] || 0;
@@ -324,10 +332,10 @@ export const SchemaBlueprintService = {
         ? (targetEnvironment.defaultApproverIds as number[]).filter((uid) => uid !== userId)
         : [];
 
-    const initialStatus =
-      requiresApproval && defaultApproverIds.length > 0 ? 'PENDING_APPROVAL' : 'DEPLOYED';
+    const isPendingApproval = requiresApproval && defaultApproverIds.length > 0;
+    const initialStatus = isPendingApproval ? 'PENDING_APPROVAL' : 'DRAFT';
 
-    const { DEPLOYMENT_STAGES } = await import('./release.service');
+    const { DEPLOYMENT_STAGES, ReleaseService } = await import('./release.service');
 
     const release = await prisma.release.create({
       data: {
@@ -336,23 +344,32 @@ export const SchemaBlueprintService = {
         targetEnvironmentId: targetEnvironment.id,
         version: semanticVersion,
         name: `Deploy ${existing.name} (${semanticVersion})`,
-        description: `Automated blueprint release of '${existing.name}' to ${targetEnvironment.name}`,
+        description: `Automated schema release of '${existing.name}' to ${targetEnvironment.name}`,
         createdById: userId,
         status: initialStatus,
-        deploymentStartedAt: initialStatus === 'DEPLOYED' ? new Date() : null,
         deploymentProgress: {
           isBlueprintRelease: true,
-          blueprintId: existing._id.toString(),
-          blueprintName: existing.name,
+          blueprintIds: [existing._id.toString()],
+          blueprintNames: [existing.name],
+          blueprints: [
+            {
+              id: existing._id.toString(),
+              name: existing.name,
+              slug: existing.slug,
+              type: existing.type || 'collection',
+              sourceVersionNumber: currentVersionNum,
+              targetVersionNumber: prevTargetVersionNum,
+            },
+          ],
           versionNumber: currentVersionNum,
           semanticVersion,
-          stages: DEPLOYMENT_STAGES.map((s, idx) => ({
+          stages: DEPLOYMENT_STAGES.map((s) => ({
             id: s.id,
             name: s.name,
             description: s.description,
-            status: initialStatus === 'DEPLOYED' ? 'COMPLETED' : idx === 0 ? 'PENDING' : 'PENDING',
-            startedAt: initialStatus === 'DEPLOYED' ? new Date().toISOString() : null,
-            completedAt: initialStatus === 'DEPLOYED' ? new Date().toISOString() : null,
+            status: 'PENDING',
+            startedAt: null,
+            completedAt: null,
           })),
         },
       },
@@ -369,43 +386,20 @@ export const SchemaBlueprintService = {
       });
     }
 
-    // 5. Update SchemaBlueprint
-    const currentEnvs = Array.isArray(existing.environments) ? existing.environments : ['development'];
-    const updatedEnvs = Array.from(new Set([...currentEnvs, cleanEnv]));
-    const deployedAtMap: Record<string, Date> = (existing.deployedAt as any) || {};
-    deployedAtMap[cleanEnv] = new Date();
-
-    if (initialStatus === 'DEPLOYED') {
-      envVersions[cleanEnv] = currentVersionNum;
+    if (!isPendingApproval) {
+      // Instantly trigger deployment pipeline
+      await ReleaseService.executeRelease(release.id, projectId, userId);
     }
 
-    const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
-    const updated = await SchemaBlueprint.findByIdAndUpdate(
-      existing._id,
-      {
-        $set: {
-          environments: updatedEnvs,
-          deployedAt: deployedAtMap,
-          environmentVersions: envVersions,
-        },
-      },
-      { new: true }
-    );
-
-    if (!updated) {
-      throw new NotFoundError('Failed to deploy blueprint');
-    }
-
-    const message =
-      initialStatus === 'PENDING_APPROVAL'
-        ? `Release ${release.version} created and is pending approval for ${targetEnvironment.name}`
-        : `Blueprint ${existing.name} deployed as ${semanticVersion} to ${targetEnvironment.name}`;
+    const message = isPendingApproval
+      ? `Release ${release.version} created and is pending approval for ${targetEnvironment.name}`
+      : `Release ${release.version} created and deployment initiated for ${targetEnvironment.name}`;
 
     return {
-      schema: updated,
+      schema: existing,
       release,
       message,
-      requiresApproval: initialStatus === 'PENDING_APPROVAL',
+      requiresApproval: isPendingApproval,
     };
   },
 };

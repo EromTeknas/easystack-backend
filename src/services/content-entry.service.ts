@@ -267,6 +267,7 @@ export const ContentEntryService = {
       publishedAt: isPublished ? new Date() : undefined,
       publishedContent: isPublished ? mergedContent : undefined,
       publishedTitle: isPublished ? title : undefined,
+      publishedTranslations: isPublished ? (data.translations || {}) : undefined,
       translations: data.translations,
       createdBy: userId,
     });
@@ -409,6 +410,7 @@ export const ContentEntryService = {
       updatePayload.publishedAt = new Date();
       updatePayload.publishedContent = data.content !== undefined ? data.content : existing.content;
       updatePayload.publishedTitle = data.title?.trim() || existing.title;
+      updatePayload.publishedTranslations = data.translations !== undefined ? data.translations : (existing.translations || {});
     }
 
     if (data.translations !== undefined) {
@@ -601,6 +603,7 @@ export const ContentEntryService = {
       publishedAt: new Date(),
       publishedContent: entry.content,
       publishedTitle: entry.title,
+      publishedTranslations: entry.translations || {},
       scheduledAt: null,
       updatedBy: userId,
     });

@@ -13,6 +13,7 @@ export interface CreateContentEntryDto {
   publishedAt?: Date | null | undefined;
   publishedContent?: Record<string, any> | undefined;
   publishedTitle?: string | undefined;
+  publishedTranslations?: Record<string, Record<string, any>> | undefined;
   baseLanguage?: string | undefined;
   content: Record<string, any>;
   translations?: Record<string, Record<string, any>> | undefined;
@@ -29,6 +30,7 @@ export interface UpdateContentEntryDto {
   publishedAt?: Date | null | undefined;
   publishedContent?: Record<string, any> | undefined;
   publishedTitle?: string | undefined;
+  publishedTranslations?: Record<string, Record<string, any>> | undefined;
   baseLanguage?: string | undefined;
   content?: Record<string, any> | undefined;
   translations?: Record<string, Record<string, any>> | undefined;

@@ -21,8 +21,16 @@ export const DEPLOYMENT_STAGES = [
 ];
 
 export const ReleaseService = {
-  async createRelease(projectId: number, userId: number, payload: { name: string; description?: string; sourceEnvironmentId: number; targetEnvironmentId: number; version: string; feedIds: number[]; }) {
-    
+  async createRelease(projectId: number, userId: number, payload: {
+    name: string;
+    description?: string;
+    sourceEnvironmentId: number;
+    targetEnvironmentId: number;
+    version: string;
+    feedIds?: (number | string)[];
+    blueprintIds?: string[];
+    schemaIds?: string[];
+  }) {
     const sourceEnv = await prisma.environment.findUnique({ where: { id: payload.sourceEnvironmentId } });
     if (!sourceEnv || sourceEnv.projectId !== projectId) throw new NotFoundError('Source environment not found');
 
@@ -30,55 +38,79 @@ export const ReleaseService = {
     if (!targetEnv || targetEnv.projectId !== projectId) {
       throw new NotFoundError('Target environment not found in this project');
     }
-    if (targetEnv.rank !== sourceEnv.rank + 1) {
+    const allEnvs = await prisma.environment.findMany({
+      where: { projectId },
+      orderBy: { rank: 'asc' },
+    });
+    const sourceIndex = allEnvs.findIndex((e) => e.id === sourceEnv.id);
+    const targetIndex = allEnvs.findIndex((e) => e.id === targetEnv.id);
+
+    if (sourceIndex === -1 || targetIndex === -1 || targetIndex !== sourceIndex + 1) {
+      const promotionChain = allEnvs.map((e) => `${e.name} (rank ${e.rank})`).join(' -> ');
       throw new BadRequestError(
-        `Invalid promotion path. Releases must strictly follow the promotion path: Development -> Staging -> Production. Cannot deploy directly from '${sourceEnv.name}' to '${targetEnv.name}'.`
+        `Invalid promotion path. Releases must strictly follow the environment rank progression: ${promotionChain}. Cannot deploy directly from '${sourceEnv.name}' to '${targetEnv.name}'.`
       );
     }
 
-    if (targetEnv.name.toLowerCase().trim() === 'development') {
-      throw new BadRequestError('Cannot create a release targeting development environment');
+    if (targetIndex === 0) {
+      const baseName = allEnvs[0] ? allEnvs[0].name : 'base';
+      throw new BadRequestError(`Cannot create a release targeting the initial lowest-rank environment ('${baseName}')`);
     }
 
-    const legacyFeedIds = payload.feedIds.filter((id) => id < 1000);
-    const virtualBlueprintIds = payload.feedIds.filter((id) => id >= 1000);
+    const rawIds: (string | number)[] = payload.blueprintIds || payload.schemaIds || payload.feedIds || [];
+    const stringIds: string[] = [];
+    const legacyNumericIds: number[] = [];
 
-    const sourceStates = legacyFeedIds.length > 0
-      ? await prisma.environmentState.findMany({
-          where: {
-            environmentId: sourceEnv.id,
-            feedId: { in: legacyFeedIds },
-          },
-        })
-      : [];
-
-    if (legacyFeedIds.length > 0 && sourceStates.length !== legacyFeedIds.length) {
-      throw new BadRequestError('Some requested feeds are not active in the source environment');
+    for (const id of rawIds) {
+      if (typeof id === 'string') {
+        stringIds.push(id);
+      } else if (typeof id === 'number' && id >= 1000) {
+        legacyNumericIds.push(id);
+      }
     }
 
-    // Look up selected blueprints if any
-    let selectedBlueprintSnapshots: any[] = [];
-    if (virtualBlueprintIds.length > 0) {
-      const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+    const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+    let selectedBlueprints: any[] = [];
+
+    if (stringIds.length > 0) {
+      selectedBlueprints = await SchemaBlueprint.find({
+        projectId,
+        _id: { $in: stringIds },
+      }).exec();
+    } else if (legacyNumericIds.length > 0) {
       const allBlueprints = await SchemaBlueprint.find({ projectId }).exec();
-      selectedBlueprintSnapshots = virtualBlueprintIds.map((vId) => {
-        const index = vId - 1000;
-        return allBlueprints[index];
-      }).filter(Boolean);
+      selectedBlueprints = legacyNumericIds.map((vId) => allBlueprints[vId - 1000]).filter(Boolean);
+    }
 
-      // Verify all selected blueprints are actually deployed in source environment if source is not development
-      if (sourceEnv.name.toLowerCase().trim() !== 'development') {
-        for (const bp of selectedBlueprintSnapshots) {
-          const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-          const sourceEnvName = sourceEnv.name.toLowerCase().trim();
-          if (!envVers[sourceEnvName]) {
-            throw new BadRequestError(
-              `Blueprint '${bp.name}' has not been deployed to source environment '${sourceEnv.name}'.`
-            );
-          }
+    const sourceEnvName = sourceEnv.name.toLowerCase().trim();
+    const targetEnvName = targetEnv.name.toLowerCase().trim();
+
+    const isBaseSourceEnv = sourceIndex === 0;
+
+    if (!isBaseSourceEnv) {
+      for (const bp of selectedBlueprints) {
+        const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
+        if (!envVers[sourceEnvName]) {
+          throw new BadRequestError(
+            `Blueprint '${bp.name}' has not been deployed to source environment '${sourceEnv.name}'.`
+          );
         }
       }
     }
+
+    const blueprintSummaries = selectedBlueprints.map((bp) => {
+      const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
+      const sourceVer = envVers[sourceEnvName] || (isBaseSourceEnv ? bp.activeVersionNumber || 1 : 1);
+      const targetVer = envVers[targetEnvName] || 0;
+      return {
+        id: bp._id.toString(),
+        name: bp.name,
+        slug: bp.slug,
+        type: bp.type || 'collection',
+        sourceVersionNumber: sourceVer,
+        targetVersionNumber: targetVer,
+      };
+    });
 
     const defaultApproverIds = (targetEnv.requiresApproval && Array.isArray(targetEnv.defaultApproverIds))
       ? (targetEnv.defaultApproverIds as number[]).filter(id => id !== userId)
@@ -99,11 +131,12 @@ export const ReleaseService = {
           createdById: userId,
           status: initialStatus,
           deploymentProgress: {
-            isBlueprintRelease: selectedBlueprintSnapshots.length > 0,
-            blueprintIds: selectedBlueprintSnapshots.map((bp) => bp._id.toString()),
-            blueprintNames: selectedBlueprintSnapshots.map((bp) => bp.name),
-            versionNumber: selectedBlueprintSnapshots[0]?.activeVersionNumber || 1,
-            stages: DEPLOYMENT_STAGES.map((s, idx) => ({
+            isBlueprintRelease: true,
+            blueprintIds: selectedBlueprints.map((bp) => bp._id.toString()),
+            blueprintNames: selectedBlueprints.map((bp) => bp.name),
+            blueprints: blueprintSummaries,
+            versionNumber: selectedBlueprints[0]?.activeVersionNumber || 1,
+            stages: DEPLOYMENT_STAGES.map((s) => ({
               id: s.id,
               name: s.name,
               description: s.description,
@@ -123,16 +156,6 @@ export const ReleaseService = {
             status: 'PENDING'
           })),
           skipDuplicates: true
-        });
-      }
-
-      if (sourceStates.length > 0) {
-        await tx.releaseItem.createMany({
-          data: sourceStates.map(s => ({
-            releaseId: release.id,
-            feedId: s.feedId,
-            versionId: s.activeVersionId,
-          }))
         });
       }
 
@@ -338,8 +361,10 @@ export const ReleaseService = {
     // Cancel any delayed schedule job since it is being deployed now
     await cancelScheduledReleaseJob(releaseId);
 
-    // Initial deployment progress state
+    // Initial deployment progress state - preserve existing blueprint metadata!
+    const currentProg = (release.deploymentProgress as any) || {};
     const initialProgress = {
+      ...currentProg,
       currentStageId: 1,
       totalStages: 5,
       percent: 5,
@@ -418,15 +443,27 @@ export const ReleaseService = {
     };
 
     try {
+      const prog = (release.deploymentProgress as any) || {};
+      const bpIds: string[] = prog.blueprintIds || (prog.blueprintId ? [prog.blueprintId] : []);
+
       // Stage 1: Pre-flight Schema & Translation Integrity Check
       await updateStage(1, 'RUNNING', 10);
+      if (bpIds.length > 0) {
+        const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+        for (const bpId of bpIds) {
+          const bp = await SchemaBlueprint.findById(bpId);
+          if (!bp) {
+            throw new BadRequestError(`Schema blueprint ${bpId} not found for deployment`);
+          }
+        }
+      }
       for (const item of release.items) {
         const v = await FeedVersion.findById(item.versionId).lean();
         if (!v) {
           throw new BadRequestError(`Version ${item.versionId} not found for feed ${item.feedId}`);
         }
       }
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(1, 'COMPLETED', 25);
       logger.info(`[DeploymentWorker] Stage 1 complete: Pre-flight checks passed for release ${release.id}`);
 
@@ -447,7 +484,7 @@ export const ReleaseService = {
           data: { previousVersionId }
         });
       }
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(2, 'COMPLETED', 45);
       logger.info(`[DeploymentWorker] Stage 2 complete: Environment snapshot captured for release ${release.id}`);
 
@@ -474,66 +511,89 @@ export const ReleaseService = {
         });
       }
 
-      // Sync blueprint target environment versions if this is a blueprint release
-      const prog = (release.deploymentProgress as any) || {};
-      if (prog?.isBlueprintRelease) {
-        const bpIds = prog.blueprintIds || (prog.blueprintId ? [prog.blueprintId] : []);
-        if (bpIds.length > 0) {
-          const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
-          const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
-          for (const bpId of bpIds) {
-            const bp = await SchemaBlueprint.findById(bpId);
-            if (bp) {
-              const currentEnvs = Array.isArray(bp.environments) ? bp.environments : ['development'];
-              const targetEnvName = release.targetEnvironment.name.toLowerCase().trim();
-              const updatedEnvs = Array.from(new Set([...currentEnvs, targetEnvName]));
-              const deployedAtMap: Record<string, Date> = (bp.deployedAt as any) || {};
-              deployedAtMap[targetEnvName] = new Date();
-              const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-              const targetVer = prog.versionNumber || bp.activeVersionNumber || 1;
-              envVers[targetEnvName] = targetVer;
+      // Sync blueprint target environment versions
+      if (bpIds.length > 0) {
+        const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+        const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
+        const targetEnvName = release.targetEnvironment.name.toLowerCase().trim();
+        const sourceEnvName = release.sourceEnvironment.name.toLowerCase().trim();
 
-              // Ensure the SchemaBlueprintVersion snapshot exists for target environment lookups
-              await SchemaBlueprintVersion.findOneAndUpdate(
-                {
-                  projectId: release.projectId,
-                  blueprintId: bp._id,
-                  versionNumber: targetVer,
-                },
-                {
-                  $set: {
-                    blueprintSlug: bp.slug,
-                    blueprintName: bp.name,
-                    semanticVersion: release.version,
-                    schemaDefinition: bp.schemaDefinition,
-                    changelog: `Deployed via Release ${release.version} to ${release.targetEnvironment.name}`,
-                    createdBy: release.createdById,
-                  },
-                },
-                { upsert: true, new: true }
-              );
+        const allProjectEnvs = await prisma.environment.findMany({
+          where: { projectId: release.projectId },
+          orderBy: { rank: 'asc' },
+        });
+        const isBaseSource = Boolean(allProjectEnvs[0] && allProjectEnvs[0].id === release.sourceEnvironmentId);
 
-              await SchemaBlueprint.findByIdAndUpdate(bp._id, {
+        for (const bpId of bpIds) {
+          const bp = await SchemaBlueprint.findById(bpId);
+          if (bp) {
+            const currentEnvs = Array.isArray(bp.environments) ? bp.environments : ['development'];
+            const updatedEnvs = Array.from(new Set([...currentEnvs, targetEnvName]));
+            const deployedAtMap: Record<string, Date> = (bp.deployedAt as any) || {};
+            deployedAtMap[targetEnvName] = new Date();
+            const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
+
+            const bpSummary = prog.blueprints?.find((b: any) => String(b.id) === String(bp._id));
+            const sourceVer =
+              bpSummary?.sourceVersionNumber ||
+              envVers[sourceEnvName] ||
+              (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1);
+            envVers[targetEnvName] = sourceVer;
+
+            // Fetch snapshot for sourceVer if exists, else fallback to bp.schemaDefinition
+            const sourceSnapshot = await SchemaBlueprintVersion.findOne({
+              projectId: release.projectId,
+              blueprintId: bp._id,
+              versionNumber: sourceVer,
+            }).exec();
+
+            const schemaDef = sourceSnapshot?.schemaDefinition || bp.schemaDefinition;
+
+            await SchemaBlueprintVersion.findOneAndUpdate(
+              {
+                projectId: release.projectId,
+                blueprintId: bp._id,
+                versionNumber: sourceVer,
+              },
+              {
                 $set: {
-                  environments: updatedEnvs,
-                  deployedAt: deployedAtMap,
-                  environmentVersions: envVers,
+                  blueprintSlug: bp.slug,
+                  blueprintName: bp.name,
+                  semanticVersion: release.version,
+                  schemaDefinition: schemaDef,
+                  changelog: `Deployed via Release ${release.version} to ${release.targetEnvironment.name}`,
+                  createdBy: release.createdById,
                 },
-              });
-            }
+              },
+              { upsert: true, new: true }
+            );
+
+            await SchemaBlueprint.findByIdAndUpdate(bp._id, {
+              $set: {
+                environments: updatedEnvs,
+                deployedAt: deployedAtMap,
+                environmentVersions: envVers,
+              },
+            });
+            logger.info(`[DeploymentWorker] Promoted blueprint ${bp.name} (v${sourceVer}) to ${targetEnvName}`);
           }
         }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 3500));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       await updateStage(3, 'COMPLETED', 65);
       logger.info(`[DeploymentWorker] Stage 3 complete: State pointers updated for release ${release.id}`);
 
-
       // Stage 4: Release Artifact Locking & Development Version Branching
       await updateStage(4, 'RUNNING', 70);
+      const allProjectEnvs = await prisma.environment.findMany({
+        where: { projectId: release.projectId },
+        orderBy: { rank: 'asc' },
+      });
+      const isBaseSourceStage = Boolean(allProjectEnvs[0] && allProjectEnvs[0].id === release.sourceEnvironmentId);
+
       for (const item of release.items) {
-        if (release.sourceEnvironment.name === 'development') {
+        if (isBaseSourceStage || release.sourceEnvironment.name === 'development') {
           await FeedService.lockAndCloneForDevelopment(
             release.projectId,
             item.feedId,
@@ -553,13 +613,13 @@ export const ReleaseService = {
           }
         }
       }
-      await new Promise(resolve => setTimeout(resolve, 4000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(4, 'COMPLETED', 85);
-      logger.info(`[DeploymentWorker] Stage 4 complete: Version locking & clone finished for release ${release.id}`);
+      logger.info(`[DeploymentWorker] Stage 4 complete: Version locking finished for release ${release.id}`);
 
       // Stage 5: Cache Invalidation & Traffic Activation
       await updateStage(5, 'RUNNING', 90);
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
       await updateStage(5, 'COMPLETED', 100);
 
       const activated = await prisma.release.update({
@@ -831,26 +891,212 @@ export const ReleaseService = {
     const sourceEnv = await prisma.environment.findUnique({ where: { id: sourceEnvId } });
     const targetEnv = await prisma.environment.findUnique({ where: { id: targetEnvId } });
 
-    const diffs: any[] = [];
+    if (!sourceEnv || !targetEnv) {
+      throw new NotFoundError('Source or target environment not found');
+    }
 
-    // 1. Check SchemaBlueprints
-    if (sourceEnv && targetEnv) {
+    const diffs: any[] = [];
+    const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+    const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
+
+    const allEnvs = await prisma.environment.findMany({
+      where: { projectId },
+      orderBy: { rank: 'asc' },
+    });
+    const isBaseSource = Boolean(allEnvs[0] && allEnvs[0].id === sourceEnv.id);
+
+    const blueprints = await SchemaBlueprint.find({ projectId }).exec();
+    const sourceEnvName = sourceEnv.name.toLowerCase().trim();
+    const targetEnvName = targetEnv.name.toLowerCase().trim();
+
+    for (const bp of blueprints) {
+      const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
+      const sourceVer =
+        envVers[sourceEnvName] ||
+        (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 0);
+      const targetVer = envVers[targetEnvName] || 0;
+
+      if (sourceVer > 0 && sourceVer !== targetVer) {
+        const sourceSnapshot = await SchemaBlueprintVersion.findOne({
+          projectId,
+          blueprintId: bp._id,
+          versionNumber: sourceVer,
+        }).exec();
+
+        const targetSnapshot =
+          targetVer > 0
+            ? await SchemaBlueprintVersion.findOne({
+                projectId,
+                blueprintId: bp._id,
+                versionNumber: targetVer,
+              }).exec()
+            : null;
+
+        const sourceFields =
+          sourceSnapshot?.schemaDefinition?.fields || bp.schemaDefinition?.fields || [];
+        const targetFields = targetSnapshot?.schemaDefinition?.fields || [];
+
+        const sourceFieldIds = new Set(sourceFields.map((f: any) => f.id || f.key));
+        const targetFieldIds = new Set(targetFields.map((f: any) => f.id || f.key));
+
+        const addedFields = sourceFields
+          .filter((f: any) => !targetFieldIds.has(f.id || f.key))
+          .map((f: any) => f.label || f.key);
+        const removedFields = targetFields
+          .filter((f: any) => !sourceFieldIds.has(f.id || f.key))
+          .map((f: any) => f.label || f.key);
+        const modifiedFields: string[] = [];
+
+        for (const sf of sourceFields) {
+          const fid = sf.id || sf.key;
+          if (targetFieldIds.has(fid)) {
+            const tf = targetFields.find((f: any) => (f.id || f.key) === fid);
+            if (tf && JSON.stringify(sf) !== JSON.stringify(tf)) {
+              modifiedFields.push(sf.label || sf.key);
+            }
+          }
+        }
+
+        const bpIdStr = bp._id.toString();
+
+        diffs.push({
+          id: bpIdStr,
+          feedId: bpIdStr,
+          blueprintId: bpIdStr,
+          feedName: `Schema: ${bp.name}`,
+          schemaName: bp.name,
+          slug: bp.slug,
+          type: bp.type || 'collection',
+          icon: bp.icon || 'article',
+          sourceVersionId: sourceSnapshot?._id?.toString() || bpIdStr,
+          sourceVersionNumber: sourceVer,
+          targetVersionId: targetSnapshot?._id?.toString() || null,
+          targetVersionNumber: targetVer > 0 ? targetVer : null,
+          languages: [],
+          summary: {
+            baseChanged: true,
+            addedLanguages: addedFields.length > 0 ? [`+${addedFields.length} field(s)`] : [],
+            modifiedLanguages: modifiedFields.length > 0 ? [`~${modifiedFields.length} field(s)`] : [],
+            unchangedLanguages: [],
+            hasAnyChange: true,
+            addedFields,
+            modifiedFields,
+            removedFields,
+          },
+          sourceContent: {
+            blueprint: bp.name,
+            type: bp.type,
+            fields: sourceFields,
+          },
+          targetContent:
+            targetVer > 0
+              ? {
+                  blueprint: bp.name,
+                  type: bp.type,
+                  fields: targetFields,
+                }
+              : null,
+          previousContent:
+            targetVer > 0
+              ? {
+                  blueprint: bp.name,
+                  type: bp.type,
+                  fields: targetFields,
+                }
+              : {},
+        });
+      }
+    }
+
+    return diffs;
+  },
+
+  async suggestNextVersion(projectId: number, targetEnvId: number, selectedIds: (string | number)[]) {
+    const latestRelease = await prisma.release.findFirst({
+      where: { projectId, targetEnvironmentId: targetEnvId, status: { in: ['DEPLOYED', 'SCHEDULED'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let currentVersion = latestRelease?.version || 'v0.0.0';
+    if (currentVersion.startsWith('v')) currentVersion = currentVersion.slice(1);
+    const parts = currentVersion.split('.').map(Number);
+    if (parts.length !== 3) parts.push(...[0, 0, 0].slice(parts.length));
+
+    let isMajor = false;
+
+    const targetEnv = await prisma.environment.findUnique({ where: { id: targetEnvId } });
+    if (targetEnv && selectedIds && selectedIds.length > 0) {
+      const stringIds = selectedIds.filter(id => typeof id === 'string') as string[];
+      const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+      let targetBlueprints: any[] = [];
+      if (stringIds.length > 0) {
+        targetBlueprints = await SchemaBlueprint.find({ projectId, _id: { $in: stringIds } }).exec();
+      } else {
+        const allBlueprints = await SchemaBlueprint.find({ projectId }).exec();
+        targetBlueprints = selectedIds.map(id => typeof id === 'number' && id >= 1000 ? allBlueprints[id - 1000] : null).filter(Boolean);
+      }
+
+      const targetEnvName = targetEnv.name.toLowerCase().trim();
+      for (const bp of targetBlueprints) {
+        const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
+        if (!envVers[targetEnvName]) {
+          isMajor = true;
+          break;
+        }
+      }
+    }
+
+    if (isMajor) {
+      return `v${(parts[0] || 0) + 1}.0.0`;
+    } else {
+      return `v${parts[0] || 0}.${(parts[1] || 0) + 1}.0`;
+    }
+  },
+
+  async getReleaseDetails(releaseId: number, projectId: number) {
+    const release = await prisma.release.findUnique({
+      where: { id: releaseId, projectId },
+      include: {
+        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        sourceEnvironment: true,
+        targetEnvironment: true,
+        approvals: {
+          include: {
+            approver: { select: { id: true, firstName: true, lastName: true, email: true } }
+          }
+        },
+        items: true
+      }
+    });
+
+    if (!release) throw new NotFoundError('Release not found');
+
+    const schemaDiffs: any[] = [];
+    const prog = (release as any).deploymentProgress as any;
+    const bpIds: string[] = prog?.blueprintIds || (prog?.blueprintId ? [prog.blueprintId] : []);
+
+    if (bpIds.length > 0) {
       const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
       const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
 
-      const blueprints = await SchemaBlueprint.find({ projectId }).exec();
+      const sourceEnvName = release.sourceEnvironment?.name?.toLowerCase().trim() || 'development';
+      const targetEnvName = release.targetEnvironment.name.toLowerCase().trim();
 
-      let i = 0;
-      for (const bp of blueprints) {
-        const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-        const sourceEnvName = sourceEnv.name.toLowerCase().trim();
-        const targetEnvName = targetEnv.name.toLowerCase().trim();
-        const sourceVer =
-          envVers[sourceEnvName] ||
-          (sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 0);
-        const targetVer = envVers[targetEnvName] || 0;
+      for (const bpId of bpIds) {
+        const bp = await SchemaBlueprint.findById(bpId).exec();
+        if (bp) {
+          const bpSummary = prog?.blueprints?.find((b: any) => String(b.id) === String(bp._id));
+          const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
 
-        if (sourceVer > 0 && sourceVer !== targetVer) {
+          const sourceVer =
+            bpSummary?.sourceVersionNumber ||
+            envVers[sourceEnvName] ||
+            (sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1);
+
+          const prevTargetVer =
+            bpSummary?.targetVersionNumber ??
+            (release.status === 'DEPLOYED' ? 0 : (envVers[targetEnvName] || 0));
+
           const sourceSnapshot = await SchemaBlueprintVersion.findOne({
             projectId,
             blueprintId: bp._id,
@@ -858,11 +1104,11 @@ export const ReleaseService = {
           }).exec();
 
           const targetSnapshot =
-            targetVer > 0
+            prevTargetVer > 0
               ? await SchemaBlueprintVersion.findOne({
                   projectId,
                   blueprintId: bp._id,
-                  versionNumber: targetVer,
+                  versionNumber: prevTargetVer,
                 }).exec()
               : null;
 
@@ -891,17 +1137,19 @@ export const ReleaseService = {
             }
           }
 
-          const virtualFeedId = i + 1000;
+          const bpIdStr = bp._id.toString();
 
-          diffs.push({
-            id: virtualFeedId,
-            feedId: virtualFeedId,
-            blueprintId: bp._id.toString(),
-            feedName: `Blueprint: ${bp.name}`,
-            sourceVersionId: sourceSnapshot?._id?.toString() || bp._id.toString(),
+          schemaDiffs.push({
+            id: bpIdStr,
+            feedId: bpIdStr,
+            blueprintId: bpIdStr,
+            feedName: `Schema: ${bp.name}`,
+            schemaName: bp.name,
+            slug: bp.slug,
+            type: bp.type || 'collection',
+            icon: bp.icon || 'article',
             sourceVersionNumber: sourceVer,
-            targetVersionId: targetSnapshot?._id?.toString() || null,
-            targetVersionNumber: targetVer > 0 ? targetVer : null,
+            targetVersionNumber: prevTargetVer > 0 ? prevTargetVer : null,
             languages: [],
             summary: {
               baseChanged: true,
@@ -919,7 +1167,7 @@ export const ReleaseService = {
               fields: sourceFields,
             },
             targetContent:
-              targetVer > 0
+              targetFields.length > 0
                 ? {
                     blueprint: bp.name,
                     type: bp.type,
@@ -927,7 +1175,7 @@ export const ReleaseService = {
                   }
                 : null,
             previousContent:
-              targetVer > 0
+              targetFields.length > 0
                 ? {
                     blueprint: bp.name,
                     type: bp.type,
@@ -936,198 +1184,8 @@ export const ReleaseService = {
                 : {},
           });
         }
-        i++;
       }
     }
-
-    // 2. Check legacy Feeds
-    const feeds = await prisma.feed.findMany({ where: { projectId } });
-    if (feeds.length > 0) {
-      const sourceStates = await prisma.environmentState.findMany({
-        where: { environmentId: sourceEnvId },
-      });
-      const targetStates = await prisma.environmentState.findMany({
-        where: { environmentId: targetEnvId },
-      });
-
-      for (const feed of feeds) {
-        const sourceState = sourceStates.find((s) => s.feedId === feed.id);
-        const targetState = targetStates.find((s) => s.feedId === feed.id);
-
-        if (sourceState && (!targetState || sourceState.activeVersionId !== targetState.activeVersionId)) {
-          const feedDiff = await this.computeFeedDiff(
-            feed,
-            sourceState.activeVersionId,
-            targetState?.activeVersionId || null
-          );
-          diffs.push(feedDiff);
-        }
-      }
-    }
-
-    return diffs;
-  },
-
-  async suggestNextVersion(projectId: number, targetEnvId: number, selectedFeedIds: number[]) {
-    const latestRelease = await prisma.release.findFirst({
-      where: { projectId, targetEnvironmentId: targetEnvId, status: { in: ['DEPLOYED', 'SCHEDULED'] } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    let currentVersion = latestRelease?.version || 'v0.0.0';
-    if (currentVersion.startsWith('v')) currentVersion = currentVersion.slice(1);
-    const parts = currentVersion.split('.').map(Number);
-    if (parts.length !== 3) parts.push(...[0, 0, 0].slice(parts.length));
-
-    let isMajor = false;
-
-    // Check if any selected blueprint is new in target
-    const targetEnv = await prisma.environment.findUnique({ where: { id: targetEnvId } });
-    if (targetEnv) {
-      const virtualBlueprintIds = selectedFeedIds.filter((id) => id >= 1000);
-      if (virtualBlueprintIds.length > 0) {
-        const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
-        const allBlueprints = await SchemaBlueprint.find({ projectId }).exec();
-        for (const vId of virtualBlueprintIds) {
-          const bp = allBlueprints[vId - 1000];
-          if (bp) {
-            const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-            const targetEnvName = targetEnv.name.toLowerCase().trim();
-            if (!envVers[targetEnvName]) {
-              isMajor = true;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    const legacyFeedIds = selectedFeedIds.filter((id) => id < 1000);
-    if (legacyFeedIds.length > 0) {
-      const targetStates = await prisma.environmentState.findMany({
-        where: { environmentId: targetEnvId, feedId: { in: legacyFeedIds } },
-      });
-      if (targetStates.length < legacyFeedIds.length) {
-        isMajor = true;
-      }
-    }
-
-    if (isMajor) {
-      return `v${(parts[0] || 0) + 1}.0.0`;
-    } else {
-      return `v${parts[0] || 0}.${(parts[1] || 0) + 1}.0`;
-    }
-  },
-
-
-  async getReleaseDetails(releaseId: number, projectId: number) {
-    const release = await prisma.release.findUnique({
-      where: { id: releaseId, projectId },
-      include: {
-        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
-        sourceEnvironment: true,
-        targetEnvironment: true,
-        approvals: {
-          include: {
-            approver: { select: { id: true, firstName: true, lastName: true, email: true } }
-          }
-        },
-        items: {
-          include: {
-            feed: true
-          }
-        }
-      }
-    });
-
-    if (!release) throw new NotFoundError('Release not found');
-
-    const feedDiffs = [];
-
-    for (const item of release.items) {
-      let compareAgainstVersionId = item.previousVersionId;
-      
-      if (!compareAgainstVersionId && (release.status === 'DRAFT' || release.status === 'PENDING_APPROVAL' || release.status === 'READY_TO_DEPLOY' || release.status === 'SCHEDULED' || release.status === 'DEPLOYING')) {
-        const targetState = await prisma.environmentState.findUnique({
-          where: {
-            environmentId_feedId: {
-              environmentId: release.targetEnvironmentId,
-              feedId: item.feedId
-            }
-          }
-        });
-        compareAgainstVersionId = targetState ? targetState.activeVersionId : null;
-      }
-
-      const feedDiff = await this.computeFeedDiff(
-        item.feed,
-        item.versionId,
-        compareAgainstVersionId
-      );
-
-      feedDiffs.push({
-        id: item.id,
-        ...feedDiff
-      });
-    }
-
-    if (release.items.length === 0) {
-      const prog = (release as any).deploymentProgress as any;
-      if (prog?.isBlueprintRelease) {
-        const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
-        const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
-
-        const bpIds = prog.blueprintIds || (prog.blueprintId ? [prog.blueprintId] : []);
-        for (const bpId of bpIds) {
-          const bp = await SchemaBlueprint.findById(bpId).exec();
-          if (bp) {
-            const versionNum = prog.versionNumber || bp.activeVersionNumber || 1;
-            const snapshot = await SchemaBlueprintVersion.findOne({
-              projectId,
-              blueprintId: bp._id,
-              versionNumber: versionNum,
-            }).exec();
-
-            const currentFields = snapshot?.schemaDefinition?.fields || bp.schemaDefinition?.fields || [];
-            const summary = snapshot?.summary || {
-              addedFields: [],
-              modifiedFields: [],
-              removedFields: [],
-            };
-
-            feedDiffs.push({
-              id: bp._id.toString(),
-              feedId: 1000,
-              blueprintId: bp._id.toString(),
-              feedName: `Blueprint: ${bp.name}`,
-              sourceVersionNumber: versionNum,
-              targetVersionNumber: (prog.versionNumber && prog.versionNumber > 1) ? prog.versionNumber - 1 : null,
-              languages: [],
-              summary: {
-                baseChanged: true,
-                addedLanguages: summary.addedFields?.length > 0 ? [`+${summary.addedFields.length} field(s)`] : [],
-                modifiedLanguages: summary.modifiedFields?.length > 0 ? [`~${summary.modifiedFields.length} field(s)`] : [],
-                unchangedLanguages: [],
-                hasAnyChange: true,
-                ...summary,
-              },
-              sourceContent: {
-                blueprint: bp.name,
-                type: bp.type,
-                fields: currentFields,
-              },
-              targetContent: {
-                blueprint: bp.name,
-                type: bp.type,
-                fields: currentFields,
-              },
-              previousContent: {},
-            });
-          }
-        }
-      }
-    }
-
 
     return {
       id: release.id,
@@ -1149,7 +1207,8 @@ export const ReleaseService = {
         createdAt: a.createdAt,
         approver: a.approver
       })),
-      feeds: feedDiffs
+      schemas: schemaDiffs,
+      feeds: schemaDiffs
     };
   }
 };

@@ -593,6 +593,24 @@ export const getProjectEnvironments = async (req: any, res: any, next: any) => {
   }
 };
 
+export const createProjectEnvironment = async (req: any, res: any, next: any) => {
+  try {
+    const projectId = Number(req.params.projectId);
+    const { name, rank, isEditable, requiresApproval, defaultApproverIds } = req.body;
+
+    const env = await ProjectService.createProjectEnvironment(projectId, {
+      name,
+      rank,
+      isEditable,
+      requiresApproval,
+      defaultApproverIds,
+    });
+    res.status(201).json({ success: true, data: env });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateProjectEnvironment = async (req: any, res: any, next: any) => {
   try {
     const projectId = Number(req.params.projectId);
@@ -609,3 +627,14 @@ export const updateProjectEnvironment = async (req: any, res: any, next: any) =>
     next(error);
   }
 };
+
+export const getProjectUsage = async (req: any, res: any, next: any) => {
+  try {
+    const projectId = Number(req.params.projectId);
+    const usage = await ProjectService.getProjectUsage(projectId);
+    res.json({ success: true, data: usage });
+  } catch (error) {
+    next(error);
+  }
+};
+

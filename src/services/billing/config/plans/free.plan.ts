@@ -28,6 +28,9 @@ export const FreePlan: PlanDefinition = {
     [Quotas.MEMBERS.key]: 3,
     
     // Project Scoped
+    [Quotas.ENVIRONMENTS_PER_PROJECT.key]: 2,
+    [Quotas.BLUEPRINTS_PER_PROJECT.key]: 5,
+    [Quotas.DATA_ENTRIES_PER_PROJECT.key]: 100,
     [Quotas.FEEDS_PER_PROJECT.key]: 5,
   },
 };

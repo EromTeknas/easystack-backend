@@ -20,6 +20,7 @@ export interface IContentEntry extends Document {
   publishedAt?: Date;
   publishedContent?: Record<string, any>;
   publishedTitle?: string;
+  publishedTranslations?: Record<string, Record<string, any>>;
   baseLanguage: string; // e.g., "en"
   content: Record<string, any>;
   translations?: Record<string, Record<string, any>> | undefined;
@@ -53,6 +54,7 @@ const ContentEntrySchema = new Schema(
     publishedAt: { type: Date },
     publishedContent: { type: Schema.Types.Mixed },
     publishedTitle: { type: String },
+    publishedTranslations: { type: Schema.Types.Mixed },
     baseLanguage: { type: String, default: 'en' },
     content: { type: Schema.Types.Mixed, default: {} },
     translations: { type: Schema.Types.Mixed, default: {} },

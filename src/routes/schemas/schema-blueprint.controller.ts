@@ -68,6 +68,11 @@ export const createSchema = asyncHandler(async (req: any, res: Response) => {
 export const updateSchema = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const { schemaId } = req.params;
+  const env = (req.query.environment as string)?.toLowerCase()?.trim();
+  if (env && env !== 'development') {
+    throw new BadRequestError(`Blueprints in ${env} environment cannot be edited directly. Changes must be made in development and promoted via releases.`);
+  }
+
   const { name, slug, description, type, icon, schemaDefinition } = req.body;
 
   const schema = await SchemaBlueprintService.updateSchema(projectId, schemaId, {

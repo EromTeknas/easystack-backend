@@ -26,11 +26,14 @@ export const ReleaseController = {
     try {
       const projectId = parseInt(req.params.projectId as string);
       const targetEnvId = parseInt(req.query.targetEnvironmentId as string);
-      let feedIds = (req.query.feedIds as string)?.split(',').map(Number) || [];
+      const rawIds = (req.query.schemaIds || req.query.blueprintIds || req.query.feedIds || '') as string;
+      const ids: (string | number)[] = rawIds
+        ? rawIds.split(',').map((s) => s.trim()).filter(Boolean).map((s) => /^\d+$/.test(s) ? Number(s) : s)
+        : [];
 
       if (!targetEnvId) throw new Error('Missing target environment ID');
 
-      const version = await ReleaseService.suggestNextVersion(projectId, targetEnvId, feedIds);
+      const version = await ReleaseService.suggestNextVersion(projectId, targetEnvId, ids);
       res.json({ success: true, data: { version } });
     } catch (error) {
       next(error);
@@ -41,13 +44,17 @@ export const ReleaseController = {
     try {
       const projectId = parseInt(req.params.projectId as string);
       const userId = req.user!.id;
-      const { approverIds } = req.body;
-      const { name, description, sourceEnvironmentId, targetEnvironmentId, version, feedIds } = req.body;
-
-      
+      const { name, description, sourceEnvironmentId, targetEnvironmentId, version, feedIds, schemaIds, blueprintIds } = req.body;
 
       const release = await ReleaseService.createRelease(projectId, userId, {
-        name, description, sourceEnvironmentId, targetEnvironmentId, version, feedIds
+        name,
+        description,
+        sourceEnvironmentId,
+        targetEnvironmentId,
+        version,
+        feedIds,
+        schemaIds,
+        blueprintIds,
       });
 
       res.status(201).json({ success: true, data: release });

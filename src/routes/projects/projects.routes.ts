@@ -19,7 +19,9 @@ import {
   revokeProjectInvitation,
   updateProjectMemberRole,
   removeProjectMember,
-  updateProjectEnvironment
+  updateProjectEnvironment,
+  createProjectEnvironment,
+  getProjectUsage
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -418,6 +420,18 @@ router.get(
   getProjectEnvironments
 );
 
+router.post(
+  '/:projectId/environments',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.ENVIRONMENT.UPDATE,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  createProjectEnvironment
+);
+
 router.patch(
   '/:projectId/environments/:environmentId',
   authenticate,
@@ -428,6 +442,18 @@ router.patch(
   }),
   attachWorkspaceFromProject,
   updateProjectEnvironment
+);
+
+router.get(
+  '/:projectId/usage',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectUsage
 );
 
 export default router;

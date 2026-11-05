@@ -41,6 +41,9 @@ export const ProPlan: PlanDefinition = {
     [Quotas.MEMBERS.key]: 10,
     
     // Project Scoped
+    [Quotas.ENVIRONMENTS_PER_PROJECT.key]: 5,
+    [Quotas.BLUEPRINTS_PER_PROJECT.key]: 30,
+    [Quotas.DATA_ENTRIES_PER_PROJECT.key]: 5000,
     [Quotas.FEEDS_PER_PROJECT.key]: 20,
   },
 };

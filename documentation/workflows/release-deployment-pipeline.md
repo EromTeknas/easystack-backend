@@ -2,12 +2,13 @@
 
 ## 1. Overview & Triggers
 
-This workflow traces the promotion of feeds and schemas from editable development environments to read-only target environments (staging, production). It covers diff analysis, SemVer version suggestion, release creation with frozen snapshots, governance approval, scheduled or immediate deployment, and rollback.
+This workflow traces the promotion of Schema Blueprints from the lowest-rank editable environment to downstream target environments following strict rank-based promotion order: `rank[i] -> rank[i+1]`. Environment names are decoupled and configurable, defaulting to `development` (rank 10) and `production` (rank 20). It covers diff analysis, SemVer version suggestion, release creation with frozen snapshots, governance approval, scheduled or immediate deployment, instant deploy from schema blueprint editor, and atomic rollback.
 
 ### Triggers
-- **Diff Inspection**: `GET /api/projects/:projectId/releases/diff`
-- **SemVer Suggestion**: `GET /api/projects/:projectId/releases/suggest-version`
+- **Diff Inspection**: `GET /api/projects/:projectId/releases/diff?sourceEnvironmentId=:src&targetEnvironmentId=:tgt`
+- **SemVer Suggestion**: `GET /api/projects/:projectId/releases/suggest-version?targetEnvironmentId=:tgt&feedIds=:ids`
 - **Create Release Draft**: `POST /api/projects/:projectId/releases`
+- **Instant Schema Deploy**: `POST /api/projects/:projectId/schemas/:schemaId/deploy`
 - **Request Approval**: `POST /api/projects/:projectId/releases/:releaseId/request-approval`
 - **Approve Release**: `POST /api/projects/:projectId/releases/:releaseId/approve`
 - **Immediate Execution**: `POST /api/projects/:projectId/releases/:releaseId/execute`
@@ -21,49 +22,60 @@ This workflow traces the promotion of feeds and schemas from editable developmen
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Dev as Developer / Release Mgr
-    actor Admin as Project Admin
-    participant API as Release Controller
-    participant Svc as ReleaseService
-    participant DB as MySQL (Prisma)
-    participant BullMQ as BullMQ (releaseQueue)
+    actor Dev as Developer / Schema Designer
+    actor Admin as Project Admin / Approver
+    participant SchemaUI as Schema Blueprint Editor
+    participant ReleaseUI as Releases Pipeline UI
+    participant API as Release & Schema Controller
+    participant Svc as ReleaseService / SchemaBlueprintService
+    participant Mongo as MongoDB (SchemaBlueprint & Version)
+    participant SQL as MySQL (Prisma)
+    participant BullMQ as BullMQ (deployment-queue)
     participant Worker as Release Worker
 
-    %% Diff & Create
-    Dev->>API: GET /diff?sourceEnvId=1&targetEnvId=2
-    API->>Svc: getEnvironmentDiff()
-    Svc-->>API: Key-level diff (added, updated, deleted)
-    Dev->>API: POST / (name, version, targetEnvId)
-    API->>Svc: createRelease()
-    Svc->>DB: Snapshot active FeedVersions & Schemas
-    Svc->>DB: INSERT Release (status: DRAFT)
-    API-->>Dev: 201 Created (Release Draft)
+    %% Instant Schema Deployment
+    alt Instant Schema Deployment (Editor)
+        Dev->>SchemaUI: Click "Deploy" on Schema Blueprint
+        SchemaUI->>API: POST /api/projects/:id/schemas/:schemaId/deploy
+        API->>Svc: deployBlueprint(schemaId, targetEnv)
+        alt Approvers Configured on Target Environment
+            Svc->>SQL: Create Release (PENDING_APPROVAL) + Approval Records
+            API-->>SchemaUI: 201 Created (requiresApproval: true)
+            SchemaUI-->>Dev: Toast & Redirect to Release Detail
+        else No Approvers Configured
+            Svc->>SQL: Create Release (DRAFT)
+            Svc->>Svc: executeRelease(releaseId)
+            Svc->>SQL: UPDATE Release SET status = 'DEPLOYING'
+            Svc->>BullMQ: Enqueue 5-stage deployment job
+            API-->>SchemaUI: 201 Created (requiresApproval: false)
+            SchemaUI-->>Dev: Toast & Redirect to Release Detail
+        end
+    end
 
-    %% Governance Approval
-    Dev->>API: POST /:id/request-approval
-    Admin->>API: POST /:id/approve
-    Note over API: Gated by authorize(RELEASE.APPROVE)
-    API->>Svc: approveRelease()
-    Svc->>DB: UPDATE Release SET status = 'APPROVED'
-    API-->>Admin: 200 OK
+    %% Manual Release Creation Flow
+    alt Manual Release Wizard Flow
+        Dev->>ReleaseUI: Open Wizard (Select Target Env)
+        ReleaseUI->>API: GET /diff & GET /suggest-version
+        API->>Svc: getEnvironmentDiff() & suggestNextVersion()
+        Svc->>Mongo: Compare SchemaBlueprint definitions & versions
+        Svc-->>ReleaseUI: Field-level diffs (+, ~, -) & suggested SemVer
+        Dev->>ReleaseUI: Select schemas, accept SemVer, click "Create"
+        ReleaseUI->>API: POST /releases (blueprintIds, version, name)
+        API->>Svc: createRelease()
+        Svc->>SQL: INSERT Release (isBlueprintRelease: true, blueprints snapshot)
+        API-->>ReleaseUI: 201 Created (DRAFT or PENDING_APPROVAL)
+    end
 
     %% Deployment Execution
-    alt Immediate Deployment
-        Admin->>API: POST /:id/execute
-        API->>Svc: executeRelease()
-        Svc->>DB: Transaction: UPDATE EnvironmentState.activeVersionId to Snapshot IDs
-        Svc->>DB: UPDATE Release SET status = 'COMPLETED'
-        API-->>Admin: 200 OK (Deployed)
-    else Scheduled Deployment
-        Admin->>API: POST /:id/schedule (scheduledAt)
-        API->>Svc: scheduleRelease()
-        Svc->>BullMQ: Add job to scheduledReleaseQueue
-        Svc->>DB: UPDATE Release SET status = 'SCHEDULED'
-        API-->>Admin: 200 OK (Scheduled)
-        BullMQ->>Worker: Trigger at scheduledAt
-        Worker->>DB: Transaction: UPDATE EnvironmentState.activeVersionId
-        Worker->>DB: UPDATE Release SET status = 'COMPLETED'
-    end
+    Worker->>BullMQ: Process deployment job
+    Worker->>Svc: performDeployment()
+    Note over Worker: Stage 1: Pre-flight Schema & Integrity Check
+    Note over Worker: Stage 2: Target State Snapshot & Rollback Point Creation
+    Note over Worker: Stage 3: Atomic State Pointer Synchronization
+    Worker->>Mongo: Update environments, deployedAt, environmentVersions, upsert SchemaBlueprintVersion
+    Note over Worker: Stage 4: Release Artifact Locking
+    Note over Worker: Stage 5: Cache Invalidation & Traffic Activation
+    Worker->>SQL: UPDATE Release SET status = 'DEPLOYED'
 ```
 
 ---
@@ -71,24 +83,39 @@ sequenceDiagram
 ## 3. Step-by-Step Execution Trace
 
 ### Phase 1: Environment Diff & Version Suggestion
-1. **Diff Calculation**: [`ReleaseService.getEnvironmentDiff()`](file:///home/eteknas/Projects/easystack-backend/src/services/release.service.ts) fetches the active `FeedVersion` documents from MongoDB for both the source environment and target environment. It compares JSON keys and content values, categorizing changes into `added`, `modified`, and `removed`.
-2. **SemVer Recommendation**: Inspects whether schema changes occurred:
-   - Structural key alterations or deletions -> Recommends `MINOR` or `MAJOR` bump.
-   - Translation or content-only changes -> Recommends `PATCH` bump.
+1. **Strict Rank-Based Promotion Path**: Releases can only transition to the immediate next environment in rank order (`targetIndex === sourceIndex + 1`). Deployments skipping ranks or targeting the initial authoring base environment are rejected with HTTP 400.
+2. **Diff Calculation**: `ReleaseService.getEnvironmentDiff()` loads all `SchemaBlueprint` documents in MongoDB for the project. For each schema:
+   - Evaluates source environment version definition against target environment version snapshot.
+   - Categorizes schema status into `ADDED` (new schema on target), `MODIFIED` (existing schema with altered field definitions), or `REMOVED`.
+   - Computes detailed field additions, modifications, and removals.
+3. **SemVer Recommendation**:
+   - Field removals or breaking alterations -> Recommends `MAJOR` bump.
+   - Field additions or schema introductions -> Recommends `MINOR` bump.
+   - Non-structural modifications -> Recommends `PATCH` bump.
 
 ### Phase 2: Creation & Snapshot Freezing
-1. **Freezing Snapshot**: Creating a release locks the exact state of all project feeds and schemas in the source environment.
-2. **Relational Records**: In MySQL, a `Release` record is created with relations to `ReleaseFeed` and `ReleaseSchema`. These junction records store the exact MongoDB `versionId` strings at the moment of release creation.
-3. **Immutability Guarantee**: Even if developers continue modifying the draft in the `development` environment, the release snapshot remains immutable.
+1. **Release Metadata**: `createRelease` stores `isBlueprintRelease: true`, `blueprintIds`, `blueprintNames`, and rich blueprint metadata (`id`, `name`, `slug`, `type`, `sourceVersionNumber`, `targetVersionNumber`) inside `deploymentProgress.blueprints`.
+2. **Snapshot Immutability**: All blueprint states at creation time are captured in the release record. Even if authoring continues in the `development` environment, target deployment references remain frozen.
 
-### Phase 3: Deployment Execution
-1. **Pointer Switch**: Deployment is performed within a Prisma transaction.
-   - For every feed included in the release, the target environment's pointer in `EnvironmentState` is updated:
-     ```typescript
-     await tx.environmentState.upsert({
-       where: { environmentId_feedId: { environmentId: targetEnv.id, feedId } },
-       update: { activeVersionId: releaseFeed.versionId },
-       create: { environmentId: targetEnv.id, feedId, activeVersionId: releaseFeed.versionId }
-     });
-     ```
-2. **Instant Rollback**: If a deployment introduces a critical issue, `ReleaseService.rollbackRelease()` inspects the preceding completed release for that target environment and switches `activeVersionId` pointers back to the prior release's snapshots in a single atomic transaction.
+### Phase 3: Multi-Stage Deployment Execution
+When executed directly or triggered via the Instant Schema Deploy workflow:
+1. **Stage 1: Pre-flight Schema & Translation Integrity Check**:
+   - Validates that all referenced Schema Blueprints exist and contain valid field schemas.
+2. **Stage 2: Target Environment State Snapshot & Rollback Point Creation**:
+   - Records preceding target environment versions for each schema to allow instant atomic rollbacks.
+3. **Stage 3: Atomic State Pointer Synchronization**:
+   - Loops through all blueprints in the release:
+     - Updates MongoDB `SchemaBlueprint.environments` to include target environment ID.
+     - Sets `SchemaBlueprint.deployedAt[targetEnvId] = new Date()`.
+     - Updates `SchemaBlueprint.environmentVersions[targetEnvId] = sourceVer`.
+     - Upserts `SchemaBlueprintVersion` record for target environment with `semanticVersion: release.version` and full `schemaDefinition`.
+4. **Stage 4: Release Artifact Locking & Development Version Branching**:
+   - Locks release version artifacts and increments development draft counters if applicable.
+5. **Stage 5: Cache Invalidation & Traffic Activation**:
+   - Invalidates Redis caches, marks `deploymentProgress.isComplete = true`, and sets `Release.status = 'DEPLOYED'`.
+
+### Phase 4: Instant Rollback
+If a regression is identified in the target environment:
+1. `ReleaseService.rollbackRelease()` inspects the preceding completed release for that target environment.
+2. Reverts `SchemaBlueprint.environmentVersions[targetEnvId]` to the previous version snapshot in an atomic transaction.
+3. Sets `Release.status = 'ROLLED_BACK'`.
