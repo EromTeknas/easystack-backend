@@ -128,8 +128,16 @@ export const publishContentEntry = asyncHandler(async (req: any, res: Response) 
   const { schemaSlug, entryId } = req.params;
   const userId = Number(req.user!.id);
   const targetEnv = (req.body?.targetEnv as string) || (req.query?.environment as string) || 'development';
+  const forcePublish = Boolean(req.body?.forcePublish);
 
-  const entry = await ContentEntryService.publishEntry(projectId, schemaSlug, entryId, userId, targetEnv);
+  const entry = await ContentEntryService.publishEntry(
+    projectId,
+    schemaSlug,
+    entryId,
+    userId,
+    targetEnv,
+    forcePublish
+  );
   return ok(res, { entry, message: `Content entry published in ${targetEnv} successfully` });
 });
 

@@ -18,6 +18,7 @@ export interface CreateContentEntryDto {
   content: Record<string, any>;
   translations?: Record<string, Record<string, any>> | undefined;
   translationStatuses?: Record<string, any> | undefined;
+  translationSourceHashes?: Record<string, Record<string, string>> | undefined;
   createdBy: number;
 }
 
@@ -35,6 +36,7 @@ export interface UpdateContentEntryDto {
   content?: Record<string, any> | undefined;
   translations?: Record<string, Record<string, any>> | undefined;
   translationStatuses?: Record<string, any> | undefined;
+  translationSourceHashes?: Record<string, Record<string, string>> | undefined;
   updatedBy?: number | undefined;
 }
 
@@ -141,6 +143,9 @@ export const ContentEntryRepository = {
 
       scheduledAt: data.scheduledAt,
       publishedAt: data.publishedAt,
+      publishedContent: data.publishedContent,
+      publishedTitle: data.publishedTitle,
+      publishedTranslations: data.publishedTranslations,
       baseLanguage: data.baseLanguage || 'en',
       content: data.content || {},
       createdBy: data.createdBy,
@@ -162,6 +167,9 @@ export const ContentEntryRepository = {
     if (data.environment !== undefined) updatePayload.environment = data.environment;
     if (data.scheduledAt !== undefined) updatePayload.scheduledAt = data.scheduledAt;
     if (data.publishedAt !== undefined) updatePayload.publishedAt = data.publishedAt;
+    if (data.publishedContent !== undefined) updatePayload.publishedContent = data.publishedContent;
+    if (data.publishedTitle !== undefined) updatePayload.publishedTitle = data.publishedTitle;
+    if (data.publishedTranslations !== undefined) updatePayload.publishedTranslations = data.publishedTranslations;
     if (data.baseLanguage !== undefined) updatePayload.baseLanguage = data.baseLanguage;
     if (data.content !== undefined) updatePayload.content = data.content;
     if (data.translations !== undefined) updatePayload.translations = data.translations;

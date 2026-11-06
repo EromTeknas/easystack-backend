@@ -11,6 +11,7 @@ import { BadRequestError, NotFoundError, ConflictError } from '../errors';
 import { prisma } from '../db';
 import { IContentEntry, ContentEntryStatus } from '../models/content-entry.model';
 import { ContentAuditService } from './content-audit.service';
+import { ContentAuditAction } from '../models/content-audit-log.model';
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -82,6 +83,11 @@ export const ContentEntryService = {
 
     if (schema.type === 'singleton') {
       const singleton = await ContentEntryRepository.findSingleton(projectId, schemaSlug, targetEnv);
+      if (singleton && singleton.status === 'published' && !singleton.publishedContent) {
+        singleton.publishedContent = singleton.content;
+        singleton.publishedTitle = singleton.title;
+        singleton.publishedAt = singleton.publishedAt || singleton.updatedAt || singleton.createdAt;
+      }
       return {
         schema,
         isSingleton: true,
@@ -92,6 +98,13 @@ export const ContentEntryService = {
     const paginated = await ContentEntryRepository.listBySchema(projectId, schemaSlug, {
       ...options,
       environment: targetEnv,
+    });
+    paginated.entries.forEach((e) => {
+      if (e.status === 'published' && !e.publishedContent) {
+        e.publishedContent = e.content;
+        e.publishedTitle = e.title;
+        e.publishedAt = e.publishedAt || e.updatedAt || e.createdAt;
+      }
     });
     return {
       schema,
@@ -114,6 +127,11 @@ export const ContentEntryService = {
       if (!singleton) {
         throw new NotFoundError(`Singleton entry for '${schemaSlug}' not yet initialized in '${targetEnv}'`);
       }
+      if (singleton.status === 'published' && !singleton.publishedContent) {
+        singleton.publishedContent = singleton.content;
+        singleton.publishedTitle = singleton.title;
+        singleton.publishedAt = singleton.publishedAt || singleton.updatedAt || singleton.createdAt;
+      }
       return { schema, entry: singleton };
     }
 
@@ -127,6 +145,12 @@ export const ContentEntryService = {
 
     if (!entry || entry.projectId !== projectId || entry.schemaSlug !== schemaSlug.toLowerCase().trim()) {
       throw new NotFoundError(`Entry '${entryIdOrSlug}' not found in schema '${schemaSlug}'`);
+    }
+
+    if (entry.status === 'published' && !entry.publishedContent) {
+      entry.publishedContent = entry.content;
+      entry.publishedTitle = entry.title;
+      entry.publishedAt = entry.publishedAt || entry.updatedAt || entry.createdAt;
     }
 
     return { schema, entry };
@@ -197,6 +221,7 @@ export const ContentEntryService = {
         FeedSchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
       }
 
+      const isPublished = (data.status || 'draft') === 'published';
       const created = await ContentEntryRepository.create({
         projectId,
         schemaId: schema._id as mongoose.Types.ObjectId,
@@ -208,6 +233,10 @@ export const ContentEntryService = {
         baseLanguage: data.baseLanguage || 'en',
         content: mergedContent,
         translations: data.translations,
+        publishedAt: isPublished ? new Date() : undefined,
+        publishedContent: isPublished ? mergedContent : undefined,
+        publishedTitle: isPublished ? (data.title?.trim() || schema.name) : undefined,
+        publishedTranslations: isPublished ? data.translations : undefined,
         createdBy: userId,
       });
 
@@ -316,6 +345,7 @@ export const ContentEntryService = {
         if (schema.schemaDefinition && schema.schemaDefinition.fields) {
           FeedSchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
         }
+        const isPublished = (data.status || 'draft') === 'published';
         const createdSingleton = await ContentEntryRepository.create({
           projectId,
           schemaId: schema._id as mongoose.Types.ObjectId,
@@ -327,6 +357,10 @@ export const ContentEntryService = {
           baseLanguage: data.baseLanguage || 'en',
           content: mergedContent,
           translations: data.translations,
+          publishedAt: isPublished ? new Date() : undefined,
+          publishedContent: isPublished ? mergedContent : undefined,
+          publishedTitle: isPublished ? (data.title?.trim() || schema.name) : undefined,
+          publishedTranslations: isPublished ? data.translations : undefined,
           createdBy: userId,
         });
 
@@ -384,6 +418,18 @@ export const ContentEntryService = {
       }
     }
 
+    const isPreviouslyPublished = Boolean(
+      existing.publishedAt || existing.publishedContent || existing.status === 'published'
+    );
+
+    // If previously published and publishedContent is not yet initialized in DB, snapshot existing content
+    if (isPreviouslyPublished && !existing.publishedContent) {
+      updatePayload.publishedContent = existing.content;
+      updatePayload.publishedTitle = existing.publishedTitle || existing.title;
+      updatePayload.publishedTranslations = existing.publishedTranslations || existing.translations || {};
+      updatePayload.publishedAt = existing.publishedAt || existing.updatedAt || new Date();
+    }
+
     if (data.status !== undefined) {
       updatePayload.status = data.status;
     }
@@ -400,6 +446,60 @@ export const ContentEntryService = {
         FeedSchemaValidationService.validateContentAgainstSchema(data.content, schema.schemaDefinition, { isDraft });
       }
       updatePayload.content = data.content;
+
+      // Automated Outdated Translation Detection (GAP-07)
+      if (schema.schemaDefinition && schema.schemaDefinition.fields) {
+        const localizedFields = schema.schemaDefinition.fields.filter((f: any) => f.isLocalized);
+        const localizedKeys = localizedFields.map((f: any) => f.key || f.id);
+
+        if (localizedKeys.length > 0) {
+          const changedLocalizedKeys = localizedKeys.filter((k: string) => {
+            const oldVal = existing.content?.[k];
+            const newVal = data.content?.[k];
+            return JSON.stringify(oldVal) !== JSON.stringify(newVal);
+          });
+
+          const currentStatuses: Record<string, any> = { ...(existing.translationStatuses || {}) };
+          const project = await prisma.project.findUnique({ where: { id: projectId } });
+          const projectLangs = (project?.supportedLanguages as string[]) || [];
+          const baseLang = data.baseLanguage || existing.baseLanguage || 'en';
+          const defaultTargets = projectLangs.length > 1
+            ? projectLangs.filter((l) => l !== baseLang)
+            : ['es', 'fr'].filter((l) => l !== baseLang);
+
+          const targetLangs = new Set<string>([
+            ...defaultTargets,
+            ...Object.keys(existing.translations || {}),
+            ...Object.keys(currentStatuses),
+          ]);
+
+          let hasStatusUpdate = false;
+          for (const lang of targetLangs) {
+            if (changedLocalizedKeys.length > 0) {
+              const existingOutdated = currentStatuses[lang]?.outdatedFields || [];
+              const mergedOutdated = Array.from(new Set([...existingOutdated, ...changedLocalizedKeys]));
+              currentStatuses[lang] = {
+                ...(currentStatuses[lang] || {}),
+                status: 'outdated',
+                outdatedFields: mergedOutdated,
+                updatedAt: new Date(),
+              };
+              hasStatusUpdate = true;
+            } else if (!currentStatuses[lang]) {
+              currentStatuses[lang] = {
+                status: 'outdated',
+                outdatedFields: localizedKeys,
+                updatedAt: new Date(),
+              };
+              hasStatusUpdate = true;
+            }
+          }
+
+          if (hasStatusUpdate) {
+            updatePayload.translationStatuses = currentStatuses;
+          }
+        }
+      }
     } else if (data.status !== undefined && !isDraft) {
       if (schema.schemaDefinition && schema.schemaDefinition.fields) {
         FeedSchemaValidationService.validateContentAgainstSchema(existing.content, schema.schemaDefinition, { isDraft: false });
@@ -407,6 +507,7 @@ export const ContentEntryService = {
     }
 
     if (data.status === 'published') {
+      updatePayload.status = 'published';
       updatePayload.publishedAt = new Date();
       updatePayload.publishedContent = data.content !== undefined ? data.content : existing.content;
       updatePayload.publishedTitle = data.title?.trim() || existing.title;
@@ -415,6 +516,18 @@ export const ContentEntryService = {
 
     if (data.translations !== undefined) {
       updatePayload.translations = data.translations;
+
+      // If manual translations were provided for specific languages, mark them completed and clear outdatedFields
+      const currentStatuses: Record<string, any> = updatePayload.translationStatuses || { ...(existing.translationStatuses || {}) };
+      for (const lang of Object.keys(data.translations)) {
+        currentStatuses[lang] = {
+          ...(currentStatuses[lang] || {}),
+          status: 'completed',
+          outdatedFields: [],
+          updatedAt: new Date(),
+        };
+      }
+      updatePayload.translationStatuses = currentStatuses;
     }
 
     const updated = await ContentEntryRepository.update(existing._id.toString(), updatePayload);
@@ -423,8 +536,15 @@ export const ContentEntryService = {
     }
 
     const isTranslationEdit = data.translations !== undefined && data.content === undefined;
-    const action = isTranslationEdit ? 'TRANSLATION_OVERRIDDEN' : 'UPDATED';
-    const msg = isTranslationEdit
+    const isDraftSave = data.status === 'draft' || (!data.status && existing.status === 'draft');
+    const action: ContentAuditAction = isDraftSave
+      ? 'DRAFT_SAVED'
+      : isTranslationEdit
+      ? 'TRANSLATION_OVERRIDDEN'
+      : 'UPDATED';
+    const msg = isDraftSave
+      ? `Saved draft for '${updated.title}'`
+      : isTranslationEdit
       ? `Updated manual translations for '${updated.title}'`
       : `Updated content entry '${updated.title}'`;
 
@@ -491,12 +611,35 @@ export const ContentEntryService = {
 
     // If entry was previously published, revert to published snapshot
     if (entry.publishedContent && entry.publishedAt) {
-      const restored = await ContentEntryRepository.update(entry._id.toString(), {
+      const localizedFields = schema.schemaDefinition?.fields?.filter((f: any) => f.isLocalized) || [];
+      const updatePayload: UpdateContentEntryDto = {
         content: entry.publishedContent,
         title: entry.publishedTitle || entry.title,
         status: 'published',
         updatedBy: userId,
-      });
+      };
+
+      if (localizedFields.length > 0) {
+        const localizedKeys = localizedFields.map((f: any) => f.key || f.id);
+        const currentStatuses: Record<string, any> = { ...(entry.translationStatuses || {}) };
+        const targetLangs = new Set<string>([
+          ...Object.keys(entry.translations || {}),
+          ...Object.keys(currentStatuses),
+        ]);
+        for (const lang of targetLangs) {
+          const existingOutdated = currentStatuses[lang]?.outdatedFields || [];
+          const mergedOutdated = Array.from(new Set([...existingOutdated, ...localizedKeys]));
+          currentStatuses[lang] = {
+            ...(currentStatuses[lang] || {}),
+            status: 'outdated',
+            outdatedFields: mergedOutdated,
+            updatedAt: new Date(),
+          };
+        }
+        updatePayload.translationStatuses = currentStatuses;
+      }
+
+      const restored = await ContentEntryRepository.update(entry._id.toString(), updatePayload);
 
       if (!restored) {
         throw new NotFoundError('Failed to revert content entry to published version');
@@ -586,19 +729,72 @@ export const ContentEntryService = {
     schemaSlug: string,
     entryId: string,
     userId: number,
-    targetEnv: string = 'development'
+    targetEnv: string = 'development',
+    forcePublish: boolean = false
   ): Promise<IContentEntry> {
     const cleanTarget = (targetEnv || 'development').toLowerCase().trim();
     const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId, cleanTarget);
+
+    let forcePublishStatuses: Record<string, any> | undefined;
 
     // Validate required fields
     if (schema.schemaDefinition && schema.schemaDefinition.fields) {
       FeedSchemaValidationService.validateContentAgainstSchema(entry.content, schema.schemaDefinition, {
         isDraft: false,
       });
+
+      // Guard: Block publication if localized fields exist and translations are incomplete/outdated
+      const localizedFields = schema.schemaDefinition.fields.filter((f: any) => f.isLocalized);
+      if (localizedFields.length > 0) {
+        const project = await prisma.project.findUnique({ where: { id: projectId } });
+        const projectLanguages = (project?.supportedLanguages as string[]) || [];
+        const baseLang = entry.baseLanguage || 'en';
+        let targetLanguages = projectLanguages.filter((l) => l !== baseLang);
+        if (targetLanguages.length === 0) {
+          const recordedLangs = Object.keys(entry.translationStatuses || {}).concat(
+            Object.keys(entry.translations || {})
+          );
+          if (recordedLangs.length > 0) {
+            targetLanguages = Array.from(new Set(recordedLangs)).filter((l) => l !== baseLang);
+          } else {
+            targetLanguages = ['es', 'fr'].filter((l) => l !== baseLang);
+          }
+        }
+
+        if (targetLanguages.length > 0) {
+          const statuses: Record<string, any> = entry.translationStatuses || {};
+          const missingOrIncomplete = targetLanguages.filter((lang) => {
+            const raw = statuses[lang];
+            const st = typeof raw === 'object' && raw !== null ? raw.status : raw;
+            const hasOutdated = Array.isArray(raw?.outdatedFields) && raw.outdatedFields.length > 0;
+            return st !== 'completed' || hasOutdated;
+          });
+
+          if (missingOrIncomplete.length > 0) {
+            if (!forcePublish) {
+              throw new BadRequestError(
+                `Cannot publish entry: Translations are missing or outdated for: ${missingOrIncomplete
+                  .map((l) => l.toUpperCase())
+                  .join(', ')}. All localized translations must be generated and up to date before publishing.`
+              );
+            } else {
+              // Forced publish: Mark all target translations as ready as-is
+              forcePublishStatuses = { ...statuses };
+              for (const lang of targetLanguages) {
+                forcePublishStatuses[lang] = {
+                  ...(forcePublishStatuses[lang] || {}),
+                  status: 'completed',
+                  outdatedFields: [],
+                  updatedAt: new Date(),
+                };
+              }
+            }
+          }
+        }
+      }
     }
 
-    const updated = await ContentEntryRepository.update(entry._id.toString(), {
+    const updatePayload: UpdateContentEntryDto = {
       status: 'published',
       publishedAt: new Date(),
       publishedContent: entry.content,
@@ -606,7 +802,13 @@ export const ContentEntryService = {
       publishedTranslations: entry.translations || {},
       scheduledAt: null,
       updatedBy: userId,
-    });
+    };
+
+    if (forcePublishStatuses) {
+      updatePayload.translationStatuses = forcePublishStatuses;
+    }
+
+    const updated = await ContentEntryRepository.update(entry._id.toString(), updatePayload);
 
     if (!updated) {
       throw new NotFoundError('Failed to publish content entry');
@@ -620,7 +822,12 @@ export const ContentEntryService = {
       action: 'PUBLISHED',
       userId,
       message: `Published content entry '${updated.title}' in '${updated.environment}'`,
-      details: { title: updated.title, slug: updated.slug, environment: updated.environment },
+      details: {
+        title: updated.title,
+        slug: updated.slug,
+        environment: updated.environment,
+        forcePublished: Boolean(forcePublish && forcePublishStatuses),
+      },
     });
 
     return updated;
@@ -637,12 +844,38 @@ export const ContentEntryService = {
     const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId);
 
     const project = await prisma.project.findUnique({ where: { id: projectId } });
-    const projectLanguages = (project?.supportedLanguages as string[]) || [];
+    let projectLanguages = (project?.supportedLanguages as string[]) || [];
     const baseLang = entry.baseLanguage || 'en';
 
-    let targetLanguages = projectLanguages.filter((l) => l !== baseLang);
-    if (languages && languages.length > 0) {
-      targetLanguages = targetLanguages.filter((l) => languages.includes(l));
+    let targetLanguages = languages && languages.length > 0
+      ? languages.filter((l) => l !== baseLang)
+      : projectLanguages.filter((l) => l !== baseLang);
+
+    if (targetLanguages.length === 0 && projectLanguages.length <= 1) {
+      // Default to common project target languages if not explicitly configured
+      targetLanguages = ['es', 'fr'].filter((l) => l !== baseLang);
+      try {
+        const merged = Array.from(new Set([...projectLanguages, ...targetLanguages]));
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { supportedLanguages: merged },
+        });
+      } catch {
+        // Non-blocking
+      }
+    } else if (languages && languages.length > 0) {
+      const newLangs = languages.filter((l) => !projectLanguages.includes(l));
+      if (newLangs.length > 0) {
+        try {
+          const merged = Array.from(new Set([...projectLanguages, ...newLangs]));
+          await prisma.project.update({
+            where: { id: projectId },
+            data: { supportedLanguages: merged },
+          });
+        } catch {
+          // Non-blocking
+        }
+      }
     }
 
     if (targetLanguages.length === 0) {

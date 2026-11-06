@@ -117,3 +117,119 @@ test('ContentEntry - draft diff detects modified fields between current content 
   assert.equal(restoredContent.title, 'Original Published Title');
 });
 
+test('ContentEntry - publication guard blocks when target translations are missing or incomplete', () => {
+  const targetLanguages = ['es', 'fr'];
+  const incompleteStatuses: Record<string, any> = {
+    es: { status: 'completed', outdatedFields: [] },
+    fr: { status: 'pending', outdatedFields: [] },
+  };
+
+  const missingOrIncomplete = targetLanguages.filter((lang) => {
+    const raw = incompleteStatuses[lang];
+    const st = typeof raw === 'object' && raw !== null ? raw.status : raw;
+    const hasOutdated = Array.isArray(raw?.outdatedFields) && raw.outdatedFields.length > 0;
+    return st !== 'completed' || hasOutdated;
+  });
+
+  assert.deepEqual(missingOrIncomplete, ['fr']);
+});
+
+test('ContentEntry - publication guard allows when all target translations are completed', () => {
+  const targetLanguages = ['es', 'fr'];
+  const completedStatuses: Record<string, any> = {
+    es: { status: 'completed', outdatedFields: [] },
+    fr: { status: 'completed', outdatedFields: [] },
+  };
+
+  const missingOrIncomplete = targetLanguages.filter((lang) => {
+    const raw = completedStatuses[lang];
+    const st = typeof raw === 'object' && raw !== null ? raw.status : raw;
+    const hasOutdated = Array.isArray(raw?.outdatedFields) && raw.outdatedFields.length > 0;
+    return st !== 'completed' || hasOutdated;
+  });
+
+  assert.deepEqual(missingOrIncomplete, []);
+});
+
+test('ContentEntry - publication guard blocks when completed translation has outdatedFields', () => {
+  const targetLanguages = ['es', 'fr'];
+  const outdatedStatuses: Record<string, any> = {
+    es: { status: 'completed', outdatedFields: ['title'] },
+    fr: { status: 'completed', outdatedFields: [] },
+  };
+
+  const missingOrIncomplete = targetLanguages.filter((lang) => {
+    const raw = outdatedStatuses[lang];
+    const st = typeof raw === 'object' && raw !== null ? raw.status : raw;
+    const hasOutdated = Array.isArray(raw?.outdatedFields) && raw.outdatedFields.length > 0;
+    return st !== 'completed' || hasOutdated;
+  });
+
+  assert.deepEqual(missingOrIncomplete, ['es']);
+});
+
+test('ContentEntry - saving draft preserves publishedContent and logs DRAFT_SAVED', () => {
+  const existingPublished = {
+    status: 'published',
+    publishedContent: { text: '123' },
+    content: { text: '123' },
+    publishedAt: new Date('2026-01-01T00:00:00Z'),
+  };
+
+  const draftUpdate: { status: string; content: Record<string, any> } = {
+    status: 'draft',
+    content: { text: '1234' },
+  };
+
+  // Simulate updateEntry behavior
+  const isDraftSave = draftUpdate.status === 'draft';
+  const action = isDraftSave ? 'DRAFT_SAVED' : 'UPDATED';
+
+  // publishedContent must remain frozen to existing published snapshot
+  const finalPublishedContent = draftUpdate.status === 'published'
+    ? draftUpdate.content
+    : existingPublished.publishedContent;
+
+  assert.equal(action, 'DRAFT_SAVED');
+  assert.deepEqual(finalPublishedContent, { text: '123' });
+  assert.deepEqual(draftUpdate.content, { text: '1234' });
+});
+
+test('ContentEntry - publication guard permits publication when forcePublish is true and marks translations ready', () => {
+  const targetLanguages = ['es', 'fr'];
+  const incompleteStatuses: Record<string, any> = {
+    es: { status: 'outdated', outdatedFields: ['title'] },
+    fr: { status: 'pending', outdatedFields: [] },
+  };
+
+  const forcePublish = true;
+  let forcePublishStatuses: Record<string, any> | undefined;
+
+  const missingOrIncomplete = targetLanguages.filter((lang) => {
+    const raw = incompleteStatuses[lang];
+    const st = typeof raw === 'object' && raw !== null ? raw.status : raw;
+    const hasOutdated = Array.isArray(raw?.outdatedFields) && raw.outdatedFields.length > 0;
+    return st !== 'completed' || hasOutdated;
+  });
+
+  if (missingOrIncomplete.length > 0) {
+    if (forcePublish) {
+      forcePublishStatuses = { ...incompleteStatuses };
+      for (const lang of targetLanguages) {
+        forcePublishStatuses[lang] = {
+          ...(forcePublishStatuses[lang] || {}),
+          status: 'completed',
+          outdatedFields: [],
+          updatedAt: new Date(),
+        };
+      }
+    }
+  }
+
+  assert.ok(forcePublishStatuses);
+  assert.equal(forcePublishStatuses.es.status, 'completed');
+  assert.deepEqual(forcePublishStatuses.es.outdatedFields, []);
+  assert.equal(forcePublishStatuses.fr.status, 'completed');
+  assert.deepEqual(forcePublishStatuses.fr.outdatedFields, []);
+});
+

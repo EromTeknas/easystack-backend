@@ -52,8 +52,8 @@ export async function seedTravelAgency(prisma: PrismaClient) {
   }
 
   // 3. User, Workspace, Project transaction
-  const passwordHash = await bcrypt.hash('Test@12345678', 10);
-  const userEmail = 'sarah.jenkins@wanderlust-travel.com';
+  const passwordHash = await bcrypt.hash('admin', 10);
+  const userEmail = 'admin@gmail.com';
 
   const seeded = await prisma.$transaction(async (tx) => {
     // Upsert User

@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export type ContentAuditAction =
   | 'CREATED'
   | 'UPDATED'
+  | 'DRAFT_SAVED'
   | 'PUBLISHED'
   | 'SCHEDULED'
   | 'AI_TRANSLATED'
@@ -38,6 +39,7 @@ const ContentAuditLogSchema = new Schema(
       enum: [
         'CREATED',
         'UPDATED',
+        'DRAFT_SAVED',
         'PUBLISHED',
         'SCHEDULED',
         'AI_TRANSLATED',

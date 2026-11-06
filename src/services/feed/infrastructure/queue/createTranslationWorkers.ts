@@ -70,6 +70,7 @@ export function createTranslationWorkers(): Worker[] {
               [`translations.${targetLang}`]: translated,
               [`translationStatuses.${targetLang}`]: {
                 status: 'completed',
+                outdatedFields: [],
                 updatedAt: new Date(),
               },
             },

@@ -83,16 +83,27 @@ graph TD
 - `GET /`: Paginated list of content entries under this schema.
 - `GET /check-slug`: Verifies entry slug availability.
 - `POST /`: Creates a new content entry draft.
-- `PUT /:entryId`: Updates the draft content.
-- `POST /:entryId/publish`: Promotes the draft content to the published state.
-- `POST /:entryId/translate`: Enqueues automated translation jobs for localized fields.
+- `PUT /:entryId`: Updates the draft content. When an entry was previously published, saving a draft updates only the working draft copy (`content`) while freezing and preserving the live `publishedContent`. If the entry has localized fields, saving a draft automatically marks target language translation statuses as `outdated` with `outdatedFields`. Saves an audit log entry with action `DRAFT_SAVED`.
+- `POST /:entryId/discard-draft`: Discards draft changes and restores content to the live `publishedContent` snapshot. If the schema defines localized fields, marks target language translation statuses as `outdated` with `outdatedFields`. Logs an audit action `DRAFT_DISCARDED`.
+- `POST /:entryId/publish`: Promotes the draft content to the published state (`publishedContent = content`). Accepts `{ forcePublish?: boolean }`.
+  - Normal Publish (`forcePublish: false`): If the schema contains localized fields, publication is strictly blocked with HTTP 400 until all configured target language translations are completed without outdated fields.
+  - Force Publish (`forcePublish: true`): Bypasses unready translation checks, marks all configured target languages in `translationStatuses` as `completed` with `outdatedFields: []` as-is, and proceeds with publication. Logs an audit entry with action `PUBLISHED` and `forcePublished: true` in details.
+- `POST /:entryId/translate`: Enqueues automated translation jobs for localized fields. If project target languages were unconfigured, defaults to standard target languages (`['es', 'fr']`) and registers them on the project.
 - `POST /sync-environments`: Syncs content data between environments (e.g., development to staging).
-- `GET /:entryId/audit-logs`: Retrieves audit logs for the content entry.
+- `GET /:entryId/audit-logs`: Retrieves audit logs for the content entry (tracking actions: `CREATED`, `UPDATED`, `DRAFT_SAVED`, `PUBLISHED`, `SCHEDULED`, `AI_TRANSLATED`, `AI_TRANSLATION_TRIGGERED`, `TRANSLATION_OVERRIDDEN`, `SYNCED`, `DRAFT_DISCARDED`, `DELETED`).
 
 ---
 
-## 5. Background AI Translation Processing
-- Translation requests are dispatched via BullMQ to the `ai-translation` queue.
+## 5. Background AI Translation Processing & Publication Guards
+- Translation requests are dispatched via BullMQ to the `translation-queue`.
 - BullMQ Redis connections require `maxRetriesPerRequest: null` (configured in `src/config/redis.ts`) to allow blocking list operations (`BRPOPLPUSH`/`BLMOVE`) without triggering connection timeout errors.
-- Workers asynchronously process pending translations per language and persist completed entries with status tracking (`queued`, `translating`, `ready`, `failed`).
+- Workers asynchronously process pending translations per language and persist completed entries with status tracking (`pending`, `processing`, `completed`, `outdated`, `failed`).
+- **Two-Tier Draft Architecture**:
+  1. *Local Autosave*: Debounced (1000ms) client-side storage in browser `localStorage`. Zero network calls, preventing multi-user typing conflicts and server spam.
+  2. *Cloud Draft Save*: Explicitly saves draft changes to MongoDB with action `DRAFT_SAVED`. Marks localized field translations as `outdated` and prompts the user to queue AI translations.
+- **Publication Guard & Translation Lifecycle**:
+  - *On Draft Save*: Automatically flags localized translations as `outdated` and prompts to trigger AI translation.
+  - *On Discard Draft*: Restores published snapshot, marks translations `outdated`, and prompts to re-generate AI translations.
+  - *On Publish*: If translations are ready, publishes directly. If translations are pending or outdated, presents an interactive modal offering to generate AI translations, force publish with translations marked ready as-is, or cancel.
+
 

@@ -3,8 +3,9 @@ import mongoose, { Schema, Document } from 'mongoose';
 export type ContentEntryStatus = 'draft' | 'scheduled' | 'published';
 
 export interface TranslationStatusInfo {
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'outdated' | 'failed';
   error?: string;
+  outdatedFields?: string[];
   updatedAt?: Date;
 }
 
@@ -25,6 +26,7 @@ export interface IContentEntry extends Document {
   content: Record<string, any>;
   translations?: Record<string, Record<string, any>> | undefined;
   translationStatuses?: Record<string, TranslationStatusInfo> | undefined;
+  translationSourceHashes?: Record<string, Record<string, string>> | undefined;
   createdBy: number;
   updatedBy?: number | undefined;
   createdAt: Date;
@@ -59,6 +61,7 @@ const ContentEntrySchema = new Schema(
     content: { type: Schema.Types.Mixed, default: {} },
     translations: { type: Schema.Types.Mixed, default: {} },
     translationStatuses: { type: Schema.Types.Mixed, default: {} },
+    translationSourceHashes: { type: Schema.Types.Mixed, default: {} },
     createdBy: { type: Number, required: true },
     updatedBy: { type: Number },
   },
