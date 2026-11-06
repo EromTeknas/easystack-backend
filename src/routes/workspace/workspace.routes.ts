@@ -36,8 +36,7 @@ router.delete('/:workspaceId', authenticate, authorize({scope: 'workspace', perm
 // List workspace members
 router.get('/:workspaceId/members', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceController.listWorkspaceMembers);
 
-// --- Invitations & Roles ---
-router.get('/roles', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.READ, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.getWorkspaceRoles);
+// --- Invitations & Context ---
 router.get('/:workspaceId/invitation-context', authenticate, authorize({scope: 'workspace', permission: PERMISSIONS.WORKSPACE.INVITE, scopeId: req => req.params.workspaceId as string}), workspaceInviteController.getInvitationContext);
 
 router.post(

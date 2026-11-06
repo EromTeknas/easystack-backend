@@ -35,15 +35,13 @@ import { billingMiddleware } from '../../services/billing/middleware/express/bil
 import { Quotas } from '../../services/billing/config/quotas.config';
 import { ProjectService } from '../../services/project.service';
 import { BadRequestError } from '../../errors';
-import feedsRoutes from '../feeds/feeds.routes';
 import releaseRoutes from '../releases/release.routes';
 import schemaRoutes from '../schemas/schema-blueprint.routes';
 import contentRoutes from '../content/content-entry.routes';
 
 const router = Router();
 
-// Mount Feeds, Releases, Schemas, and Content under Projects
-router.use('/:projectId/feeds', feedsRoutes);
+// Mount Releases, Schemas, and Content under Projects
 router.use('/:projectId/releases', releaseRoutes);
 router.use('/:projectId/schemas', schemaRoutes);
 router.use('/:projectId/content', contentRoutes);

@@ -272,6 +272,7 @@ model Environment {
   defaultApproverIds Json?    @map("default_approver_ids")
   projectId Int      @map("project_id")
   name      String // "development", "staging", "production"
+  displayName String?  @map("display_name")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

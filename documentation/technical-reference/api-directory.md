@@ -87,9 +87,10 @@ Mounted in [`src/routes/projects/projects.routes.ts`](file:///home/eteknas/Proje
 
 ---
 
-## 4. Feeds & Collaboration Endpoints (`/api/projects/:projectId/feeds`)
+## 4. Feeds & Collaboration Endpoints (Decommissioned)
 
-Mounted in [`src/routes/feeds/feeds.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/feeds/feeds.routes.ts).
+> [!NOTE]
+> The legacy `/api/projects/:projectId/feeds` router has been unmounted from [`src/routes/projects/projects.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/projects/projects.routes.ts) in favor of the flexible Schema Blueprints (`/api/projects/:projectId/schemas`) and Content Engine (`/api/projects/:projectId/content`).
 
 | Method | Endpoint | Guards | Purpose |
 |---|---|---|---|

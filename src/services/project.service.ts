@@ -8,6 +8,7 @@ import { PERMISSIONS } from './authorization/constants/permission.constants';
 import logger from '../utils/logger';
 import { ProjectLanguageAuditLog } from '../models/project-language-audit-log.model';
 import { BillingService } from './billing/services/billing.service';
+import { DEFAULT_ENVIRONMENTS } from '../config/environment.config';
 
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
@@ -111,12 +112,16 @@ export const ProjectService = {
           roleId: projectOwnerRole.id,
         });
 
-        // Generate default environments (2 environments: development and production/live)
+        // Generate default environments from configuration (dev and live with configured ranks)
         await tx.environment.createMany({
-          data: [
-            { projectId: createdProject.id, name: 'development', rank: 10 },
-            { projectId: createdProject.id, name: 'production', rank: 20, isEditable: false }
-          ]
+          data: DEFAULT_ENVIRONMENTS.map((env) => ({
+            projectId: createdProject.id,
+            name: env.name,
+            displayName: env.displayName,
+            rank: env.rank,
+            isEditable: env.isEditable,
+            requiresApproval: env.requiresApproval ?? false,
+          })),
         });
 
         return createdProject;
@@ -508,6 +513,7 @@ export const ProjectService = {
     projectId: number,
     data: {
       name: string;
+      displayName?: string;
       rank?: number;
       isEditable?: boolean;
       requiresApproval?: boolean;
@@ -545,10 +551,14 @@ export const ProjectService = {
       assignedRank = highestRank + 10;
     }
 
+    const formattedDisplayName =
+      data.displayName?.trim() || cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+
     return await prisma.environment.create({
       data: {
         projectId,
         name: cleanName,
+        displayName: formattedDisplayName,
         rank: assignedRank,
         isEditable: data.isEditable ?? false,
         requiresApproval: data.requiresApproval ?? false,
@@ -561,6 +571,8 @@ export const ProjectService = {
     projectId: number, 
     environmentId: number, 
     data: { 
+      name?: string | undefined,
+      displayName?: string | undefined,
       requiresApproval?: boolean | undefined, 
       defaultApproverIds?: number[] | undefined,
       isEditable?: boolean | undefined 
@@ -572,6 +584,21 @@ export const ProjectService = {
     if (!env) throw new NotFoundError('Environment not found');
 
     const updateData: any = {};
+    if (typeof data.name === 'string') {
+      const cleanName = data.name.trim().toLowerCase();
+      if (cleanName && cleanName !== env.name) {
+        const existingWithSameName = await prisma.environment.findFirst({
+          where: { projectId, name: cleanName, NOT: { id: environmentId } }
+        });
+        if (existingWithSameName) {
+          throw new BadRequestError(`Environment name '${cleanName}' already exists in this project`);
+        }
+        updateData.name = cleanName;
+      }
+    }
+    if (typeof data.displayName === 'string') {
+      updateData.displayName = data.displayName.trim();
+    }
     if (typeof data.requiresApproval === 'boolean') {
       updateData.requiresApproval = data.requiresApproval;
     }

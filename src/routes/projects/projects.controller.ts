@@ -596,10 +596,11 @@ export const getProjectEnvironments = async (req: any, res: any, next: any) => {
 export const createProjectEnvironment = async (req: any, res: any, next: any) => {
   try {
     const projectId = Number(req.params.projectId);
-    const { name, rank, isEditable, requiresApproval, defaultApproverIds } = req.body;
+    const { name, displayName, rank, isEditable, requiresApproval, defaultApproverIds } = req.body;
 
     const env = await ProjectService.createProjectEnvironment(projectId, {
       name,
+      displayName,
       rank,
       isEditable,
       requiresApproval,
@@ -615,9 +616,11 @@ export const updateProjectEnvironment = async (req: any, res: any, next: any) =>
   try {
     const projectId = Number(req.params.projectId);
     const environmentId = Number(req.params.environmentId);
-    const { requiresApproval, defaultApproverIds, isEditable } = req.body;
+    const { name, displayName, requiresApproval, defaultApproverIds, isEditable } = req.body;
 
     const env = await ProjectService.updateProjectEnvironment(projectId, environmentId, {
+      name,
+      displayName,
       requiresApproval,
       defaultApproverIds,
       isEditable

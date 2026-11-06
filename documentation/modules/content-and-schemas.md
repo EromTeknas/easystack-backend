@@ -75,8 +75,9 @@ graph TD
 - `POST /:schemaId/deploy`: Deploys the blueprint schema to a designated environment.
 
 ### Environment Rank System & Blueprint Read-Only Enforcement
-- Projects initialize with 2 default environments ordered by rank: `development` (rank 10, isEditable: true) and `production`/Live (rank 20, isEditable: false).
+- Projects initialize with 2 default environments defined in `src/config/environment.config.ts`: `development` (rank 10, displayName: "Development", isEditable: true) and `live` (rank 50, displayName: "Live", isEditable: false).
 - Creating additional environments requires plan quota availability (`environments_per_project`).
+- Environment names and `displayName` are configurable and stored in the database (`Environment` model in `prisma/schema.prisma`).
 - Live environment blueprints are strictly read-only snapshots (`SchemaBlueprintVersion`). Users can view blueprints in Live mode, but editing is disabled and schema updates must be deployed through Releases.
 
 ### Content Endpoints (`/api/projects/:projectId/content/:schemaSlug`)
