@@ -1,7 +1,24 @@
 import { Response, NextFunction } from 'express';
 import { DeliveryContentService } from '../services/delivery-content.service';
+import { DeliveryCacheService } from '../services/delivery-cache.service';
 import { DeliveryConnectionTestResponse } from '../types/delivery.types';
 import { BadRequestError } from '../../errors';
+
+function isETagMatch(incomingHeader?: string, currentETag?: string): boolean {
+  if (!incomingHeader || !currentETag) {
+    return false;
+  }
+  const cleanIncoming = incomingHeader.trim();
+  const cleanCurrent = currentETag.trim();
+
+  if (cleanIncoming === cleanCurrent) {
+    return true;
+  }
+  // Weak comparison: strip W/ prefix if present
+  const unweakIncoming = cleanIncoming.replace(/^W\//, '');
+  const unweakCurrent = cleanCurrent.replace(/^W\//, '');
+  return unweakIncoming === unweakCurrent;
+}
 
 export const DeliveryContentController = {
   async testConnection(
@@ -30,6 +47,7 @@ export const DeliveryContentController = {
         timestamp: new Date().toISOString(),
       };
 
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.status(200).json(response);
     } catch (error) {
       next(error);
@@ -56,11 +74,61 @@ export const DeliveryContentController = {
         fields: req.query.fields as string | undefined,
       };
 
+      const { projectId, environmentName } = req.deliveryContext;
+      const version = await DeliveryCacheService.getBlueprintVersion(
+        projectId,
+        environmentName,
+        blueprintSlug
+      );
+
+      const cacheKey = DeliveryCacheService.buildCacheKey(
+        projectId,
+        environmentName,
+        blueprintSlug,
+        version,
+        'collection',
+        'root',
+        queryParams
+      );
+
+      // Check Redis cache
+      const cached = await DeliveryCacheService.getCachedResponse(cacheKey);
+      if (cached) {
+        res.setHeader('ETag', cached.etag);
+        res.setHeader('X-Cache', 'HIT');
+        res.setHeader('X-Content-Version', String(cached.version));
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+
+        if (isETagMatch(req.headers['if-none-match'], cached.etag)) {
+          res.status(304).end();
+          return;
+        }
+
+        res.status(200).json(cached.data);
+        return;
+      }
+
+      // Cache MISS: retrieve from database
       const result = await DeliveryContentService.getBlueprintContent(
         req.deliveryContext,
         blueprintSlug,
         queryParams
       );
+
+      const etag = DeliveryCacheService.generateETag(result);
+
+      res.setHeader('ETag', etag);
+      res.setHeader('X-Cache', 'MISS');
+      res.setHeader('X-Content-Version', String(version));
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+
+      // Async write to Redis cache (1 hour TTL)
+      DeliveryCacheService.setCachedResponse(cacheKey, result, etag, version, 3600);
+
+      if (isETagMatch(req.headers['if-none-match'], etag)) {
+        res.status(304).end();
+        return;
+      }
 
       res.status(200).json(result);
     } catch (error) {
@@ -85,13 +153,63 @@ export const DeliveryContentController = {
       }
 
       const locale = req.query.locale as string | undefined;
+      const { projectId, environmentName } = req.deliveryContext;
 
+      const version = await DeliveryCacheService.getBlueprintVersion(
+        projectId,
+        environmentName,
+        blueprintSlug
+      );
+
+      const cacheKey = DeliveryCacheService.buildCacheKey(
+        projectId,
+        environmentName,
+        blueprintSlug,
+        version,
+        'entry',
+        entrySlug,
+        { locale }
+      );
+
+      // Check Redis cache
+      const cached = await DeliveryCacheService.getCachedResponse(cacheKey);
+      if (cached) {
+        res.setHeader('ETag', cached.etag);
+        res.setHeader('X-Cache', 'HIT');
+        res.setHeader('X-Content-Version', String(cached.version));
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+
+        if (isETagMatch(req.headers['if-none-match'], cached.etag)) {
+          res.status(304).end();
+          return;
+        }
+
+        res.status(200).json(cached.data);
+        return;
+      }
+
+      // Cache MISS: retrieve from database
       const result = await DeliveryContentService.getCollectionEntry(
         req.deliveryContext,
         blueprintSlug,
         entrySlug,
         locale
       );
+
+      const etag = DeliveryCacheService.generateETag(result);
+
+      res.setHeader('ETag', etag);
+      res.setHeader('X-Cache', 'MISS');
+      res.setHeader('X-Content-Version', String(version));
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+
+      // Async write to Redis cache (1 hour TTL)
+      DeliveryCacheService.setCachedResponse(cacheKey, result, etag, version, 3600);
+
+      if (isETagMatch(req.headers['if-none-match'], etag)) {
+        res.status(304).end();
+        return;
+      }
 
       res.status(200).json(result);
     } catch (error) {

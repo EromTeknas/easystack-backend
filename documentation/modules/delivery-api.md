@@ -41,6 +41,7 @@ src/
 │   │   └── published-content.repository.ts# Read-only MongoDB queries for published entries & blueprints
 │   ├── services/
 │   │   ├── api-key-auth.service.ts        # Key generation (SHA-256), verification, Redis caching
+│   │   ├── delivery-cache.service.ts      # Version tracking (cdn:version), ETag, conditional 304, Redis cache
 │   │   └── delivery-content.service.ts    # Content resolution, environment aliasing, locale fallback
 │   ├── middlewares/
 │   │   ├── request-id.middleware.ts       # Assigns and traces X-Request-ID
@@ -118,3 +119,32 @@ Mounted under `/api/projects/:projectId/api-keys` in the CMS admin API.
 | `GET` | `/api/projects/:projectId/api-keys` | `api_key:read` | List all API keys for the project (key hashes excluded) |
 | `POST` | `/api/projects/:projectId/api-keys` | `api_key:create` | Generate a new API key. Returns raw key once. |
 | `DELETE` | `/api/projects/:projectId/api-keys/:apiKeyId` | `api_key:revoke` | Revoke an API key and evict its Redis cache entry |
+
+---
+
+## 5. Version-Based Redis Caching & Invalidation Architecture
+
+### Overview
+To achieve sub-millisecond response times without blocking Redis instances with expensive wildcard scans (`KEYS` or `SCAN`), EasyStack uses **Version-Based Namespaces**:
+
+1. **Version Tracking Key**:
+   - `cdn:version:{projectId}:{environmentName}:{blueprintSlug}` (e.g. `cdn:version:1:live:blog-posts`).
+   - Baseline default value: `1`.
+2. **Content Cache Key**:
+   - `cdn:cache:{projectId}:{environmentName}:{blueprintSlug}:v{version}:{scope}:{identifier}:{locale}:{queryHash}`
+   - Where query parameters (`page`, `limit`, `sort`, `search`) are normalized deterministically into an MD5 hash.
+3. **Atomic Invalidation**:
+   - Publishing an entry, deleting a published entry, or deploying a release invokes:
+     ```typescript
+     await DeliveryCacheService.incrementBlueprintVersion(projectId, environment, blueprintSlug);
+     ```
+   - This increments the version counter in Redis. Future requests immediately resolve to `:v{newVersion}:`, orphaning all old entries with zero blocking scans.
+   - Old entries automatically expire and are cleaned by Redis via their 1-hour safety TTL.
+
+### HTTP Conditional Caching (ETag & 304 Not Modified)
+- Every delivery response is stamped with:
+  - `ETag: W/"<md5-hash-of-payload>"`
+  - `X-Cache: HIT` or `X-Cache: MISS`
+  - `X-Content-Version: <version>`
+  - `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=60`
+- If an incoming request includes `If-None-Match` matching the current ETag, the server immediately returns `304 Not Modified` with zero response payload, eliminating downstream bandwidth and JSON deserialization overhead.

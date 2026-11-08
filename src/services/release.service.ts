@@ -665,6 +665,22 @@ export const ReleaseService = {
 
       // Stage 5: Cache Invalidation & Traffic Activation
       await updateStage(5, 'RUNNING', 90);
+      try {
+        const { DeliveryCacheService } = await import('../delivery/services/delivery-cache.service');
+        const targetEnvName = release.targetEnvironment.name;
+        if (bpIds.length > 0) {
+          const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+          for (const bpId of bpIds) {
+            const bp = await SchemaBlueprint.findById(bpId);
+            if (bp?.slug) {
+              await DeliveryCacheService.incrementBlueprintVersion(release.projectId, targetEnvName, bp.slug);
+              logger.info(`[DeploymentWorker] Incremented delivery cache version for blueprint '${bp.slug}' in '${targetEnvName}'`);
+            }
+          }
+        }
+      } catch (cacheErr) {
+        logger.warn(`[DeploymentWorker] Delivery cache invalidation notice: ${cacheErr}`);
+      }
       await new Promise(resolve => setTimeout(resolve, 1500));
       await updateStage(5, 'COMPLETED', 100);
 

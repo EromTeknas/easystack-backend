@@ -12,6 +12,7 @@ import { prisma } from '../db';
 import { IContentEntry, ContentEntryStatus } from '../models/content-entry.model';
 import { ContentAuditService } from './content-audit.service';
 import { ContentAuditAction } from '../models/content-audit-log.model';
+import { DeliveryCacheService } from '../delivery/services/delivery-cache.service';
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -597,6 +598,10 @@ export const ContentEntryService = {
     });
 
     await ContentEntryRepository.delete(existing._id.toString());
+
+    if (existing.status === 'published') {
+      await DeliveryCacheService.incrementBlueprintVersion(projectId, existing.environment, schema.slug);
+    }
   },
 
   async discardDraft(
@@ -830,6 +835,8 @@ export const ContentEntryService = {
       },
     });
 
+    await DeliveryCacheService.incrementBlueprintVersion(projectId, updated.environment, schema.slug);
+
     return updated;
   },
 
@@ -1038,6 +1045,11 @@ export const ContentEntryService = {
         });
       }
       syncedCount++;
+    }
+
+    const syncedSchemaSlugs = Array.from(new Set(sourceEntries.map((e) => e.schemaSlug)));
+    for (const slug of syncedSchemaSlugs) {
+      await DeliveryCacheService.incrementBlueprintVersion(projectId, cleanTarget, slug);
     }
 
     return {
