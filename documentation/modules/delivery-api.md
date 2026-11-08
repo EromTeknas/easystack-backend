@@ -148,3 +148,36 @@ To achieve sub-millisecond response times without blocking Redis instances with 
   - `X-Content-Version: <version>`
   - `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=60`
 - If an incoming request includes `If-None-Match` matching the current ETag, the server immediately returns `304 Not Modified` with zero response payload, eliminating downstream bandwidth and JSON deserialization overhead.
+
+---
+
+## 6. Security, Reliability & Rate Limiting
+
+### Sliding-Window Rate Limiting (Redis Lua)
+Every authenticated request is evaluated against a per-key sliding window in Redis:
+- **Redis Key**: `cdn:ratelimit:{apiKeyId}`
+- **Algorithm**: Redis Sorted Set (`ZSET`) where scores and members are microsecond/millisecond timestamps.
+- **Atomic Operations**: A single Lua script executes:
+  1. `ZREMRANGEBYSCORE key 0 (now - 60000)`: Clears timestamps older than the 60-second window.
+  2. `ZCARD key`: Counts requests remaining in the active window.
+  3. Conditional: If count < limit, executes `ZADD key now now` and sets `PEXPIRE key 60000`. If count >= limit, computes exact `retryAfterSeconds` from the oldest entry.
+- **Fail-Open Resilience**: If Redis is unreachable or throws an error during rate check, the error is logged and traffic is allowed through to avoid bringing down live site feeds.
+- **Response Headers**:
+  - `X-RateLimit-Limit`: Maximum allowed requests per 60-second window.
+  - `X-RateLimit-Remaining`: Remaining requests allowed in the current window.
+  - `X-RateLimit-Reset`: UTC epoch timestamp (in seconds) when the current window expires.
+  - `Retry-After`: Seconds until quota becomes available (stamped when returning HTTP `429 Too Many Requests`).
+
+### CORS & Origin Whitelisting
+API keys can specify explicit `allowedOrigins` JSON arrays. The delivery engine verifies the `Origin` header with wildcard support:
+- Exact match: `https://myapp.com`
+- Wildcard subdomain: `https://*.myapp.com` (matches `https://staging.myapp.com`, `https://sub.myapp.com`)
+- Wildcard port: `http://localhost:*` (matches any local development port like `http://localhost:3000` or `http://localhost:5173`)
+- Universal wildcard: `*` (allows any client origin)
+- If `allowedOrigins` is empty, requests without an `Origin` header (server-to-server or cURL) or with any origin are accepted. If restricted, non-matching origins receive `403 Forbidden` (`FORBIDDEN_ORIGIN`).
+
+### Reliability Probes
+- **Path**: `GET /ready` (Unauthenticated)
+- **Status**: Returns HTTP `200` with `{ status: "ready", timestamp, checks: { redis: "connected", mysql: "connected", mongo: "connected" } }` if all three data stores are healthy.
+- **Failure**: Returns HTTP `503 Service Unavailable` with details if any connection is down.
+

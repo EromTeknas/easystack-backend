@@ -7,6 +7,27 @@ export interface AuthenticatedDeliveryRequest extends DeliveryRequest {
   deliveryContext: DeliveryContext;
 }
 
+export function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
+  if (allowedOrigins.includes('*')) {
+    return true;
+  }
+  const cleanOrigin = origin.toLowerCase().trim();
+  for (const pattern of allowedOrigins) {
+    const cleanPattern = pattern.toLowerCase().trim();
+    if (cleanPattern === cleanOrigin) {
+      return true;
+    }
+    if (cleanPattern.includes('*')) {
+      const regexStr =
+        '^' + cleanPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+      if (new RegExp(regexStr).test(cleanOrigin)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export async function apiKeyAuthMiddleware(
   req: DeliveryRequest,
   res: Response,
@@ -73,11 +94,7 @@ export async function apiKeyAuthMiddleware(
     // CORS / Allowed Origins check if configured
     if (context.allowedOrigins && context.allowedOrigins.length > 0) {
       const origin = req.headers.origin;
-      if (
-        origin &&
-        !context.allowedOrigins.includes(origin) &&
-        !context.allowedOrigins.includes('*')
-      ) {
+      if (origin && !isOriginAllowed(origin, context.allowedOrigins)) {
         res.status(403).json({
           error: {
             code: 'ORIGIN_FORBIDDEN',

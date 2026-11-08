@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import mongoose from 'mongoose';
 import { deliveryPort } from './config/app';
 import logger from './utils/logger';
 import { initDatabases } from './db/index';
+import { prisma } from './db/prisma';
+import { redisClient } from './db/redis';
 import { requestIdMiddleware } from './delivery/middlewares/request-id.middleware';
 import {
   deliveryErrorMiddleware,
@@ -22,11 +25,48 @@ async function startDeliveryServer() {
     app.use(express.json());
     app.use(requestIdMiddleware);
 
-    // Unauthenticated health check for container probes & load balancers
+    // Unauthenticated health check for container liveness probes
     app.get('/health', (_req, res) => {
       res.status(200).json({
         status: 'healthy',
         service: 'easystack-delivery-api',
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Unauthenticated readiness probe for dependency health verification
+    app.get('/ready', async (_req, res) => {
+      const checks: Record<string, 'up' | 'down'> = {
+        redis: 'down',
+        mysql: 'down',
+        mongodb: 'down',
+      };
+
+      try {
+        const ping = await redisClient.ping();
+        if (ping === 'PONG') {
+          checks.redis = 'up';
+        }
+      } catch {}
+
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        checks.mysql = 'up';
+      } catch {}
+
+      try {
+        if (mongoose.connection.readyState === 1) {
+          checks.mongodb = 'up';
+        }
+      } catch {}
+
+      const allUp = checks.redis === 'up' && checks.mysql === 'up' && checks.mongodb === 'up';
+      const statusCode = allUp ? 200 : 503;
+
+      res.status(statusCode).json({
+        status: allUp ? 'ready' : 'unhealthy',
+        service: 'easystack-delivery-api',
+        checks,
         timestamp: new Date().toISOString(),
       });
     });
