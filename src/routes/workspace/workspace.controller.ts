@@ -199,12 +199,14 @@ export const getWorkspaceBilling = asyncHandler(
   async (req: any, res: Response) => {
     const workspaceId = Number(req.params.workspaceId);
 
-    const billing = await BillingService.get(workspaceId);
+    const billing = await BillingService.refresh(workspaceId);
     const effectivePlan = await BillingService.getEffectivePlan(workspaceId);
 
     if (!billing) {
       throw new NotFoundError("Billing information not found for this workspace");
     }
+
+    const quotaDetails = await BillingService.getQuotaDetails(workspaceId);
 
     return ok(res, {
       billing: {
@@ -214,6 +216,7 @@ export const getWorkspaceBilling = asyncHandler(
         scopedUsage: billing.scopedUsage,
         features: billing.features,
         quotas: billing.quotas,
+        quotaDetails,
       },
     });
   },

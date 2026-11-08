@@ -90,7 +90,10 @@ export const ReleaseService = {
     if (!isBaseSourceEnv) {
       for (const bp of selectedBlueprints) {
         const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-        if (!envVers[sourceEnvName]) {
+        const sourceVer = envVers[sourceEnvName] || 0;
+        const targetVer = envVers[targetEnvName] || 0;
+        const isDeletion = sourceVer === 0 && targetVer > 0;
+        if (!isDeletion && !envVers[sourceEnvName]) {
           throw new BadRequestError(
             `Blueprint '${bp.name}' has not been deployed to source environment '${sourceEnv.name}'.`
           );
@@ -100,13 +103,18 @@ export const ReleaseService = {
 
     const blueprintSummaries = selectedBlueprints.map((bp) => {
       const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-      const sourceVer = envVers[sourceEnvName] || (isBaseSourceEnv ? bp.activeVersionNumber || 1 : 1);
-      const targetVer = envVers[targetEnvName] || 0;
+      const sourceVer =
+        envVers[sourceEnvName] !== undefined
+          ? Number(envVers[sourceEnvName])
+          : (isBaseSourceEnv || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 0);
+      const targetVer = Number(envVers[targetEnvName]) || 0;
+      const action = sourceVer === 0 && targetVer > 0 ? 'DELETE' : 'DEPLOY';
       return {
         id: bp._id.toString(),
         name: bp.name,
         slug: bp.slug,
         type: bp.type || 'collection',
+        action,
         sourceVersionNumber: sourceVer,
         targetVersionNumber: targetVer,
       };
@@ -528,54 +536,92 @@ export const ReleaseService = {
           const bp = await SchemaBlueprint.findById(bpId);
           if (bp) {
             const currentEnvs = Array.isArray(bp.environments) ? bp.environments : ['development'];
-            const updatedEnvs = Array.from(new Set([...currentEnvs, targetEnvName]));
-            const deployedAtMap: Record<string, Date> = (bp.deployedAt as any) || {};
-            deployedAtMap[targetEnvName] = new Date();
             const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
 
             const bpSummary = prog.blueprints?.find((b: any) => String(b.id) === String(bp._id));
             const sourceVer =
-              bpSummary?.sourceVersionNumber ||
-              envVers[sourceEnvName] ||
-              (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1);
-            envVers[targetEnvName] = sourceVer;
+              bpSummary?.sourceVersionNumber !== undefined
+                ? Number(bpSummary.sourceVersionNumber)
+                : (envVers[sourceEnvName] !== undefined
+                    ? Number(envVers[sourceEnvName])
+                    : (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1));
 
-            // Fetch snapshot for sourceVer if exists, else fallback to bp.schemaDefinition
-            const sourceSnapshot = await SchemaBlueprintVersion.findOne({
-              projectId: release.projectId,
-              blueprintId: bp._id,
-              versionNumber: sourceVer,
-            }).exec();
+            const isDeletion = bpSummary?.action === 'DELETE' || sourceVer === 0;
 
-            const schemaDef = sourceSnapshot?.schemaDefinition || bp.schemaDefinition;
+            if (isDeletion) {
+              // Destructive deletion promotion
+              envVers[targetEnvName] = 0;
+              const updatedEnvs = currentEnvs.filter((e) => e !== targetEnvName);
 
-            await SchemaBlueprintVersion.findOneAndUpdate(
-              {
+              // Soft-delete content entries in target environment
+              const { ContentEntry } = await import('../models/content-entry.model');
+              const softDeleteResult = await ContentEntry.updateMany(
+                {
+                  projectId: release.projectId,
+                  schemaId: bp._id,
+                  environment: targetEnvName,
+                  removedAt: null,
+                },
+                { $set: { removedAt: new Date() } }
+              );
+
+              // Check if retired across all environments
+              const hasAnyActiveEnv = Object.values(envVers).some((v) => Number(v) > 0);
+              const updateDoc: any = {
+                environments: updatedEnvs,
+                environmentVersions: envVers,
+              };
+              if (!hasAnyActiveEnv) {
+                updateDoc.removedAt = new Date();
+              }
+
+              await SchemaBlueprint.findByIdAndUpdate(bp._id, { $set: updateDoc });
+              logger.info(
+                `[DeploymentWorker] Promoted DELETION of blueprint ${bp.name} to ${targetEnvName}. Soft-deleted ${softDeleteResult.modifiedCount} content entries.`
+              );
+            } else {
+              const updatedEnvs = Array.from(new Set([...currentEnvs, targetEnvName]));
+              const deployedAtMap: Record<string, Date> = (bp.deployedAt as any) || {};
+              deployedAtMap[targetEnvName] = new Date();
+              envVers[targetEnvName] = sourceVer;
+
+              // Fetch snapshot for sourceVer if exists, else fallback to bp.schemaDefinition
+              const sourceSnapshot = await SchemaBlueprintVersion.findOne({
                 projectId: release.projectId,
                 blueprintId: bp._id,
                 versionNumber: sourceVer,
-              },
-              {
-                $set: {
-                  blueprintSlug: bp.slug,
-                  blueprintName: bp.name,
-                  semanticVersion: release.version,
-                  schemaDefinition: schemaDef,
-                  changelog: `Deployed via Release ${release.version} to ${release.targetEnvironment.name}`,
-                  createdBy: release.createdById,
-                },
-              },
-              { upsert: true, new: true }
-            );
+              }).exec();
 
-            await SchemaBlueprint.findByIdAndUpdate(bp._id, {
-              $set: {
-                environments: updatedEnvs,
-                deployedAt: deployedAtMap,
-                environmentVersions: envVers,
-              },
-            });
-            logger.info(`[DeploymentWorker] Promoted blueprint ${bp.name} (v${sourceVer}) to ${targetEnvName}`);
+              const schemaDef = sourceSnapshot?.schemaDefinition || bp.schemaDefinition;
+
+              await SchemaBlueprintVersion.findOneAndUpdate(
+                {
+                  projectId: release.projectId,
+                  blueprintId: bp._id,
+                  versionNumber: sourceVer,
+                },
+                {
+                  $set: {
+                    blueprintSlug: bp.slug,
+                    blueprintName: bp.name,
+                    semanticVersion: release.version,
+                    schemaDefinition: schemaDef,
+                    changelog: `Deployed via Release ${release.version} to ${release.targetEnvironment.name}`,
+                    createdBy: release.createdById,
+                  },
+                },
+                { upsert: true, new: true }
+              );
+
+              await SchemaBlueprint.findByIdAndUpdate(bp._id, {
+                $set: {
+                  environments: updatedEnvs,
+                  deployedAt: deployedAtMap,
+                  environmentVersions: envVers,
+                },
+              });
+              logger.info(`[DeploymentWorker] Promoted blueprint ${bp.name} (v${sourceVer}) to ${targetEnvName}`);
+            }
           }
         }
       }
@@ -905,16 +951,30 @@ export const ReleaseService = {
     });
     const isBaseSource = Boolean(allEnvs[0] && allEnvs[0].id === sourceEnv.id);
 
-    const blueprints = await SchemaBlueprint.find({ projectId }).exec();
+    const blueprints = await SchemaBlueprint.find({ projectId, removedAt: null }).exec();
     const sourceEnvName = sourceEnv.name.toLowerCase().trim();
     const targetEnvName = targetEnv.name.toLowerCase().trim();
 
+    const getEnvVer = (envVers: Record<string, number>, envName: string) => {
+      const clean = envName.toLowerCase().trim();
+      if (envVers[clean] !== undefined) return Number(envVers[clean]);
+      if (clean === 'dev' && envVers['development'] !== undefined) return Number(envVers['development']);
+      if (clean === 'development' && envVers['dev'] !== undefined) return Number(envVers['dev']);
+      if (clean === 'live' && envVers['production'] !== undefined) return Number(envVers['production']);
+      if (clean === 'production' && envVers['live'] !== undefined) return Number(envVers['live']);
+      return undefined;
+    };
+
     for (const bp of blueprints) {
       const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-      const sourceVer =
-        envVers[sourceEnvName] ||
-        (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 0);
-      const targetVer = envVers[targetEnvName] || 0;
+      const resolvedSource = getEnvVer(envVers, sourceEnvName);
+      const isDevSource = isBaseSource || sourceEnvName === 'dev' || sourceEnvName === 'development';
+      const sourceVer = resolvedSource !== undefined
+        ? resolvedSource
+        : (isDevSource ? bp.activeVersionNumber || 1 : 0);
+
+      const resolvedTarget = getEnvVer(envVers, targetEnvName);
+      const targetVer = resolvedTarget !== undefined ? resolvedTarget : 0;
 
       if (sourceVer > 0 && sourceVer !== targetVer) {
         const sourceSnapshot = await SchemaBlueprintVersion.findOne({
@@ -968,6 +1028,8 @@ export const ReleaseService = {
           slug: bp.slug,
           type: bp.type || 'collection',
           icon: bp.icon || 'article',
+          changeType: targetVer > 0 ? 'UPDATE' : 'CREATE',
+          isDestructive: false,
           sourceVersionId: sourceSnapshot?._id?.toString() || bpIdStr,
           sourceVersionNumber: sourceVer,
           targetVersionId: targetSnapshot?._id?.toString() || null,
@@ -975,6 +1037,8 @@ export const ReleaseService = {
           languages: [],
           summary: {
             baseChanged: true,
+            isDestructive: false,
+            changeType: targetVer > 0 ? 'UPDATE' : 'CREATE',
             addedLanguages: addedFields.length > 0 ? [`+${addedFields.length} field(s)`] : [],
             modifiedLanguages: modifiedFields.length > 0 ? [`~${modifiedFields.length} field(s)`] : [],
             unchangedLanguages: [],
@@ -1004,6 +1068,68 @@ export const ReleaseService = {
                   fields: targetFields,
                 }
               : {},
+        });
+      } else if (sourceVer === 0 && targetVer > 0) {
+        // Blueprint was removed/deleted in source environment, but remains deployed in target environment
+        const { ContentEntry } = await import('../models/content-entry.model');
+        const affectedEntriesCount = await ContentEntry.countDocuments({
+          projectId,
+          schemaId: bp._id,
+          environment: targetEnvName,
+          removedAt: null,
+        });
+
+        const targetSnapshot = await SchemaBlueprintVersion.findOne({
+          projectId,
+          blueprintId: bp._id,
+          versionNumber: targetVer,
+        }).exec();
+
+        const targetFields = targetSnapshot?.schemaDefinition?.fields || bp.schemaDefinition?.fields || [];
+        const bpIdStr = bp._id.toString();
+
+        diffs.push({
+          id: bpIdStr,
+          feedId: bpIdStr,
+          blueprintId: bpIdStr,
+          feedName: `Schema: ${bp.name} (Deletion)`,
+          schemaName: bp.name,
+          slug: bp.slug,
+          type: bp.type || 'collection',
+          icon: bp.icon || 'article',
+          changeType: 'DELETE',
+          isDestructive: true,
+          affectedEntriesCount,
+          sourceVersionId: null,
+          sourceVersionNumber: 0,
+          targetVersionId: targetSnapshot?._id?.toString() || null,
+          targetVersionNumber: targetVer,
+          languages: [],
+          summary: {
+            baseChanged: true,
+            hasAnyChange: true,
+            isDestructive: true,
+            changeType: 'DELETE',
+            affectedEntriesCount,
+            addedLanguages: [],
+            modifiedLanguages: [],
+            unchangedLanguages: [],
+            addedFields: [],
+            modifiedFields: [],
+            removedFields: targetFields.map((f: any) => f.label || f.key),
+            impactMessage: `Blueprint '${bp.name}' was removed in ${sourceEnv.name}. Deploying this release will remove the blueprint and soft-delete ${affectedEntriesCount} entries in ${targetEnv.name}.`,
+          },
+          sourceContent: null,
+          targetContent: {
+            blueprint: bp.name,
+            type: bp.type,
+            fields: targetFields,
+          },
+          previousContent: {
+            blueprint: bp.name,
+            type: bp.type,
+            fields: targetFields,
+          },
         });
       }
     }
@@ -1039,7 +1165,13 @@ export const ReleaseService = {
       const targetEnvName = targetEnv.name.toLowerCase().trim();
       for (const bp of targetBlueprints) {
         const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-        if (!envVers[targetEnvName]) {
+        const devVer = envVers['dev'] !== undefined
+          ? Number(envVers['dev'])
+          : (envVers['development'] !== undefined ? Number(envVers['development']) : (bp.activeVersionNumber || 1));
+        const targetVer = envVers[targetEnvName] !== undefined
+          ? Number(envVers[targetEnvName])
+          : (targetEnvName === 'live' && envVers['production'] !== undefined ? Number(envVers['production']) : 0);
+        if (!targetVer || devVer === 0) {
           isMajor = true;
           break;
         }
@@ -1088,14 +1220,22 @@ export const ReleaseService = {
           const bpSummary = prog?.blueprints?.find((b: any) => String(b.id) === String(bp._id));
           const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
 
+          const isDevSource = ['dev', 'development'].includes(sourceEnvName);
           const sourceVer =
-            bpSummary?.sourceVersionNumber ||
-            envVers[sourceEnvName] ||
-            (sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1);
+            bpSummary?.sourceVersionNumber !== undefined
+              ? bpSummary.sourceVersionNumber
+              : (envVers[sourceEnvName] !== undefined
+                  ? Number(envVers[sourceEnvName])
+                  : (isDevSource ? bp.activeVersionNumber || 1 : 1));
 
           const prevTargetVer =
-            bpSummary?.targetVersionNumber ??
-            (release.status === 'DEPLOYED' ? 0 : (envVers[targetEnvName] || 0));
+            bpSummary?.targetVersionNumber !== undefined
+              ? bpSummary.targetVersionNumber
+              : (release.status === 'DEPLOYED'
+                  ? 0
+                  : (envVers[targetEnvName] !== undefined
+                      ? Number(envVers[targetEnvName])
+                      : 0));
 
           const sourceSnapshot = await SchemaBlueprintVersion.findOne({
             projectId,
@@ -1112,8 +1252,11 @@ export const ReleaseService = {
                 }).exec()
               : null;
 
-          const sourceFields =
-            sourceSnapshot?.schemaDefinition?.fields || bp.schemaDefinition?.fields || [];
+          const isDeletion = bpSummary?.action === 'DELETE' || sourceVer === 0;
+
+          const sourceFields = isDeletion
+            ? []
+            : (sourceSnapshot?.schemaDefinition?.fields || bp.schemaDefinition?.fields || []);
           const targetFields = targetSnapshot?.schemaDefinition?.fields || [];
 
           const sourceFieldIds = new Set(sourceFields.map((f: any) => f.id || f.key));
@@ -1143,16 +1286,21 @@ export const ReleaseService = {
             id: bpIdStr,
             feedId: bpIdStr,
             blueprintId: bpIdStr,
-            feedName: `Schema: ${bp.name}`,
+            feedName: isDeletion ? `Schema: ${bp.name} (Deletion)` : `Schema: ${bp.name}`,
             schemaName: bp.name,
             slug: bp.slug,
             type: bp.type || 'collection',
             icon: bp.icon || 'article',
+            action: isDeletion ? 'DELETE' : 'DEPLOY',
+            changeType: isDeletion ? 'DELETE' : (prevTargetVer > 0 ? 'UPDATE' : 'CREATE'),
+            isDestructive: isDeletion,
             sourceVersionNumber: sourceVer,
             targetVersionNumber: prevTargetVer > 0 ? prevTargetVer : null,
             languages: [],
             summary: {
               baseChanged: true,
+              isDestructive: isDeletion,
+              changeType: isDeletion ? 'DELETE' : (prevTargetVer > 0 ? 'UPDATE' : 'CREATE'),
               addedLanguages: addedFields.length > 0 ? [`+${addedFields.length} field(s)`] : [],
               modifiedLanguages: modifiedFields.length > 0 ? [`~${modifiedFields.length} field(s)`] : [],
               unchangedLanguages: [],
@@ -1161,7 +1309,7 @@ export const ReleaseService = {
               modifiedFields,
               removedFields,
             },
-            sourceContent: {
+            sourceContent: isDeletion ? null : {
               blueprint: bp.name,
               type: bp.type,
               fields: sourceFields,

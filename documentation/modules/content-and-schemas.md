@@ -5,7 +5,8 @@
 The **Content & Schemas Module** acts as EasyStack's flexible headless CMS engine. It allows developers to define dynamic **Schema Blueprints** (content types with custom fields, types, and validation rules) and allows content authors to create, edit, version, and publish **Content Entries** conforming to those blueprints.
 
 ### Core Responsibilities
-- Create and manage Schema Blueprints with field definitions and type validation.
+- Create and manage Schema Blueprints with field definitions and type validation (supporting all component types: `text`, `textarea`, `number`, `boolean`, `select`, `date`, `image`, `video`, `richtext`, `color`, `url`, `tags`, `object`, `list`).
+- Validate media fields (`image`, `video`) against both direct URL strings and structured media reference objects (`{ assetId, url, alt, mimeType, sizeBytes, width, height, duration }`).
 - Maintain versioned blueprint snapshots across environments (`SchemaBlueprintVersion`).
 - Author, validate, and store Content Entries (`ContentEntry`).
 - Support draft versus published states and revision histories.
@@ -68,14 +69,24 @@ graph TD
 ## 4. Key Endpoints & Workflow Capabilities
 
 ### Schema Endpoints (`/api/projects/:projectId/schemas`)
-- `GET /`: Lists all schema blueprints in the project.
-- `GET /check-slug?slug=posts`: Verifies slug availability.
+- `GET /`: Lists all schema blueprints in the project (filters out `removedAt: null` and blueprints where `environmentVersions[env] === 0`).
+- `GET /staged-deletions`: Lists blueprints staged for deletion (blueprints where `environmentVersions.dev === 0` and deployed version > 0 in any higher environment).
+- `GET /check-slug?slug=posts`: Verifies slug availability (respecting partial unique index excluding soft-deleted blueprints).
 - `POST /`: Creates a new schema blueprint with field definitions.
-- `PUT /:schemaId`: Updates a blueprint definition in development. Blueprints in non-development environments cannot be updated directly (`BadRequestError`).
+- `PUT /:schemaId`: Updates a blueprint definition in dev. Blueprints in non-dev environments cannot be updated directly (`BadRequestError`).
+- `DELETE /:schemaId`: Deletes a blueprint:
+  - If deployed to higher environments (`live`), stages the deletion in Dev (`environmentVersions.dev = 0`, removed from `environments`), soft-deletes Dev content entries (`removedAt: new Date()`), and **automatically creates an unreleased draft Release** bundling the blueprint retirement with `action: 'DELETE'` and `changeType: 'DELETE'`. Higher environments continue serving traffic undisturbed until promoted via that Release.
+  - If never deployed to higher environments, immediately soft-deletes the blueprint (`removedAt: new Date()`) and its entries.
+- `POST /:schemaId/restore`: Restores a staged blueprint back to Dev (`environmentVersions.dev = activeVersionNumber`, re-added to `environments`, and un-deletes Dev content entries), and **automatically deletes the pending retirement Release** created during deletion.
 - `POST /:schemaId/deploy`: Deploys the blueprint schema to a designated environment.
 
+### Soft Deletion & Staged Destructive Changes Architecture
+- **Blueprint Soft Deletions**: MongoDB model `SchemaBlueprint` defines `removedAt: Date | null` with partial unique compound index `{ projectId: 1, slug: 1 }` filtered on `removedAt: null`. This allows slugs of deleted blueprints to be reused safely.
+- **Environment Isolation of Deletions**: Deleting a blueprint in lower environments never directly mutates higher environments. Instead, `environmentVersions.dev` is set to `0`. Higher environments maintain their pinned snapshots (`environmentVersions.live`). Destructive removals are safely promoted up the pipeline exclusively through sequential Releases.
+- **Instant Draft Release Creation**: Deleting an active blueprint deployed to higher environments automatically provisions a draft release ready for review and promotion. If restored before release execution, the staged draft release is automatically cleaned up.
+
 ### Environment Rank System & Blueprint Read-Only Enforcement
-- Projects initialize with 2 default environments defined in `src/config/environment.config.ts`: `development` (rank 10, displayName: "Development", isEditable: true) and `live` (rank 50, displayName: "Live", isEditable: false).
+- Projects initialize with 2 default environments defined in `src/config/environment.config.ts`: `dev` (rank 10, displayName: "Dev", isEditable: true) and `live` (rank 20, displayName: "Live", isEditable: false).
 - Creating additional environments requires plan quota availability (`environments_per_project`).
 - Environment names and `displayName` are configurable and stored in the database (`Environment` model in `prisma/schema.prisma`).
 - Live environment blueprints are strictly read-only snapshots (`SchemaBlueprintVersion`). Users can view blueprints in Live mode, but editing is disabled and schema updates must be deployed through Releases.

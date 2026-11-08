@@ -141,11 +141,13 @@ Mounted in [`src/routes/schemas/schema-blueprint.routes.ts`](file:///home/etekna
 
 ### Schemas (`/api/projects/:projectId/schemas`)
 - `GET /`: List schema blueprints
+- `GET /staged-deletions`: List blueprints staged for deletion
 - `GET /check-slug`: Verify schema slug availability
 - `GET /:schemaId`: Get blueprint details
 - `POST /`: Create schema blueprint
 - `PUT /:schemaId`: Update blueprint fields and validation
-- `DELETE /:schemaId`: Delete schema blueprint
+- `DELETE /:schemaId`: Delete blueprint (stages if deployed to higher envs, or soft-deletes)
+- `POST /:schemaId/restore`: Restore staged blueprint back to Development
 - `POST /:schemaId/deploy`: Deploy blueprint version to environment
 
 ### Content (`/api/projects/:projectId/content`)
@@ -158,6 +160,20 @@ Mounted in [`src/routes/schemas/schema-blueprint.routes.ts`](file:///home/etekna
 - `DELETE /:schemaSlug/:entryId`: Delete content entry
 - `POST /:schemaSlug/:entryId/publish`: Publish content entry
 - `GET /:schemaSlug/:entryId/audit-logs`: Get content entry audit logs
+
+### Media Assets (`/api/projects/:projectId/assets`)
+
+Mounted in [`src/routes/assets/assets.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/assets/assets.routes.ts).
+
+| Method | Endpoint | Guards | Purpose |
+|---|---|---|---|
+| `GET` | `/` | `authenticate`, `authorize(asset:read)` | Paginated project media assets with search & type filter |
+| `POST` | `/upload-intent` | `authenticate`, `authorize(asset:create)` | Initiate presigned S3 POST upload with quota validation |
+| `POST` | `/complete` | `authenticate`, `authorize(asset:create)` | Complete upload, verify S3 object, persist `ProjectAsset` |
+| `GET` | `/usage` | `authenticate`, `authorize(asset:read)` | Query storage usage (bytes used, quota limit, percentage) |
+| `GET` | `/:assetId` | `authenticate`, `authorize(asset:read)` | Get media asset details by ID |
+| `PATCH` | `/:assetId` | `authenticate`, `authorize(asset:update)` | Update media metadata (alt text, caption) |
+| `DELETE` | `/:assetId` | `authenticate`, `authorize(asset:delete)` | Soft-delete asset (`removedAt`) & schedule S3 cleanup |
 
 ---
 

@@ -7,7 +7,7 @@ The **Releases & Deployment Module** provides release engineering, environment s
 ### Promotion Order & Environment Architecture
 - **Rank-Based Progression**: Environment promotion paths are strictly determined by the numerical `rank` assigned to each environment (`orderBy: { rank: 'asc' }`). If a project has environments with ranks 10, 20, 30, 40, and 50, promotions strictly proceed: `10 -> 20 -> 30 -> 40 -> 50`.
 - **Decoupled Environment Names**: Environment names are fully customizable and never hardcoded in the deployment engine.
-- **Default Hierarchy**: By default, new projects are initialized with 2 standard environments: `development` (rank 10, editable) and `production` (rank 20, read-only live serving).
+- **Default Hierarchy**: By default, new projects are initialized with 2 standard environments: `dev` (rank 10, displayName: 'Dev', editable) and `live` (rank 20, displayName: 'Live', read-only live serving).
 - **Custom Environment Provisions & Quotas**:
   - Backend provision: `createEnvironment` in `ProjectService` enforces workspace subscription quotas via `BillingService.getLimit(workspaceId, 'environments_per_project')`.
   - Quotas: Free plan supports 2 environments default; Pro plan supports up to 5 environments with custom ranks; Enterprise plan supports custom unlimited environments.
@@ -15,7 +15,9 @@ The **Releases & Deployment Module** provides release engineering, environment s
 
 ### Core Responsibilities
 - Compute semantic environment diffs between source and target environments for Schema Blueprints based on rank hierarchy.
-- Suggest SemVer version increments based on field additions, modifications, or breaking removals.
+- **Destructive Deletion Promotion**: Accurately detects when a schema blueprint was deleted from the source environment (`sourceVersionNumber === 0` while `targetVersionNumber > 0`), reporting `changeType: 'DELETE'` and counting active `affectedEntriesCount`.
+- **Automated Retirement Releases**: Automatically provisions a draft release when a blueprint is deleted from `dev` while still active in `live`. If the blueprint is restored before deployment, the retirement release is automatically deleted.
+- Suggest SemVer version increments based on field additions, modifications, or breaking removals (destructive deletions automatically calculate a MAJOR bump).
 - Manage release approvals and governance before deployment.
 - Atomically deploy releases through a 5-stage pipeline, updating `SchemaBlueprint.environments`, `SchemaBlueprint.deployedAt`, `SchemaBlueprint.environmentVersions`, and snapshotting `SchemaBlueprintVersion`.
 - Support instant deployment from the Schema Blueprint editor when no approvers are configured.
@@ -70,10 +72,11 @@ stateDiagram-v2
 
 ### 1. Environment Diff & SemVer Suggestion
 - `GET /diff?sourceEnvironmentId=1&targetEnvironmentId=2`: Inspects differences between source and target environments for all Schema Blueprints. Returns added, modified, and removed fields.
-- `GET /suggest-version`: Analyzes whether changes include field removals/breaking changes (bump MAJOR), field additions (bump MINOR), or patches.
+  - **Destructive Deletion Detection**: When `sourceVer === 0 && targetVer > 0` (blueprint deleted in source environment, but deployed in target environment), flags `changeType: 'DELETE'`, `isDestructive: true`, computes `affectedEntriesCount` (count of live entries in target environment), and generates an explanatory impact message.
+- `GET /suggest-version`: Analyzes whether changes include field removals/breaking changes or staged blueprint deletions (`devVer === 0`), automatically recommending a **MAJOR** SemVer bump (e.g. `v1.2.0` -> `v2.0.0`), while additions recommend a MINOR bump.
 
 ### 2. Creation & Governance
-- `POST /`: Creates release record with metadata (`isBlueprintRelease: true`, `blueprintIds`, `blueprintNames`, `blueprints`, `semanticVersion`).
+- `POST /`: Creates release record with metadata (`isBlueprintRelease: true`, `blueprintIds`, `blueprintNames`, `blueprints`, `semanticVersion`). Supports bundling destructive deletions (`action: 'DELETE'`).
 - `POST /:releaseId/request-approval`: Requests approvals from designated project members.
 - `POST /:releaseId/approve`: Approves a release. When all assigned approvers approve, status transitions to `READY_TO_DEPLOY`.
 
@@ -82,7 +85,9 @@ stateDiagram-v2
 - The multi-stage worker executes 5 discrete stages:
   1. **Pre-flight Schema & Integrity Check**: Validates JSON schema definitions and blueprint references.
   2. **Target Environment State Snapshot & Rollback Point Creation**: Captures preceding versions in target environment.
-  3. **Atomic State Pointer Synchronization**: Updates `SchemaBlueprint.environments`, `deployedAt`, `environmentVersions`, and upserts `SchemaBlueprintVersion`.
+  3. **Atomic State Pointer Synchronization**:
+     - For standard deploys: Updates `SchemaBlueprint.environments`, `deployedAt`, `environmentVersions`, and upserts `SchemaBlueprintVersion`.
+     - For destructive deletions: Sets `environmentVersions[targetEnvName] = 0`, removes target environment from `environments`, and soft-deletes target environment content entries with `removedAt: new Date()`. If the blueprint is no longer active in any environment, soft-deletes the blueprint (`removedAt: new Date()`).
   4. **Release Artifact Locking & Development Version Branching**: Locks the release version snapshot.
   5. **Cache Invalidation & Traffic Activation**: Activates release and sets status to `DEPLOYED`.
 - `POST /:releaseId/schedule`: Submits job to `scheduled-releases-queue` with a future execution timestamp.

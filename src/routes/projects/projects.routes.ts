@@ -38,13 +38,15 @@ import { BadRequestError } from '../../errors';
 import releaseRoutes from '../releases/release.routes';
 import schemaRoutes from '../schemas/schema-blueprint.routes';
 import contentRoutes from '../content/content-entry.routes';
+import assetRoutes from '../assets/assets.routes';
 
 const router = Router();
 
-// Mount Releases, Schemas, and Content under Projects
+// Mount Releases, Schemas, Content, and Assets under Projects
 router.use('/:projectId/releases', releaseRoutes);
 router.use('/:projectId/schemas', schemaRoutes);
 router.use('/:projectId/content', contentRoutes);
+router.use('/:projectId/assets', assetRoutes);
 
 const attachWorkspaceFromProject = async (req: any, _res: any, next: any) => {
   try {

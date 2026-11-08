@@ -23,7 +23,7 @@
     "worker:release": "ts-node src/workers/main.ts release",
     "queues:register-schedules": "ts-node src/workers/register-schedules.ts",
     "cleanup:pending-users": "ts-node src/cli/cleanup-pending-users.ts",
-    "test:billing": "node -r ts-node/register --test tests/**/*.test.ts",
+    "test:billing": "node -r ts-node/register --test \"tests/*.test.ts\" \"tests/**/*.test.ts\"",
     "cron:reset": "ts-node src/services/billing/jobs/quota-reset.job.ts"
   },
   "keywords": [],

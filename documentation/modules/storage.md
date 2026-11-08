@@ -23,6 +23,15 @@ src/
 │   ├── storage.routes.ts               # Mounted at /api/storage
 │   ├── storage.controller.ts          # Upload intent creation, completion, presigning
 │   └── storage-demo.controller.ts     # User-isolated demo endpoints for testing uploads
+├── routes/assets/
+│   ├── assets.routes.ts               # Mounted at /api/projects/:projectId/assets
+│   └── assets.controller.ts           # Media asset upload intents, completion, search, CRUD
+│
+├── repositories/
+│   └── project-asset.repository.ts    # Prisma repository for ProjectAsset with soft deletion
+│
+├── services/assets/
+│   └── project-asset.service.ts       # Orchestrates storage service, quota validation, asset lifecycle
 │
 ├── services/storage/
 │   ├── index.ts                        # Module export facade & public types
@@ -100,3 +109,27 @@ stateDiagram-v2
     MARKED_FOR_DELETION --> CLEANED : Storage Worker (Deletes object from S3)
     CLEANED --> [*] : Daily Worker (Purges DB intent record after 30 days)
 ```
+
+---
+
+## 6. Project Assets Management Subsystem
+
+The **Project Asset Management** subsystem provides a dedicated media library for projects, allowing users to upload, browse, and organize images and videos directly within their CMS.
+
+### Environment Agnosticism
+Media assets are attached at the project level (`projects:${projectId}#assets`). Because media represents assets that must be consistently accessible across all promotion stages, assets are shared across all environments (Development, Staging, Production). This prevents broken image and video URLs when content entries are published or promoted.
+
+### Plan Storage Quotas
+Asset storage is strictly governed by workspace billing plans via the `ASSET_STORAGE_MB` quota in `src/services/billing/config/`:
+- **Free Plan**: 50 MB
+- **Pro Plan**: 2,048 MB (2 GB)
+- **Enterprise Plan**: 20,480 MB (20 GB)
+
+Before any upload intent is generated, `project-asset.service.ts` calculates current active usage (`SUM(sizeBytes)` where `removedAt: null`) and ensures `currentBytes + newFileBytes <= quotaBytes`. If exceeded, a `400 Bad Request` is thrown with exact usage details.
+
+### Preset & MIME Support
+The `"project-asset"` preset (`src/config/storage.presets.ts`) accepts:
+- **Images**: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/svg+xml`, `image/avif`, `image/bmp`, `image/x-icon`
+- **Videos**: `video/mp4`, `video/webm`, `video/quicktime`, `video/ogg`, `video/x-msvideo`, `video/mpeg`
+- **Max File Size**: 100 MB per file (or up to plan quota limit)
+- **Cache-Control**: `public, max-age=31536000, immutable` for high-performance CDN edge delivery.

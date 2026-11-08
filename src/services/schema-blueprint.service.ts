@@ -3,6 +3,7 @@ import { FeedSchemaValidationService } from './feed-schema-validation.service';
 import { BadRequestError, NotFoundError, ConflictError } from '../errors';
 import { prisma } from '../db';
 import { ISchemaBlueprint } from '../models/schema-blueprint.model';
+import logger from '../utils/logger';
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -21,16 +22,22 @@ export const SchemaBlueprintService = {
   async listSchemas(projectId: number, environment?: string): Promise<ISchemaBlueprint[]> {
     await this.assertProjectExists(projectId);
     const all = await SchemaBlueprintRepository.listByProject(projectId);
-    const cleanEnv = (environment || 'development').toLowerCase().trim();
-    if (cleanEnv === 'development') {
-      return all;
+    const cleanEnv = (environment || 'dev').toLowerCase().trim();
+    const isDev = cleanEnv === 'dev' || cleanEnv === 'development';
+    if (isDev) {
+      return all.filter((schema) => {
+        const envVers = (schema.environmentVersions as any) || {};
+        const devVer = envVers['dev'] !== undefined ? envVers['dev'] : envVers['development'];
+        return devVer !== 0;
+      });
     }
 
     const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
     const deployed: ISchemaBlueprint[] = [];
 
     for (const schema of all) {
-      const verNum = Number((schema.environmentVersions as any)?.[cleanEnv]) || 0;
+      const envVers = (schema.environmentVersions as any) || {};
+      const verNum = Number(envVers[cleanEnv] !== undefined ? envVers[cleanEnv] : (cleanEnv === 'live' ? envVers['production'] : 0)) || 0;
       if (verNum > 0) {
         const versionDoc = await SchemaBlueprintVersion.findOne({
           blueprintId: schema._id,
@@ -53,11 +60,18 @@ export const SchemaBlueprintService = {
     if (!schema || schema.projectId !== projectId) {
       throw new NotFoundError('Schema blueprint not found in this project');
     }
-    const cleanEnv = (environment || 'development').toLowerCase().trim();
-    if (cleanEnv === 'development') {
+    const cleanEnv = (environment || 'dev').toLowerCase().trim();
+    const isDev = cleanEnv === 'dev' || cleanEnv === 'development';
+    if (isDev) {
+      const envVers = (schema.environmentVersions as any) || {};
+      const devVer = Number(envVers['dev'] !== undefined ? envVers['dev'] : envVers['development']);
+      if (devVer === 0) {
+        throw new NotFoundError("Schema blueprint is not active in 'dev'");
+      }
       return schema;
     }
-    const verNum = Number((schema.environmentVersions as any)?.[cleanEnv]) || 0;
+    const envVers = (schema.environmentVersions as any) || {};
+    const verNum = Number(envVers[cleanEnv] !== undefined ? envVers[cleanEnv] : (cleanEnv === 'live' ? envVers['production'] : 0)) || 0;
     if (verNum <= 0) {
       throw new NotFoundError(`Schema blueprint is not deployed to '${cleanEnv}'`);
     }
@@ -80,11 +94,18 @@ export const SchemaBlueprintService = {
     if (!schema) {
       throw new NotFoundError(`Schema blueprint '${slug}' not found in this project`);
     }
-    const cleanEnv = (environment || 'development').toLowerCase().trim();
-    if (cleanEnv === 'development') {
+    const cleanEnv = (environment || 'dev').toLowerCase().trim();
+    const isDev = cleanEnv === 'dev' || cleanEnv === 'development';
+    if (isDev) {
+      const envVers = (schema.environmentVersions as any) || {};
+      const devVer = Number(envVers['dev'] !== undefined ? envVers['dev'] : envVers['development']);
+      if (devVer === 0) {
+        throw new NotFoundError(`Schema blueprint '${slug}' is not active in 'dev'`);
+      }
       return schema;
     }
-    const verNum = Number((schema.environmentVersions as any)?.[cleanEnv]) || 0;
+    const envVers = (schema.environmentVersions as any) || {};
+    const verNum = Number(envVers[cleanEnv] !== undefined ? envVers[cleanEnv] : (cleanEnv === 'live' ? envVers['production'] : 0)) || 0;
     if (verNum <= 0) {
       throw new NotFoundError(`Schema blueprint '${slug}' is not deployed to '${cleanEnv}'`);
     }
@@ -201,10 +222,182 @@ export const SchemaBlueprintService = {
     return updated;
   },
 
-  async deleteSchema(projectId: number, id: string): Promise<void> {
+  async deleteSchema(projectId: number, id: string): Promise<{ isStaged: boolean; releaseId?: number; releaseVersion?: string; message: string }> {
     await this.assertProjectExists(projectId);
-    const existing = await this.getSchemaById(projectId, id);
-    await SchemaBlueprintRepository.delete(existing._id.toString());
+    const existing = await SchemaBlueprintRepository.findById(id);
+    if (!existing || existing.projectId !== projectId) {
+      throw new NotFoundError('Schema blueprint not found in this project');
+    }
+
+    const envVersions: Record<string, number> = (existing.environmentVersions as any) || {};
+    const isDev = (e: string) => e === 'dev' || e === 'development';
+
+    // Check if deployed to any higher environment (staging, live, production, etc.)
+    const activeHigherEnvs = Object.entries(envVersions).filter(
+      ([env, ver]) => !isDev(env) && Number(ver) > 0
+    );
+
+    const { ContentEntry } = await import('../models/content-entry.model');
+
+    if (activeHigherEnvs.length === 0) {
+      // Blueprint was never deployed to higher environments: safe to soft delete completely
+      await SchemaBlueprintRepository.softDelete(existing._id.toString());
+      await ContentEntry.updateMany(
+        { projectId, schemaId: existing._id, environment: { $in: ['dev', 'development'] }, removedAt: null },
+        { $set: { removedAt: new Date() } }
+      );
+      return {
+        isStaged: false,
+        message: 'Schema blueprint deleted successfully',
+      };
+    }
+
+    // Blueprint is deployed to higher environments: Stage deletion in dev
+    const updatedEnvVersions = { ...envVersions, dev: 0, development: 0 };
+    const currentEnvs = Array.isArray(existing.environments) ? existing.environments : [];
+    const updatedEnvs = currentEnvs.filter((e) => !isDev(e));
+
+    await SchemaBlueprintRepository.update(existing._id.toString(), {
+      environmentVersions: updatedEnvVersions,
+      environments: updatedEnvs,
+    });
+
+    // Soft-delete dev entries so they no longer appear in Dev
+    await ContentEntry.updateMany(
+      { projectId, schemaId: existing._id, environment: { $in: ['dev', 'development'] }, removedAt: null },
+      { $set: { removedAt: new Date() } }
+    );
+
+    // Instantly create a Draft Release with the destructive deletion
+    let createdRelease: any = null;
+    const allEnvs = await prisma.environment.findMany({
+      where: { projectId },
+      orderBy: { rank: 'asc' },
+    });
+    const devEnv = allEnvs.find((e) => isDev(e.name.toLowerCase())) || allEnvs[0];
+    const targetEnv = allEnvs.find((e) => e.rank > (devEnv?.rank ?? 0)) || allEnvs[1];
+
+    if (devEnv && targetEnv) {
+      try {
+        const { ReleaseService } = await import('./release.service');
+        const suggestedVersion = await ReleaseService.suggestNextVersion(projectId, targetEnv.id, [existing._id.toString()]);
+        createdRelease = await ReleaseService.createRelease(
+          projectId,
+          existing.createdBy || 1,
+          {
+            name: `Release: Retire ${existing.name}`,
+            description: `Automated release to retire '${existing.name}' and soft-delete entries in ${targetEnv.displayName || targetEnv.name}.`,
+            sourceEnvironmentId: devEnv.id,
+            targetEnvironmentId: targetEnv.id,
+            version: suggestedVersion,
+            feedIds: [existing._id.toString()],
+            blueprintIds: [existing._id.toString()],
+            schemaIds: [existing._id.toString()],
+          }
+        );
+      } catch (err) {
+        logger.warn('Failed to auto-create release for staged blueprint deletion', { error: err });
+      }
+    }
+
+    const envNames = activeHigherEnvs.map(([e]) => (e === 'production' || e === 'live' ? 'Live' : e)).join(', ');
+    return {
+      isStaged: true,
+      releaseId: createdRelease?.id,
+      releaseVersion: createdRelease?.version,
+      message: `Blueprint '${existing.name}' was removed from Dev. An automated release '${createdRelease?.name || 'Retire ' + existing.name}' (${createdRelease?.version || ''}) has been created to promote this change into ${envNames}.`,
+    };
+  },
+
+  async restoreSchema(projectId: number, id: string): Promise<ISchemaBlueprint> {
+    await this.assertProjectExists(projectId);
+    const existing = await SchemaBlueprintRepository.findById(id);
+    if (!existing || existing.projectId !== projectId) {
+      throw new NotFoundError('Schema blueprint not found in this project');
+    }
+
+    const envVersions: Record<string, number> = (existing.environmentVersions as any) || {};
+    const isDev = (e: string) => e === 'dev' || e === 'development';
+    const devVer = Number(envVersions['dev'] !== undefined ? envVersions['dev'] : envVersions['development']) || 0;
+    if (devVer > 0) {
+      throw new BadRequestError('Schema blueprint is already active in Dev');
+    }
+
+    const restoredVersion = existing.activeVersionNumber || 1;
+    const updatedEnvVersions = { ...envVersions, dev: restoredVersion, development: restoredVersion };
+    const currentEnvs = Array.isArray(existing.environments) ? existing.environments : [];
+    const updatedEnvs = Array.from(new Set([...currentEnvs.filter((e) => !isDev(e)), 'dev']));
+
+    const updated = await SchemaBlueprintRepository.update(existing._id.toString(), {
+      environmentVersions: updatedEnvVersions,
+      environments: updatedEnvs,
+    });
+
+    if (!updated) {
+      throw new NotFoundError('Failed to restore schema blueprint');
+    }
+
+    // Restore development content entries
+    const { ContentEntry } = await import('../models/content-entry.model');
+    await ContentEntry.updateMany(
+      { projectId, schemaId: existing._id, environment: { $in: ['dev', 'development'] } },
+      { $set: { removedAt: null } }
+    );
+
+    // Auto-delete / clean up any pending automated release containing this deletion
+    try {
+      const candidateReleases = await prisma.release.findMany({
+        where: {
+          projectId,
+          status: { in: ['DRAFT', 'PENDING_APPROVAL', 'READY_TO_DEPLOY'] },
+        },
+      });
+
+      for (const rel of candidateReleases) {
+        const prog = (rel as any).deploymentProgress as any;
+        const blueprints = prog?.blueprints || [];
+        const hasBpDeletion = blueprints.some(
+          (b: any) => String(b.id) === String(existing._id) && b.action === 'DELETE'
+        );
+
+        if (hasBpDeletion) {
+          if (blueprints.length <= 1) {
+            await prisma.release.delete({ where: { id: rel.id } });
+          } else {
+            const remainingBps = blueprints.filter((b: any) => String(b.id) !== String(existing._id));
+            const remainingIds = remainingBps.map((b: any) => String(b.id));
+            await prisma.release.update({
+              where: { id: rel.id },
+              data: {
+                deploymentProgress: {
+                  ...prog,
+                  blueprints: remainingBps,
+                  blueprintIds: remainingIds,
+                },
+              },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to clean up release during blueprint restore', { error: err });
+    }
+
+    return updated;
+  },
+
+  async listStagedDeletedSchemas(projectId: number): Promise<ISchemaBlueprint[]> {
+    await this.assertProjectExists(projectId);
+    const all = await SchemaBlueprintRepository.listByProject(projectId);
+    const isDev = (e: string) => e === 'dev' || e === 'development';
+    return all.filter((s) => {
+      const envVersions: Record<string, number> = (s.environmentVersions as any) || {};
+      const devVer = Number(envVersions['dev'] !== undefined ? envVersions['dev'] : envVersions['development']) || 0;
+      const hasHigherEnvs = Object.entries(envVersions).some(
+        ([env, ver]) => !isDev(env) && Number(ver) > 0
+      );
+      return devVer === 0 && hasHigherEnvs;
+    });
   },
 
   async deployBlueprint(

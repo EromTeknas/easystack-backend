@@ -4,15 +4,31 @@ import { StorageError, StorageErrorCode } from "./StorageError";
 const MAX_STORAGE_KEY_BYTES = 512;
 
 const MIME_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
+  // Images
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
   "image/svg+xml": "svg",
+  "image/avif": "avif",
+  "image/bmp": "bmp",
+  "image/x-icon": "ico",
 
+  // Videos
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/ogg": "ogv",
+  "video/x-msvideo": "avi",
+  "video/mpeg": "mpeg",
+
+  // Documents
   "application/pdf": "pdf",
   "application/json": "json",
   "application/zip": "zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 
   "text/plain": "txt",
   "text/csv": "csv",

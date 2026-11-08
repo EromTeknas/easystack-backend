@@ -94,8 +94,28 @@ export const deleteSchema = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const { schemaId } = req.params;
 
-  await SchemaBlueprintService.deleteSchema(projectId, schemaId);
-  return ok(res, { message: 'Schema blueprint deleted successfully' });
+  const result = await SchemaBlueprintService.deleteSchema(projectId, schemaId);
+  return ok(res, result);
+});
+
+/**
+ * POST /api/projects/:projectId/schemas/:schemaId/restore
+ */
+export const restoreSchema = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const { schemaId } = req.params;
+
+  const schema = await SchemaBlueprintService.restoreSchema(projectId, schemaId);
+  return ok(res, { schema, message: 'Schema blueprint restored to Development successfully' });
+});
+
+/**
+ * GET /api/projects/:projectId/schemas/staged-deletions
+ */
+export const listStagedDeletedSchemas = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const schemas = await SchemaBlueprintService.listStagedDeletedSchemas(projectId);
+  return ok(res, { schemas });
 });
 
 /**

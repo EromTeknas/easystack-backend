@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import {
   listSchemas,
+  listStagedDeletedSchemas,
   checkSchemaSlug,
   getSchema,
   createSchema,
   updateSchema,
   deleteSchema,
   deploySchema,
+  restoreSchema,
 } from './schema-blueprint.controller';
 import { authenticate } from '../../services/authentication/middleware/express/authentication.middleware';
 import { authorize } from '../../services/authorization/middlewares/authorize.middleware';
@@ -27,6 +29,17 @@ router.get(
     scopeId: (req) => req.params.projectId as string,
   }),
   listSchemas
+);
+
+router.get(
+  '/staged-deletions',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.FEED.READ,
+    scopeId: (req) => req.params.projectId as string,
+  }),
+  listStagedDeletedSchemas
 );
 
 router.get(
@@ -93,6 +106,17 @@ router.delete(
     scopeId: (req) => req.params.projectId as string,
   }),
   deleteSchema
+);
+
+router.post(
+  '/:schemaId/restore',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.FEED.UPDATE,
+    scopeId: (req) => req.params.projectId as string,
+  }),
+  restoreSchema
 );
 
 export default router;

@@ -622,6 +622,9 @@ export const ProjectService = {
     });
     if (!project) throw new NotFoundError('Project not found');
 
+    const billing = await BillingService.get(project.workspaceId);
+    const { getQuotaDefinition, formatQuotaDisplayName } = await import('./billing/config/quotas.config');
+
     const envCount = await prisma.environment.count({
       where: { projectId },
     });
@@ -630,31 +633,73 @@ export const ProjectService = {
     const blueprintCount = await SchemaBlueprint.countDocuments({
       projectId,
       removedAt: null,
-    });
+    }).catch(() => 0);
 
     const { ContentEntry } = await import('../models/content-entry.model');
     const dataEntriesCount = await ContentEntry.countDocuments({
       projectId,
       removedAt: null,
-    });
+    }).catch(() => 0);
 
-    const envLimit = await BillingService.getLimit(project.workspaceId, 'environments_per_project');
-    const blueprintLimit = await BillingService.getLimit(project.workspaceId, 'blueprints_per_project');
-    const dataEntriesLimit = await BillingService.getLimit(project.workspaceId, 'data_entries_per_project');
+    const { ProjectAssetRepository } = await import('../repositories/project-asset.repository');
+    const totalAssetBytes = await ProjectAssetRepository.getTotalStorageBytes(projectId);
+    const assetStorageMB = Math.round((Number(totalAssetBytes) / (1024 * 1024)) * 100) / 100;
+
+    const metricResolvers: Record<string, () => Promise<number> | number> = {
+      environments_per_project: () => envCount,
+      blueprints_per_project: () => blueprintCount,
+      data_entries_per_project: () => dataEntriesCount,
+      asset_storage_mb: () => assetStorageMB,
+    };
+
+    const resources = [];
+
+    // Dynamically iterate over all quotas configured on the workspace plan
+    for (const [key, limit] of Object.entries(billing.quotas)) {
+      if (key === 'feeds_per_project') continue; // Purge legacy feeds
+
+      const def = getQuotaDefinition(key);
+      const isProjectScoped = def?.scope === 'PROJECT' || key.includes('_per_project') || key === 'asset_storage_mb';
+
+      if (!isProjectScoped) continue;
+
+      let used = 0;
+      if (metricResolvers[key]) {
+        used = await metricResolvers[key]();
+      } else {
+        used = billing.scopedUsage?.[key]?.['PROJECT']?.[String(projectId)] ?? 0;
+      }
+
+      resources.push({
+        key,
+        id: key.replace(/_per_project$/, '').replace(/_mb$/, ''),
+        title: def?.displayName || formatQuotaDisplayName(key),
+        description: def?.description || '',
+        unit: def?.unit || '',
+        used,
+        limit: limit ?? null,
+      });
+    }
 
     return {
       environments: {
         used: envCount,
-        limit: envLimit,
+        limit: billing.quotas['environments_per_project'] ?? null,
       },
       blueprints: {
         used: blueprintCount,
-        limit: blueprintLimit,
+        limit: billing.quotas['blueprints_per_project'] ?? null,
       },
       dataEntries: {
         used: dataEntriesCount,
-        limit: dataEntriesLimit,
+        limit: billing.quotas['data_entries_per_project'] ?? null,
       },
+      assets: {
+        used: assetStorageMB,
+        limit: billing.quotas['asset_storage_mb'] ?? null,
+        unit: 'MB',
+      },
+      resources,
     };
   },
 

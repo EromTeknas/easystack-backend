@@ -233,3 +233,91 @@ test('ContentEntry - publication guard permits publication when forcePublish is 
   assert.deepEqual(forcePublishStatuses.fr.outdatedFields, []);
 });
 
+test('FeedSchemaValidationService - validates schema with video and lists of media', () => {
+  const schema = {
+    version: 1,
+    fields: [
+      {
+        id: 'f1',
+        key: 'hero_image',
+        type: 'image',
+        label: 'Cover Photo',
+        required: true,
+        isLocalized: true,
+        isClientEditable: true,
+      },
+      {
+        id: 'f2',
+        key: 'promo_video',
+        type: 'video',
+        label: 'Promo Video',
+        required: false,
+        isLocalized: false,
+        isClientEditable: true,
+      },
+      {
+        id: 'f3',
+        key: 'photo_gallery',
+        type: 'list',
+        label: 'Photos',
+        required: false,
+        isLocalized: true,
+        isClientEditable: true,
+        config: {
+          itemDefinition: {
+            id: 'item-photo',
+            key: 'photo',
+            type: 'image',
+            label: 'Photo',
+            required: false,
+            isLocalized: true,
+            isClientEditable: true,
+          },
+        },
+      },
+    ],
+  };
+
+  const validatedSchema = FeedSchemaValidationService.validateSchemaDefinition(schema);
+  assert.equal(validatedSchema.fields.length, 3);
+  assert.equal(validatedSchema.fields[1]?.type, 'video');
+
+  // Validate content with Option A structured media object
+  const validContent = {
+    hero_image: {
+      assetId: 'ast-123',
+      url: 'https://cdn.easystack.io/projects/1/assets/cover.jpg',
+      alt: 'Scenic mountain view',
+      mimeType: 'image/jpeg',
+      sizeBytes: 204800,
+    },
+    promo_video: {
+      assetId: 'ast-456',
+      url: 'https://cdn.easystack.io/projects/1/assets/tour.mp4',
+      mimeType: 'video/mp4',
+    },
+    photo_gallery: [
+      {
+        assetId: 'ast-789',
+        url: 'https://cdn.easystack.io/projects/1/assets/day1.jpg',
+      },
+      'https://cdn.easystack.io/projects/1/assets/day2.jpg', // string URL backward compatible
+    ],
+  };
+
+  assert.doesNotThrow(() => {
+    FeedSchemaValidationService.validateContentAgainstSchema(validContent, validatedSchema, { isDraft: false });
+  });
+
+  // Saving draft with partial/empty fields must also succeed
+  const draftContent = {
+    hero_image: {
+      url: '',
+    },
+  };
+  assert.doesNotThrow(() => {
+    FeedSchemaValidationService.validateContentAgainstSchema(draftContent, validatedSchema, { isDraft: true });
+  });
+});
+
+

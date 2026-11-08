@@ -64,7 +64,7 @@ export class BillingService {
   static async getEffectivePlan(workspaceId: number) {
     const cache = await this.get(workspaceId);
 
-    if (!cache.plan || !cache.subscription) {
+    if (!cache.plan) {
       return null;
     }
 
@@ -81,6 +81,83 @@ export class BillingService {
 
   static async getWorkspaceUsage(workspaceId: number) {
     return await this.usage(workspaceId);
+  }
+
+  static async getQuotaDetails(workspaceId: number) {
+    const cache = await this.get(workspaceId);
+    const { getQuotaDefinition, formatQuotaDisplayName } = await import("../config/quotas.config");
+    const details = [];
+
+    // Aggregate workspace-wide counts for projects belonging to this workspace
+    const projects = await prisma.project.findMany({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    const projectIds = projects.map((p) => p.id);
+
+    const totalEnvironments = await prisma.environment.count({
+      where: { projectId: { in: projectIds } },
+    });
+
+    let totalBlueprints = 0;
+    try {
+      const { SchemaBlueprint } = await import("../../../models/schema-blueprint.model");
+      totalBlueprints = await SchemaBlueprint.countDocuments({
+        projectId: { in: projectIds },
+        removedAt: null,
+      });
+    } catch {
+      totalBlueprints = 0;
+    }
+
+    let totalDataEntries = 0;
+    try {
+      const { ContentEntry } = await import("../../../models/content-entry.model");
+      totalDataEntries = await ContentEntry.countDocuments({
+        projectId: { in: projectIds },
+        removedAt: null,
+      });
+    } catch {
+      totalDataEntries = 0;
+    }
+
+    const assetAgg = await prisma.projectAsset.aggregate({
+      where: { projectId: { in: projectIds }, removedAt: null },
+      _sum: { sizeBytes: true },
+    });
+    const totalAssetBytes = assetAgg._sum.sizeBytes ?? BigInt(0);
+    const totalAssetMB = Math.round((Number(totalAssetBytes) / (1024 * 1024)) * 100) / 100;
+
+    const projectScopedAggregates: Record<string, number> = {
+      environments_per_project: totalEnvironments,
+      blueprints_per_project: totalBlueprints,
+      data_entries_per_project: totalDataEntries,
+      asset_storage_mb: totalAssetMB,
+    };
+
+    for (const [key, limit] of Object.entries(cache.quotas)) {
+      if (key === 'feeds_per_project') continue; // Purge legacy feeds
+
+      const def = getQuotaDefinition(key);
+      const isProjectScoped = def?.scope === 'PROJECT' || key.includes('_per_project') || key === 'asset_storage_mb';
+      const scope: 'WORKSPACE' | 'PROJECT' = isProjectScoped ? 'PROJECT' : 'WORKSPACE';
+
+      const used = isProjectScoped
+        ? (projectScopedAggregates[key] ?? (cache.scopedUsage?.[key] ? Object.values(cache.scopedUsage[key]?.['PROJECT'] || {}).reduce((a, b) => a + b, 0) : null))
+        : (cache.usage[key] ?? 0);
+
+      details.push({
+        key,
+        displayName: def?.displayName || formatQuotaDisplayName(key),
+        description: def?.description || null,
+        unit: def?.unit || '',
+        scope,
+        limit,
+        used,
+      });
+    }
+
+    return details;
   }
 
   static async hasFeature(

@@ -8,8 +8,8 @@ export interface DefaultEnvironmentConfig {
 
 export const DEFAULT_ENVIRONMENTS: DefaultEnvironmentConfig[] = [
   {
-    name: 'development',
-    displayName: 'Development',
+    name: 'dev',
+    displayName: 'Dev',
     rank: 10,
     isEditable: true,
     requiresApproval: false,

@@ -16,6 +16,7 @@ export const SUPPORTED_COMPONENT_TYPES = [
   'select',
   'date',
   'image',
+  'video',
   'richtext',
   'color',
   'url',
@@ -162,11 +163,23 @@ export const FeedSchemaValidationService = {
       }
 
       // Check Required (only enforced when not saving as draft)
-      const isEmpty =
+      const isMedia = field.type === 'image' || field.type === 'video';
+      const isMediaEmpty = isMedia && (
         val === undefined ||
         val === null ||
         (typeof val === 'string' && val.trim() === '') ||
-        (Array.isArray(val) && val.length === 0);
+        (typeof val === 'object' && !Array.isArray(val) && (!val.url || (typeof val.url === 'string' && val.url.trim() === '')))
+      );
+
+      const isEmpty = isMedia
+        ? isMediaEmpty
+        : (
+          val === undefined ||
+          val === null ||
+          (typeof val === 'string' && val.trim() === '') ||
+          (Array.isArray(val) && val.length === 0) ||
+          (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length === 0)
+        );
 
       if (!options.isDraft && field.required && isEmpty) {
         throw new FeedSchemaValidationError(`Missing required value for '${field.label}' (${fieldPath}).`);
@@ -181,7 +194,6 @@ export const FeedSchemaValidationService = {
       switch (field.type) {
         case 'text':
         case 'textarea':
-        case 'image':
         case 'richtext':
         case 'color':
         case 'url': {
@@ -207,6 +219,35 @@ export const FeedSchemaValidationService = {
             } catch (err: any) {
               // Ignore invalid regex in user config or pass
             }
+          }
+          break;
+        }
+
+        case 'image':
+        case 'video': {
+          if (typeof val === 'string') {
+            if (val.trim() && !/^https?:\/\/.+/i.test(val.trim()) && !val.startsWith('/')) {
+              throw new FeedSchemaValidationError(
+                `'${field.label}' (${fieldPath}) must be a valid URL starting with http://, https://, or /.`
+              );
+            }
+          } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+            if (val.url !== undefined && val.url !== null && typeof val.url !== 'string') {
+              throw new FeedSchemaValidationError(
+                `Expected string URL in media object for '${field.label}' at '${fieldPath}'.`
+              );
+            }
+            if (val.url && typeof val.url === 'string' && val.url.trim()) {
+              if (!/^https?:\/\/.+/i.test(val.url.trim()) && !val.url.startsWith('/')) {
+                throw new FeedSchemaValidationError(
+                  `'${field.label}' (${fieldPath}) media URL must start with http://, https://, or /.`
+                );
+              }
+            }
+          } else {
+            throw new FeedSchemaValidationError(
+              `Expected image/video URL string or media object for '${field.label}' at '${fieldPath}'.`
+            );
           }
           break;
         }
@@ -337,6 +378,7 @@ export const FeedSchemaValidationService = {
       case 'text':
       case 'textarea':
       case 'image':
+      case 'video':
       case 'richtext':
       case 'url':
         return '';

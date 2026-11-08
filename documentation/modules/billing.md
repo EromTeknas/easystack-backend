@@ -106,13 +106,35 @@ router.post(
 ```
 
 ### Quota Metrics
-- `projects`: Total active projects in workspace.
-- `members`: Total team members in workspace.
-- `environments_per_project`: Environments permitted per project (Free: 2, Pro: 5). Default projects initialize with 2 environments (`development` rank 10, `production`/Live rank 20, `isEditable: false`). Creating additional environments requires upgrading to a paid tier.
-- `blueprints_per_project`: Total content blueprints permitted per project (Free: 5, Pro: 30).
-- `data_entries_per_project`: Total content entries across blueprints permitted per project (Free: 100, Pro: 5000).
-- `storage_mb`: Total asset bytes stored in S3.
-- `api_requests`: Metered API calls per billing month.
-- `ai_tokens`: Consumed LLM tokens for auto-translation.
+- `projects`: Total active projects in workspace (`scope: 'WORKSPACE'`).
+- `members`: Total team members in workspace (`scope: 'WORKSPACE'`).
+- `asset_storage_mb`: Media assets storage per project (`scope: 'PROJECT'`). Free: 50 MB, Pro: 2048 MB.
+- `environments_per_project`: Environments permitted per project (`scope: 'PROJECT'`). Free: 2, Pro: 5. Default projects initialize with 2 environments (`development` rank 10, `live` rank 50).
+- `blueprints_per_project`: Total content blueprints permitted per project (`scope: 'PROJECT'`). Free: 5, Pro: 30.
+- `data_entries_per_project`: Total content entries across blueprints permitted per project (`scope: 'PROJECT'`). Free: 100, Pro: 5000.
+- `storage.gb`: Total workspace storage across S3 (`scope: 'WORKSPACE'`).
+- `api.requests.daily`: Metered API calls per day (`scope: 'WORKSPACE'`).
 - `feeds_per_project`: Deprecated in favor of modern content blueprints and data entries metrics.
+
+---
+
+## 5. Dynamic Quota Discovery & Scoped Usage
+
+To ensure that any new plan field across any scope (`WORKSPACE` or `PROJECT`) automatically reflects across both billing settings and project usage screens:
+
+1. **Source of Truth Code Seeding (`BillingBuilder.build`)**:
+   - `BillingBuilder` pre-populates baseline plan quotas from `PlanRegistry` (`FreePlan`, `ProPlan`, `EnterprisePlan`) before applying database custom overrides.
+   - Any new quota added to plan definitions in code immediately reflects in the Redis billing cache (`cache.quotas`) without requiring manual database migration or re-seeding.
+
+2. **Rich Quota Details API (`BillingService.getQuotaDetails`)**:
+   - Endpoints returning billing details (`GET /api/workspace/:workspaceId/billing`) provide a dynamic `quotaDetails` array including `key`, `displayName`, `description`, `unit`, `scope` (`WORKSPACE` | `PROJECT`), `limit`, and `used`.
+   - For `WORKSPACE`-scoped quotas (`projects`, `members`, `storage.gb`), `BillingBuilder` computes live, ground-truth metrics directly from active database records (`removedAt: null`).
+   - For `PROJECT`-scoped quotas (`environments_per_project`, `blueprints_per_project`, `data_entries_per_project`, `asset_storage_mb`), `BillingService.getQuotaDetails` aggregates total usage across all projects in the workspace while providing the per-project limit.
+   - The frontend consumes `quotaDetails` directly, rendering human-friendly labels (e.g. "Asset Storage" instead of unformatted keys), displaying workspace usage progress bars, and showing per-project limits along with workspace totals.
+
+3. **Dynamic Project Usage Engine (`ProjectService.getProjectUsage`)**:
+   - `getProjectUsage` dynamically iterates over all quotas configured on the workspace plan where `scope === 'PROJECT'`.
+   - Each project quota is resolved via metric resolvers (e.g., `environments_per_project`, `blueprints_per_project`, `data_entries_per_project`, `asset_storage_mb`) or scoped usage ledgers (`scopedUsage`).
+   - Returns a dynamic `resources` array consumed by the frontend Project Usage page, ensuring any future project-scoped quota automatically renders.
+
 

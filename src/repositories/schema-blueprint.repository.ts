@@ -25,16 +25,28 @@ export interface UpdateSchemaBlueprintDto {
 }
 
 export const SchemaBlueprintRepository = {
-  async listByProject(projectId: number): Promise<ISchemaBlueprint[]> {
-    return SchemaBlueprint.find({ projectId }).sort({ createdAt: -1 });
+  async listByProject(projectId: number, includeRemoved: boolean = false): Promise<ISchemaBlueprint[]> {
+    const filter: any = { projectId };
+    if (!includeRemoved) {
+      filter.removedAt = null;
+    }
+    return SchemaBlueprint.find(filter).sort({ createdAt: -1 });
   },
 
-  async findById(id: string): Promise<ISchemaBlueprint | null> {
-    return SchemaBlueprint.findById(id);
+  async findById(id: string, includeRemoved: boolean = false): Promise<ISchemaBlueprint | null> {
+    const filter: any = { _id: id };
+    if (!includeRemoved) {
+      filter.removedAt = null;
+    }
+    return SchemaBlueprint.findOne(filter);
   },
 
-  async findBySlug(projectId: number, slug: string): Promise<ISchemaBlueprint | null> {
-    return SchemaBlueprint.findOne({ projectId, slug: slug.toLowerCase().trim() });
+  async findBySlug(projectId: number, slug: string, includeRemoved: boolean = false): Promise<ISchemaBlueprint | null> {
+    const filter: any = { projectId, slug: slug.toLowerCase().trim() };
+    if (!includeRemoved) {
+      filter.removedAt = null;
+    }
+    return SchemaBlueprint.findOne(filter);
   },
 
   async create(data: CreateSchemaBlueprintDto): Promise<ISchemaBlueprint> {
@@ -45,6 +57,7 @@ export const SchemaBlueprintRepository = {
       type: data.type || 'collection',
       createdBy: data.createdBy,
       schemaDefinition: data.schemaDefinition || { version: 1, fields: [] },
+      removedAt: null,
     };
     if (data.description !== undefined) payload.description = data.description;
     if (data.icon !== undefined) payload.icon = data.icon;
@@ -64,8 +77,16 @@ export const SchemaBlueprintRepository = {
     );
   },
 
-  async delete(id: string): Promise<boolean> {
-    const res = await SchemaBlueprint.findByIdAndDelete(id);
+  async softDelete(id: string): Promise<boolean> {
+    const res = await SchemaBlueprint.findByIdAndUpdate(
+      id,
+      { $set: { removedAt: new Date() } },
+      { new: true }
+    );
     return Boolean(res);
+  },
+
+  async delete(id: string): Promise<boolean> {
+    return this.softDelete(id);
   },
 };
