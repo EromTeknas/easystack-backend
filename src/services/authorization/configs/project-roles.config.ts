@@ -38,6 +38,7 @@ export const ProjectRoles = {
       PERMISSIONS.RELEASE.APPROVE,
       PERMISSIONS.RELEASE.DELETE,
       PERMISSIONS.ASSET.CREATE,
+      PERMISSIONS.API_KEY.READ,
     ],
   },
 

@@ -36,6 +36,8 @@ const EnvironmentSchema = z.object({
   ENVIRONMENT: z.enum(["local", "dev", "stage", "prod"]).default("local"),
   NODE_ENV: optionalString,
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  DELIVERY_PORT: z.coerce.number().int().min(1).max(65535).default(3005),
+  DELIVERY_BASE_URL: z.string().url().default("http://localhost:3005"),
   SIMULATE_DELAY: booleanString(false),
   LOG_LEVEL: z.enum(["error", "warn", "info", "verbose", "debug", "silly"]).default("info"),
   LOG_DIR: z.string().default("storage/logs"),

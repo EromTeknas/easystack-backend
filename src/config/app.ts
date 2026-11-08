@@ -16,4 +16,7 @@ export const baseUrl = env.BASE_URL;
 export const passwordResetUrl = env.PASSWORD_RESET_URL;
 export const simulateDelay = env.SIMULATE_DELAY;
 
-export default { app, logLevel, logDir, logIdentifier, environment, baseUrl, passwordResetUrl, simulateDelay };
+export const deliveryPort = env.DELIVERY_PORT;
+export const deliveryBaseUrl = env.DELIVERY_BASE_URL;
+
+export default { app, logLevel, logDir, logIdentifier, environment, baseUrl, passwordResetUrl, simulateDelay, deliveryPort, deliveryBaseUrl };

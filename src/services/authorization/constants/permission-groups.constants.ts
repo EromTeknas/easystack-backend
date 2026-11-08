@@ -12,6 +12,7 @@ export const PermissionGroups = {
     ...Object.values(PERMISSIONS.DEPLOYMENT),
     ...Object.values(PERMISSIONS.RELEASE),
     ...Object.values(PERMISSIONS.ASSET),
+    ...Object.values(PERMISSIONS.API_KEY),
   ],
 
   PROJECT_ADMIN_ALL: [
@@ -23,6 +24,7 @@ export const PermissionGroups = {
     ...Object.values(PERMISSIONS.ENVIRONMENT),
     ...Object.values(PERMISSIONS.DEPLOYMENT),
     ...Object.values(PERMISSIONS.ASSET),
-    ...Object.values(PERMISSIONS.RELEASE)
+    ...Object.values(PERMISSIONS.RELEASE),
+    ...Object.values(PERMISSIONS.API_KEY),
   ]
 } satisfies Record<string, readonly Permission[]>;

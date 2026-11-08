@@ -58,5 +58,11 @@ export const PermissionConfig = {
 
   asset: [
     "create",
+  ],
+
+  api_key: [
+    "read",
+    "create",
+    "revoke",
   ]
 } as const;

@@ -39,14 +39,16 @@ import releaseRoutes from '../releases/release.routes';
 import schemaRoutes from '../schemas/schema-blueprint.routes';
 import contentRoutes from '../content/content-entry.routes';
 import assetRoutes from '../assets/assets.routes';
+import apiKeyRoutes from '../api-keys/api-keys.routes';
 
 const router = Router();
 
-// Mount Releases, Schemas, Content, and Assets under Projects
+// Mount Releases, Schemas, Content, Assets, and API Keys under Projects
 router.use('/:projectId/releases', releaseRoutes);
 router.use('/:projectId/schemas', schemaRoutes);
 router.use('/:projectId/content', contentRoutes);
 router.use('/:projectId/assets', assetRoutes);
+router.use('/:projectId/api-keys', apiKeyRoutes);
 
 const attachWorkspaceFromProject = async (req: any, _res: any, next: any) => {
   try {

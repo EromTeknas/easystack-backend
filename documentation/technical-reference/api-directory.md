@@ -84,6 +84,9 @@ Mounted in [`src/routes/projects/projects.routes.ts`](file:///home/eteknas/Proje
 | `DELETE` | `/:projectId/invitations/:invitationId`| `authenticate`, `authorize(PROJECT_MEMBER.INVITE)` | Revoke project invitation |
 | `GET` | `/:projectId/environments` | `authenticate`, `authorize(ENVIRONMENT.READ)` | List project environments |
 | `PATCH` | `/:projectId/environments/:environmentId`| `authenticate`, `authorize(ENVIRONMENT.UPDATE)` | Update environment settings |
+| `GET` | `/:projectId/api-keys` | `authenticate`, `authorize(API_KEY.READ)` | List all API keys for project |
+| `POST` | `/:projectId/api-keys` | `authenticate`, `authorize(API_KEY.CREATE)` | Generate new API key (returns raw key once) |
+| `DELETE` | `/:projectId/api-keys/:apiKeyId` | `authenticate`, `authorize(API_KEY.REVOKE)` | Revoke API key and invalidate Redis cache |
 
 ---
 
@@ -217,3 +220,17 @@ Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Project
 - `GET /api/health`: Health status.
 - `GET /api/hello`: Simple ping.
 - `GET /admin/queues`: Bull-board web UI for monitoring background queues.
+
+---
+
+## 11. Content Delivery Endpoints (`Delivery API - Port 3005`)
+
+Mounted in [`src/delivery/routes/index.ts`](file:///home/eteknas/Projects/easystack-backend/src/delivery/routes/index.ts).
+Runs as an independent server process (`src/delivery.server.ts`). Requires header-only API key authentication (`x-api-key` or `Authorization: Bearer <key>`).
+
+| Method | Endpoint | Guards | Purpose |
+|---|---|---|---|
+| `GET` | `/health` | Public | Unauthenticated health probe for load balancers |
+| `GET` | `/v1/test` | `apiKeyAuthMiddleware` | Validate API key connection and verify project/environment binding |
+| `GET` | `/v1/content/:blueprintSlug` | `apiKeyAuthMiddleware` | Fetch singleton content or paginated collection list (supports `?page=`, `?limit=`, `?locale=`, `?search=`, `?sort=`) |
+| `GET` | `/v1/content/:blueprintSlug/:entrySlug` | `apiKeyAuthMiddleware` | Fetch single entry from collection with optional locale fallback (`?locale=`) |

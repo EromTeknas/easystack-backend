@@ -61,6 +61,7 @@ Use this lookup matrix to jump directly to the documentation, controllers, and s
 | **Add Quotas or Modify Billing?** | [`modules/billing.md`](modules/billing.md)<br>[`workflows/billing-quota-enforcement.md`](workflows/billing-quota-enforcement.md) | `src/services/billing/config/quotas.config.ts`<br>`src/services/billing/middleware/express/billing.middleware.ts` |
 | **Add Background Jobs or Workers?** | [`modules/workers-and-queues.md`](modules/workers-and-queues.md) | `src/workers/registry.ts`<br>`src/infrastructure/queue/` |
 | **Add Environment Variables?** | [`technical-reference/configuration.md`](technical-reference/configuration.md) | `src/config/env.ts`<br>`src/config/` |
+| **Serve or Consume Public Delivery APIs?** | [`modules/delivery-api.md`](modules/delivery-api.md) | `src/delivery.server.ts`<br>`src/delivery/` |
 | **Create a Database Migration?** | [`development/database-migrations.md`](development/database-migrations.md) | `prisma/schema.prisma`<br>`prisma/migrations/` |
 | **Handle Errors or Custom Statuses?** | [`technical-reference/error-handling.md`](technical-reference/error-handling.md) | `src/errors/AppError.ts`<br>`src/constants/errorCodes.ts` |
 
@@ -90,6 +91,7 @@ documentation/
 │   ├── collaboration.md                      # PR-style translation reviews, comments, approval reset
 │   ├── billing.md                            # Workspace plans, quotas, usage tracking, Stripe
 │   ├── storage.md                            # Intent-based uploads, presigned POST, CDN, cleanup
+│   ├── delivery-api.md                       # Standalone Delivery microservice, header auth, published content
 │   └── workers-and-queues.md                 # 5 BullMQ worker groups, schedules, Bull-board
 │
 ├── workflows/                                 # [Layer D] End-to-End Execution Traces
