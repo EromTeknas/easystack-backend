@@ -234,19 +234,20 @@ export async function seedTravelAgency(prisma: PrismaClient) {
       },
     });
 
-    // Environments: strictly 2 environments (development: rank 10, production: rank 20, isEditable: false)
+    // Environments: strictly 2 environments (dev: rank 10, live: rank 20, isEditable: false)
     const existingEnvs = await tx.environment.findMany({
       where: { projectId: project.id },
     });
 
-    const hasDev = existingEnvs.some((e) => e.name === 'development');
-    const hasProd = existingEnvs.some((e) => e.name === 'production');
+    const hasDev = existingEnvs.some((e) => e.name === 'dev' || e.name === 'development');
+    const hasProd = existingEnvs.some((e) => e.name === 'live' || e.name === 'production');
 
     if (!hasDev) {
       await tx.environment.create({
         data: {
           projectId: project.id,
-          name: 'development',
+          name: 'dev',
+          displayName: 'Dev',
           rank: 10,
           isEditable: true,
         },
@@ -257,7 +258,8 @@ export async function seedTravelAgency(prisma: PrismaClient) {
       await tx.environment.create({
         data: {
           projectId: project.id,
-          name: 'production',
+          name: 'live',
+          displayName: 'Live',
           rank: 20,
           isEditable: false,
         },
