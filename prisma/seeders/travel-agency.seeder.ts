@@ -578,9 +578,9 @@ export async function seedTravelAgency(prisma: PrismaClient) {
           description: def.description,
           schemaDefinition: def.schemaDefinition,
           activeVersionNumber: 1,
-          environmentVersions: { development: 1, production: 1 },
-          environments: ['development', 'production'],
-          deployedAt: { development: new Date(), production: new Date() },
+          environmentVersions: { dev: 1, live: 1 },
+          environments: ['dev', 'live'],
+          deployedAt: { dev: new Date(), live: new Date() },
           createdBy: seeded.userId,
         },
       },
@@ -895,7 +895,7 @@ export async function seedTravelAgency(prisma: PrismaClient) {
     { schemaSlug: 'agency-settings', entries: mockAgencySettings },
   ];
 
-  const environmentsToSeed = ['development', 'production'];
+  const environmentsToSeed = ['dev', 'live'];
 
   for (const env of environmentsToSeed) {
     for (const group of entryGroups) {
@@ -908,7 +908,7 @@ export async function seedTravelAgency(prisma: PrismaClient) {
           fr: { status: 'completed' as const, updatedAt: new Date() },
         };
 
-        const isProd = env === 'production';
+        const isProd = env === 'live' || env === 'production';
 
         await ContentEntry.findOneAndUpdate(
           {

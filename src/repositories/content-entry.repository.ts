@@ -56,6 +56,17 @@ export interface PaginatedContentEntries {
   totalPages: number;
 }
 
+function getEnvAliases(env?: string): string[] {
+  const clean = (env || 'dev').toLowerCase().trim();
+  if (clean === 'dev' || clean === 'development') {
+    return ['dev', 'development'];
+  }
+  if (clean === 'live' || clean === 'production') {
+    return ['live', 'production'];
+  }
+  return [clean];
+}
+
 export const ContentEntryRepository = {
   async listBySchema(
     projectId: number,
@@ -75,8 +86,8 @@ export const ContentEntryRepository = {
       query.status = options.status;
     }
 
-    const targetEnv = (options.environment || 'development').toLowerCase().trim();
-    query.environment = targetEnv;
+    const aliases = getEnvAliases(options.environment);
+    query.environment = { $in: aliases };
 
     if (options.search && options.search.trim()) {
       const searchRegex = new RegExp(options.search.trim(), 'i');
@@ -109,25 +120,27 @@ export const ContentEntryRepository = {
     projectId: number,
     schemaSlug: string,
     slug: string,
-    environment: string = 'development'
+    environment: string = 'dev'
   ): Promise<IContentEntry | null> {
+    const aliases = getEnvAliases(environment);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
       slug: slug.toLowerCase().trim(),
-      environment: environment.toLowerCase().trim(),
+      environment: { $in: aliases },
     }).exec();
   },
 
   async findSingleton(
     projectId: number,
     schemaSlug: string,
-    environment: string = 'development'
+    environment: string = 'dev'
   ): Promise<IContentEntry | null> {
+    const aliases = getEnvAliases(environment);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
-      environment: environment.toLowerCase().trim(),
+      environment: { $in: aliases },
     }).exec();
   },
 
@@ -139,7 +152,7 @@ export const ContentEntryRepository = {
       slug: data.slug.toLowerCase().trim(),
       title: data.title.trim(),
       status: data.status || 'draft',
-      environment: (data.environment || 'development').toLowerCase().trim(),
+      environment: (data.environment || 'dev').toLowerCase().trim(),
 
       scheduledAt: data.scheduledAt,
       publishedAt: data.publishedAt,

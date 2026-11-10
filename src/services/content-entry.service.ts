@@ -37,20 +37,27 @@ export const ContentEntryService = {
     return project;
   },
 
-  async getSchema(projectId: number, schemaSlug: string, environment: string = 'development') {
+  async getSchema(projectId: number, schemaSlug: string, environment: string = 'dev') {
     await this.assertProjectExists(projectId);
     const schema = await SchemaBlueprintRepository.findBySlug(projectId, schemaSlug);
     if (!schema) {
       throw new NotFoundError(`Schema '${schemaSlug}' not found in this project`);
     }
 
-    const targetEnv = (environment || 'development').toLowerCase().trim();
-    if (targetEnv === 'development') {
+    const targetEnv = (environment || 'dev').toLowerCase().trim();
+    const isDev = targetEnv === 'dev' || targetEnv === 'development';
+    if (isDev) {
       return schema;
     }
 
     // For non-development environments, check deployed version
-    const deployedVersion = schema.environmentVersions?.[targetEnv] || 0;
+    const envVers = (schema.environmentVersions || {}) as Record<string, number>;
+    let deployedVersion = Number(
+      envVers[targetEnv] !== undefined
+        ? envVers[targetEnv]
+        : (targetEnv === 'live' ? envVers['production'] : (targetEnv === 'production' ? envVers['live'] : 0))
+    ) || 0;
+
     if (deployedVersion <= 0) {
       throw new NotFoundError(`Blueprint '${schemaSlug}' is not deployed to '${targetEnv}'`);
     }
@@ -79,7 +86,7 @@ export const ContentEntryService = {
     isSingleton: boolean;
     data: PaginatedContentEntries | { entry: IContentEntry | null };
   }> {
-    const targetEnv = (options.environment || 'development').toLowerCase().trim();
+    const targetEnv = (options.environment || 'dev').toLowerCase().trim();
     const schema = await this.getSchema(projectId, schemaSlug, targetEnv);
 
     if (schema.type === 'singleton') {
@@ -118,9 +125,9 @@ export const ContentEntryService = {
     projectId: number,
     schemaSlug: string,
     entryIdOrSlug: string,
-    environment: string = 'development'
+    environment: string = 'dev'
   ): Promise<{ schema: any; entry: IContentEntry }> {
-    const targetEnv = (environment || 'development').toLowerCase().trim();
+    const targetEnv = (environment || 'dev').toLowerCase().trim();
     const schema = await this.getSchema(projectId, schemaSlug, targetEnv);
 
     if (schema.type === 'singleton') {
@@ -162,7 +169,7 @@ export const ContentEntryService = {
     schemaSlug: string,
     slug: string,
     excludeId?: string,
-    environment: string = 'development'
+    environment: string = 'dev'
   ): Promise<{ available: boolean; reason?: string }> {
     await this.assertProjectExists(projectId);
     const cleanSlug = slug.toLowerCase().trim();
@@ -203,7 +210,7 @@ export const ContentEntryService = {
       translations?: Record<string, Record<string, any>> | undefined;
     }
   ): Promise<IContentEntry> {
-    const targetEnv = (data.environment || 'development').toLowerCase().trim();
+    const targetEnv = (data.environment || 'dev').toLowerCase().trim();
     const schema = await this.getSchema(projectId, schemaSlug, targetEnv);
 
     if (schema.type === 'singleton') {
@@ -331,7 +338,7 @@ export const ContentEntryService = {
       translations?: Record<string, Record<string, any>> | undefined;
     }
   ): Promise<IContentEntry> {
-    const targetEnv = (data.environment || 'development').toLowerCase().trim();
+    const targetEnv = (data.environment || 'dev').toLowerCase().trim();
     const schema = await this.getSchema(projectId, schemaSlug, targetEnv);
 
     let existing: IContentEntry | null = null;
@@ -609,9 +616,9 @@ export const ContentEntryService = {
     schemaSlug: string,
     entryId: string,
     userId: number,
-    environment: string = 'development'
+    environment: string = 'dev'
   ): Promise<{ entry: IContentEntry | null; discarded: boolean; message: string }> {
-    const targetEnv = (environment || 'development').toLowerCase().trim();
+    const targetEnv = (environment || 'dev').toLowerCase().trim();
     const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId, targetEnv);
 
     // If entry was previously published, revert to published snapshot
@@ -734,10 +741,10 @@ export const ContentEntryService = {
     schemaSlug: string,
     entryId: string,
     userId: number,
-    targetEnv: string = 'development',
+    targetEnv: string = 'dev',
     forcePublish: boolean = false
   ): Promise<IContentEntry> {
-    const cleanTarget = (targetEnv || 'development').toLowerCase().trim();
+    const cleanTarget = (targetEnv || 'dev').toLowerCase().trim();
     const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId, cleanTarget);
 
     let forcePublishStatuses: Record<string, any> | undefined;
