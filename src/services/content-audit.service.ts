@@ -6,6 +6,7 @@ export interface CreateAuditLogDto {
   projectId: number;
   schemaSlug: string;
   contentEntryId: mongoose.Types.ObjectId | string;
+  environmentId?: number | null | undefined;
   environment: string;
   action: ContentAuditAction;
   userId?: number | undefined;
@@ -39,6 +40,7 @@ export const ContentAuditService = {
       projectId: dto.projectId,
       schemaSlug: dto.schemaSlug.toLowerCase().trim(),
       contentEntryId: new mongoose.Types.ObjectId(dto.contentEntryId),
+      environmentId: dto.environmentId,
       environment: (dto.environment || 'development').toLowerCase().trim(),
       action: dto.action,
       userName: userName || (dto.userId ? 'User' : 'AI Translation Engine'),

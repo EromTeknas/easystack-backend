@@ -98,11 +98,13 @@ graph TD
 - `POST /`: Creates a new content entry draft.
 - `PUT /:entryId`: Updates the draft content. When an entry was previously published, saving a draft updates only the working draft copy (`content`) while freezing and preserving the live `publishedContent`. If the entry has localized fields, saving a draft automatically marks target language translation statuses as `outdated` with `outdatedFields`. Saves an audit log entry with action `DRAFT_SAVED`.
 - `POST /:entryId/discard-draft`: Discards draft changes and restores content to the live `publishedContent` snapshot. If the schema defines localized fields, marks target language translation statuses as `outdated` with `outdatedFields`. Logs an audit action `DRAFT_DISCARDED`.
-- `POST /:entryId/publish`: Promotes the draft content to the published state (`publishedContent = content`). Accepts `{ forcePublish?: boolean }`.
+- `POST /:entryId/publish`: Promotes the draft content to the published state (`publishedContent = content`). Accepts `{ forcePublish?: boolean, syncToEnvIds?: (number | string)[], syncToHigherEnvs?: boolean }`.
   - Normal Publish (`forcePublish: false`): If the schema contains localized fields, publication is strictly blocked with HTTP 400 until all configured target language translations are completed without outdated fields.
   - Force Publish (`forcePublish: true`): Bypasses unready translation checks, marks all configured target languages in `translationStatuses` as `completed` with `outdatedFields: []` as-is, and proceeds with publication. Logs an audit entry with action `PUBLISHED` and `forcePublished: true` in details.
+  - Multi-Environment Synchronization: When `syncToEnvIds` or `syncToHigherEnvs` is specified, the backend atomically upserts the published snapshot into each target environment by `environmentId`, bumps delivery cache versions in Redis (`DeliveryCacheService`), and logs `SYNCED` audit records.
+- `POST /:entryId/sync`: Synchronizes a specific content entry across environments by environment ID (`{ sourceEnvId?: number | string, targetEnvIds: (number | string)[] }`).
 - `POST /:entryId/translate`: Enqueues automated translation jobs for localized fields. If project target languages were unconfigured, defaults to standard target languages (`['es', 'fr']`) and registers them on the project.
-- `POST /sync-environments`: Syncs content data between environments (e.g., development to staging).
+- `POST /sync-environments`: Syncs content data between environments (e.g., development to staging) with environment ID tracking.
 - `GET /:entryId/audit-logs`: Retrieves audit logs for the content entry (tracking actions: `CREATED`, `UPDATED`, `DRAFT_SAVED`, `PUBLISHED`, `SCHEDULED`, `AI_TRANSLATED`, `AI_TRANSLATION_TRIGGERED`, `TRANSLATION_OVERRIDDEN`, `SYNCED`, `DRAFT_DISCARDED`, `DELETED`).
 
 ---

@@ -128,18 +128,25 @@ export const publishContentEntry = asyncHandler(async (req: any, res: Response) 
   const projectId = Number(req.params.projectId);
   const { schemaSlug, entryId } = req.params;
   const userId = Number(req.user!.id);
-  const targetEnv = (req.body?.targetEnv as string) || (req.body?.environmentId as string) || (req.query?.environment as string) || (req.query?.environmentId as string) || undefined;
+  const targetEnv = (req.body?.targetEnv as string | number) || (req.body?.environmentId as string | number) || (req.query?.environment as string) || (req.query?.environmentId as string) || undefined;
   const forcePublish = Boolean(req.body?.forcePublish);
+  const syncToEnvIds = req.body?.syncToEnvIds || req.body?.syncToEnvs;
+  const syncToHigherEnvs = Boolean(req.body?.syncToHigherEnvs);
 
-  const entry = await ContentEntryService.publishEntry(
+  const publishOptions: any = {};
+  if (targetEnv !== undefined) publishOptions.targetEnv = targetEnv;
+  if (forcePublish !== undefined) publishOptions.forcePublish = forcePublish;
+  if (syncToEnvIds !== undefined) publishOptions.syncToEnvIds = syncToEnvIds;
+  if (syncToHigherEnvs) publishOptions.syncToHigherEnvs = true;
+
+  const result = await ContentEntryService.publishEntry(
     projectId,
     schemaSlug,
     entryId,
     userId,
-    targetEnv,
-    forcePublish
+    publishOptions
   );
-  return ok(res, { entry, message: `Content entry published successfully` });
+  return ok(res, result);
 });
 
 /**
@@ -199,12 +206,41 @@ export const scheduleContentEntry = asyncHandler(async (req: any, res: Response)
 });
 
 /**
+ * POST /api/projects/:projectId/content/:schemaSlug/:entryId/sync
+ */
+export const syncSingleContentEntry = asyncHandler(async (req: any, res: Response) => {
+  const projectId = Number(req.params.projectId);
+  const { schemaSlug, entryId } = req.params;
+  const userId = Number(req.user!.id);
+  const sourceEnvId = req.body?.sourceEnvId || req.body?.sourceEnv || req.query?.environment;
+  const targetEnvIds = req.body?.targetEnvIds || req.body?.targetEnvs || [];
+
+  if (!targetEnvIds || !Array.isArray(targetEnvIds) || targetEnvIds.length === 0) {
+    throw new BadRequestError('targetEnvIds array is required');
+  }
+
+  const result = await ContentEntryService.syncSingleEntry(
+    projectId,
+    schemaSlug,
+    entryId,
+    userId,
+    {
+      sourceEnvId,
+      targetEnvIds,
+    }
+  );
+  return ok(res, result);
+});
+
+/**
  * POST /api/projects/:projectId/content/sync-environments
  */
 export const syncEnvironmentData = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const userId = Number(req.user?.id || 0);
-  const { sourceEnv, targetEnv, schemaSlugs } = req.body;
+  const sourceEnv = req.body?.sourceEnvId || req.body?.sourceEnv;
+  const targetEnv = req.body?.targetEnvId || req.body?.targetEnv;
+  const { schemaSlugs } = req.body;
 
   if (!sourceEnv || !targetEnv) {
     throw new BadRequestError('sourceEnv and targetEnv are required');

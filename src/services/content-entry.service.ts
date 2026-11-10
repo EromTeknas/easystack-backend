@@ -13,7 +13,14 @@ import { IContentEntry, ContentEntryStatus } from '../models/content-entry.model
 import { ContentAuditService } from './content-audit.service';
 import { ContentAuditAction } from '../models/content-audit-log.model';
 import { DeliveryCacheService } from '../delivery/services/delivery-cache.service';
-import { EnvironmentResolverService } from './environment-resolver.service';
+import { EnvironmentResolverService, ResolvedEnvironment } from './environment-resolver.service';
+
+export interface PublishEntryOptions {
+  targetEnv?: string | number | null | undefined;
+  forcePublish?: boolean | undefined;
+  syncToEnvIds?: (number | string)[] | undefined;
+  syncToHigherEnvs?: boolean | undefined;
+}
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -776,10 +783,20 @@ export const ContentEntryService = {
     schemaSlug: string,
     entryId: string,
     userId: number,
-    targetEnv?: string | number | null,
-    forcePublish: boolean = false
-  ): Promise<IContentEntry> {
-    const env = await EnvironmentResolverService.resolve(projectId, targetEnv);
+    targetEnvOrOptions?: string | number | null | PublishEntryOptions,
+    forcePublishArg: boolean = false
+  ): Promise<{
+    entry: IContentEntry;
+    syncedEnvironments: { id: number; name: string; displayName: string; rank: number }[];
+    message: string;
+  }> {
+    const options: PublishEntryOptions =
+      typeof targetEnvOrOptions === 'object' && targetEnvOrOptions !== null
+        ? targetEnvOrOptions
+        : { targetEnv: targetEnvOrOptions, forcePublish: forcePublishArg };
+
+    const forcePublish = Boolean(options.forcePublish);
+    const env = await EnvironmentResolverService.resolve(projectId, options.targetEnv);
     const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId, env.id);
 
     let forcePublishStatuses: Record<string, any> | undefined;
@@ -849,6 +866,8 @@ export const ContentEntryService = {
       publishedTranslations: entry.translations || {},
       scheduledAt: null,
       updatedBy: userId,
+      environmentId: env.id,
+      environment: env.name,
     };
 
     if (forcePublishStatuses) {
@@ -865,13 +884,15 @@ export const ContentEntryService = {
       projectId,
       schemaSlug: schema.slug,
       contentEntryId: updated._id.toString(),
+      environmentId: env.id,
       environment: updated.environment,
       action: 'PUBLISHED',
       userId,
-      message: `Published content entry '${updated.title}' in '${updated.environment}'`,
+      message: `Published content entry '${updated.title}' in '${env.displayName || updated.environment}'`,
       details: {
         title: updated.title,
         slug: updated.slug,
+        environmentId: env.id,
         environment: updated.environment,
         forcePublished: Boolean(forcePublish && forcePublishStatuses),
       },
@@ -879,7 +900,211 @@ export const ContentEntryService = {
 
     await DeliveryCacheService.incrementBlueprintVersion(projectId, updated.environment, schema.slug);
 
-    return updated;
+    // Downstream Environment Synchronization
+    const syncedEnvironments: { id: number; name: string; displayName: string; rank: number }[] = [];
+    const allEnvs = await EnvironmentResolverService.getAllEnvironments(projectId);
+
+    let targetEnvsToSync: ResolvedEnvironment[] = [];
+    if (options.syncToHigherEnvs) {
+      targetEnvsToSync = allEnvs.filter((e) => e.rank > env.rank && e.id !== env.id);
+    } else if (options.syncToEnvIds && Array.isArray(options.syncToEnvIds) && options.syncToEnvIds.length > 0) {
+      for (const tId of options.syncToEnvIds) {
+        const resolved = await EnvironmentResolverService.resolve(projectId, tId);
+        if (resolved.id !== env.id && !targetEnvsToSync.some((e) => e.id === resolved.id)) {
+          targetEnvsToSync.push(resolved);
+        }
+      }
+    }
+
+    if (targetEnvsToSync.length > 0) {
+      const { ContentEntry } = await import('../models/content-entry.model');
+      for (const targetEnv of targetEnvsToSync) {
+        const queryFilter: any = {
+          projectId,
+          schemaSlug: schema.slug,
+          environmentId: targetEnv.id,
+        };
+        if (schema.type !== 'singleton') {
+          queryFilter.slug = updated.slug;
+        }
+
+        const syncedDoc = await ContentEntry.findOneAndUpdate(
+          queryFilter,
+          {
+            $set: {
+              schemaId: schema._id,
+              title: updated.title,
+              slug: updated.slug,
+              status: 'published',
+              environmentId: targetEnv.id,
+              environment: targetEnv.name,
+              baseLanguage: updated.baseLanguage,
+              content: updated.content,
+              publishedContent: updated.publishedContent || updated.content,
+              publishedTitle: updated.publishedTitle || updated.title,
+              publishedTranslations: updated.publishedTranslations || updated.translations || {},
+              publishedAt: updated.publishedAt || new Date(),
+              translations: updated.translations || {},
+              translationStatuses: updated.translationStatuses || {},
+              updatedBy: userId,
+            },
+            $setOnInsert: {
+              createdBy: updated.createdBy || userId,
+              createdAt: new Date(),
+            },
+          },
+          { upsert: true, new: true }
+        );
+
+        if (syncedDoc) {
+          await ContentAuditService.log({
+            projectId,
+            schemaSlug: schema.slug,
+            contentEntryId: syncedDoc._id.toString(),
+            environmentId: targetEnv.id,
+            environment: targetEnv.name,
+            action: 'SYNCED',
+            userId,
+            message: `Published and synced content entry '${updated.title}' to '${targetEnv.displayName || targetEnv.name}' (ID: ${targetEnv.id})`,
+            details: {
+              sourceEnvironmentId: env.id,
+              sourceEnvironment: env.name,
+              targetEnvironmentId: targetEnv.id,
+              targetEnvironment: targetEnv.name,
+            },
+          });
+
+          await DeliveryCacheService.incrementBlueprintVersion(projectId, targetEnv.name, schema.slug);
+
+          syncedEnvironments.push({
+            id: targetEnv.id,
+            name: targetEnv.name,
+            displayName: targetEnv.displayName,
+            rank: targetEnv.rank,
+          });
+        }
+      }
+    }
+
+    const message =
+      syncedEnvironments.length > 0
+        ? `Published in ${env.displayName || env.name} and synced to ${syncedEnvironments.map((e) => e.displayName || e.name).join(', ')} successfully.`
+        : `Published in ${env.displayName || env.name} successfully.`;
+
+    return {
+      entry: updated,
+      syncedEnvironments,
+      message,
+    };
+  },
+
+  async syncSingleEntry(
+    projectId: number,
+    schemaSlug: string,
+    entryId: string,
+    userId: number,
+    options: {
+      sourceEnvId?: number | string | null;
+      targetEnvIds: (number | string)[];
+    }
+  ): Promise<{
+    entry: IContentEntry;
+    syncedEnvironments: { id: number; name: string; displayName: string; rank: number }[];
+    message: string;
+  }> {
+    const sourceEnv = await EnvironmentResolverService.resolve(projectId, options.sourceEnvId);
+    const { schema, entry } = await this.getEntry(projectId, schemaSlug, entryId, sourceEnv.id);
+
+    const targetEnvsToSync: ResolvedEnvironment[] = [];
+    for (const tId of options.targetEnvIds) {
+      const resolved = await EnvironmentResolverService.resolve(projectId, tId);
+      if (resolved.id !== sourceEnv.id && !targetEnvsToSync.some((e) => e.id === resolved.id)) {
+        targetEnvsToSync.push(resolved);
+      }
+    }
+
+    if (targetEnvsToSync.length === 0) {
+      throw new BadRequestError('No valid target environments provided for synchronization');
+    }
+
+    const syncedEnvironments: { id: number; name: string; displayName: string; rank: number }[] = [];
+    const { ContentEntry } = await import('../models/content-entry.model');
+
+    for (const targetEnv of targetEnvsToSync) {
+      const queryFilter: any = {
+        projectId,
+        schemaSlug: schema.slug,
+        environmentId: targetEnv.id,
+      };
+      if (schema.type !== 'singleton') {
+        queryFilter.slug = entry.slug;
+      }
+
+      const syncedDoc = await ContentEntry.findOneAndUpdate(
+        queryFilter,
+        {
+          $set: {
+            schemaId: schema._id,
+            title: entry.title,
+            slug: entry.slug,
+            status: entry.status,
+            environmentId: targetEnv.id,
+            environment: targetEnv.name,
+            baseLanguage: entry.baseLanguage,
+            content: entry.content,
+            publishedContent: entry.publishedContent || (entry.status === 'published' ? entry.content : undefined),
+            publishedTitle: entry.publishedTitle || (entry.status === 'published' ? entry.title : undefined),
+            publishedTranslations: entry.publishedTranslations || (entry.status === 'published' ? entry.translations : undefined),
+            publishedAt: entry.publishedAt,
+            translations: entry.translations,
+            translationStatuses: entry.translationStatuses,
+            updatedBy: userId,
+          },
+          $setOnInsert: {
+            createdBy: entry.createdBy || userId,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true, new: true }
+      );
+
+      if (syncedDoc) {
+        await ContentAuditService.log({
+          projectId,
+          schemaSlug: schema.slug,
+          contentEntryId: syncedDoc._id.toString(),
+          environmentId: targetEnv.id,
+          environment: targetEnv.name,
+          action: 'SYNCED',
+          userId,
+          message: `Synced content entry '${entry.title}' to '${targetEnv.displayName || targetEnv.name}' (ID: ${targetEnv.id})`,
+          details: {
+            sourceEnvironmentId: sourceEnv.id,
+            sourceEnvironment: sourceEnv.name,
+            targetEnvironmentId: targetEnv.id,
+            targetEnvironment: targetEnv.name,
+          },
+        });
+
+        if (entry.status === 'published') {
+          await DeliveryCacheService.incrementBlueprintVersion(projectId, targetEnv.name, schema.slug);
+        }
+
+        syncedEnvironments.push({
+          id: targetEnv.id,
+          name: targetEnv.name,
+          displayName: targetEnv.displayName,
+          rank: targetEnv.rank,
+        });
+      }
+    }
+
+    const envNames = syncedEnvironments.map((e) => e.displayName || e.name).join(', ');
+    return {
+      entry,
+      syncedEnvironments,
+      message: `Content entry '${entry.title}' successfully synced to ${envNames}`,
+    };
   },
 
   async triggerTranslations(
@@ -1026,17 +1251,17 @@ export const ContentEntryService = {
 
   async syncEnvironmentData(
     projectId: number,
-    sourceEnv: string,
-    targetEnv: string,
+    sourceEnvParam: string | number,
+    targetEnvParam: string | number,
     schemaSlugs?: string[],
     userId?: number
   ): Promise<{ syncedCount: number; message: string }> {
     await this.assertProjectExists(projectId);
 
-    const cleanSource = sourceEnv.toLowerCase().trim();
-    const cleanTarget = targetEnv.toLowerCase().trim();
+    const sourceResolved = await EnvironmentResolverService.resolve(projectId, sourceEnvParam);
+    const targetResolved = await EnvironmentResolverService.resolve(projectId, targetEnvParam);
 
-    if (cleanSource === cleanTarget) {
+    if (sourceResolved.id === targetResolved.id) {
       throw new BadRequestError('Source and target environments must be different');
     }
 
@@ -1044,7 +1269,7 @@ export const ContentEntryService = {
 
     const filter: any = {
       projectId,
-      environment: cleanSource,
+      $or: [{ environmentId: sourceResolved.id }, { environment: sourceResolved.name }],
     };
     if (schemaSlugs && schemaSlugs.length > 0) {
       filter.schemaSlug = { in: schemaSlugs.map((s) => s.toLowerCase().trim()) };
@@ -1052,7 +1277,7 @@ export const ContentEntryService = {
 
     const sourceEntries = await ContentEntry.find(filter).exec();
     if (sourceEntries.length === 0) {
-      return { syncedCount: 0, message: `No content entries found in environment '${cleanSource}'` };
+      return { syncedCount: 0, message: `No content entries found in environment '${sourceResolved.displayName || sourceResolved.name}'` };
     }
 
     let syncedCount = 0;
@@ -1062,21 +1287,28 @@ export const ContentEntryService = {
           projectId,
           schemaSlug: src.schemaSlug,
           slug: src.slug,
-          environment: cleanTarget,
+          environmentId: targetResolved.id,
         },
         {
           $set: {
             schemaId: src.schemaId,
             title: src.title,
             status: src.status,
+            environmentId: targetResolved.id,
+            environment: targetResolved.name,
             baseLanguage: src.baseLanguage,
             content: src.content,
+            publishedContent: src.publishedContent || (src.status === 'published' ? src.content : undefined),
+            publishedTitle: src.publishedTitle || (src.status === 'published' ? src.title : undefined),
+            publishedTranslations: src.publishedTranslations || (src.status === 'published' ? src.translations : undefined),
+            publishedAt: src.publishedAt,
             translations: src.translations,
             translationStatuses: src.translationStatuses,
-            updatedBy: src.updatedBy || src.createdBy,
+            updatedBy: src.updatedBy || src.createdBy || userId,
           },
           $setOnInsert: {
-            createdBy: src.createdBy,
+            createdBy: src.createdBy || userId,
+            createdAt: new Date(),
           },
         },
         { upsert: true, new: true }
@@ -1087,11 +1319,17 @@ export const ContentEntryService = {
           projectId,
           schemaSlug: src.schemaSlug,
           contentEntryId: targetDoc._id.toString(),
-          environment: cleanTarget,
+          environmentId: targetResolved.id,
+          environment: targetResolved.name,
           action: 'SYNCED',
           userId,
-          message: `Synced content entry '${src.title}' from '${cleanSource}' to '${cleanTarget}'`,
-          details: { sourceEnv: cleanSource, targetEnv: cleanTarget },
+          message: `Synced content entry '${src.title}' from '${sourceResolved.displayName || sourceResolved.name}' to '${targetResolved.displayName || targetResolved.name}'`,
+          details: {
+            sourceEnvironmentId: sourceResolved.id,
+            sourceEnvironment: sourceResolved.name,
+            targetEnvironmentId: targetResolved.id,
+            targetEnvironment: targetResolved.name,
+          },
         });
       }
       syncedCount++;
@@ -1099,12 +1337,12 @@ export const ContentEntryService = {
 
     const syncedSchemaSlugs = Array.from(new Set(sourceEntries.map((e) => e.schemaSlug)));
     for (const slug of syncedSchemaSlugs) {
-      await DeliveryCacheService.incrementBlueprintVersion(projectId, cleanTarget, slug);
+      await DeliveryCacheService.incrementBlueprintVersion(projectId, targetResolved.name, slug);
     }
 
     return {
       syncedCount,
-      message: `Successfully synced ${syncedCount} content entries from '${cleanSource}' to '${cleanTarget}'`,
+      message: `Successfully synced ${syncedCount} content entries from '${sourceResolved.displayName || sourceResolved.name}' to '${targetResolved.displayName || targetResolved.name}'`,
     };
   },
 

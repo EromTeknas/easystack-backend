@@ -134,8 +134,13 @@ Mounted in [`src/routes/schemas/schema-blueprint.routes.ts`](file:///home/etekna
 - `POST /:schemaSlug`: Create content entry draft
 - `PUT /:schemaSlug/:entryId`: Update content entry draft
 - `DELETE /:schemaSlug/:entryId`: Delete content entry
-- `POST /:schemaSlug/:entryId/publish`: Publish content entry
+- `POST /:schemaSlug/:entryId/publish`: Publish content entry (supports syncToEnvIds)
+- `POST /:schemaSlug/:entryId/sync`: Sync individual entry across environments
 - `GET /:schemaSlug/:entryId/audit-logs`: Get content entry audit logs
+
+### Projects (`/api/projects`)
+- `GET /:projectId/summary`: Get aggregated project home overview, metrics, and editorial shortcuts
+- `GET /:projectId/usage`: Get project plan usage and resource limits
 
 ### Media Assets (`/api/projects/:projectId/assets`)
 

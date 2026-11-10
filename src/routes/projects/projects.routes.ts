@@ -21,7 +21,8 @@ import {
   removeProjectMember,
   updateProjectEnvironment,
   createProjectEnvironment,
-  getProjectUsage
+  getProjectUsage,
+  getProjectSummary
 } from './projects.controller';
 import {
   checkSubdomainAvailability,
@@ -456,6 +457,18 @@ router.get(
   }),
   attachWorkspaceFromProject,
   getProjectUsage
+);
+
+router.get(
+  '/:projectId/summary',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.PROJECT.READ,
+    scopeId: req => req.params.projectId as string,
+  }),
+  attachWorkspaceFromProject,
+  getProjectSummary
 );
 
 export default router;

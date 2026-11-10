@@ -17,6 +17,7 @@ export interface IContentAuditLog extends Document {
   projectId: number;
   schemaSlug: string;
   contentEntryId: mongoose.Types.ObjectId;
+  environmentId?: number | null | undefined;
   environment: string;
   action: ContentAuditAction;
   userId?: number | null | undefined;
@@ -33,6 +34,7 @@ const ContentAuditLogSchema = new Schema(
     projectId: { type: Number, required: true, index: true },
     schemaSlug: { type: String, required: true, index: true },
     contentEntryId: { type: Schema.Types.ObjectId, required: true, index: true },
+    environmentId: { type: Number, index: true },
     environment: { type: String, default: 'development', index: true },
     action: {
       type: String,

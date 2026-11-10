@@ -7,6 +7,7 @@ import {
   updateContentEntry,
   deleteContentEntry,
   publishContentEntry,
+  syncSingleContentEntry,
   discardContentEntryDraft,
   scheduleContentEntry,
   syncEnvironmentData,
@@ -124,6 +125,17 @@ router.post(
     scopeId: (req) => req.params.projectId as string,
   }),
   publishContentEntry
+);
+
+router.post(
+  '/:schemaSlug/:entryId/sync',
+  authenticate,
+  authorize({
+    scope: 'project',
+    permission: PERMISSIONS.CONTENT.UPDATE,
+    scopeId: (req) => req.params.projectId as string,
+  }),
+  syncSingleContentEntry
 );
 
 router.post(

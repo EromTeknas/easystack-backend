@@ -693,4 +693,157 @@ export const ProjectService = {
     };
   },
 
+  async getProjectSummary(projectId: number, environmentParam?: string | number) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        environments: {
+          orderBy: { rank: 'asc' },
+        },
+        members: {
+          where: { removedAt: null },
+          include: {
+            role: true,
+            workspaceMember: {
+              include: {
+                user: {
+                  select: { id: true, firstName: true, lastName: true, email: true },
+                },
+              },
+            },
+          },
+        },
+        apiKeys: {
+          where: { status: 'ACTIVE' },
+        },
+      },
+    });
+
+    if (!project) throw new NotFoundError('Project not found');
+
+    const environments = project.environments.map((e) => ({
+      id: e.id,
+      name: e.name,
+      displayName: e.displayName || e.name,
+      rank: e.rank,
+      isEditable: e.isEditable,
+      requiresApproval: e.requiresApproval,
+    }));
+
+    const baseEnv = environments[0];
+    const terminalEnv = environments[environments.length - 1];
+
+    let currentEnv = baseEnv;
+    if (environmentParam) {
+      const match = environments.find(
+        (e) =>
+          String(e.id) === String(environmentParam) ||
+          e.name.toLowerCase() === String(environmentParam).toLowerCase().trim()
+      );
+      if (match) currentEnv = match;
+    }
+
+    const { SchemaBlueprint } = await import('../models/schema-blueprint.model');
+    const { ContentEntry } = await import('../models/content-entry.model');
+    const { ProjectAssetRepository } = await import('../repositories/project-asset.repository');
+
+    const [
+      allBlueprints,
+      totalPublishedEntries,
+      totalDraftEntries,
+      recentEntries,
+      totalAssetBytes,
+      totalAssetsCount,
+    ] = await Promise.all([
+      SchemaBlueprint.find({ projectId, removedAt: null }).sort({ updatedAt: -1 }).lean().exec(),
+      ContentEntry.countDocuments({ projectId, status: 'published' }).exec(),
+      ContentEntry.countDocuments({ projectId, status: { $ne: 'published' } }).exec(),
+      ContentEntry.find({ projectId }).sort({ updatedAt: -1 }).limit(6).lean().exec(),
+      ProjectAssetRepository.getTotalStorageBytes(projectId),
+      prisma.projectAsset.count({ where: { projectId, removedAt: null } }),
+    ]);
+
+    const singletons = allBlueprints.filter((b: any) => b.type === 'singleton');
+    const collections = allBlueprints.filter((b: any) => b.type === 'collection');
+
+    const singletonsList = singletons.map((s: any) => ({
+      id: s._id.toString(),
+      slug: s.slug,
+      name: s.name,
+      type: 'singleton',
+      updatedAt: s.updatedAt,
+    }));
+
+    const collectionsList = collections.map((c: any) => ({
+      id: c._id.toString(),
+      slug: c.slug,
+      name: c.name,
+      type: 'collection',
+      updatedAt: c.updatedAt,
+    }));
+
+    const formattedRecentEntries = recentEntries.map((e: any) => ({
+      id: e._id.toString(),
+      schemaSlug: e.schemaSlug,
+      title: e.title,
+      slug: e.slug,
+      status: e.status,
+      environmentId: e.environmentId,
+      environment: e.environment,
+      publishedAt: e.publishedAt,
+      updatedAt: e.updatedAt,
+    }));
+
+    const membersCount = project.members.length;
+    const apiKeysCount = project.apiKeys.length;
+    const assetStorageMB = Math.round((Number(totalAssetBytes) / (1024 * 1024)) * 100) / 100;
+
+    return {
+      project: {
+        id: project.id,
+        workspaceId: project.workspaceId,
+        name: project.name,
+        slug: project.slug,
+        description: project.description,
+        supportedLanguages: project.supportedLanguages,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      },
+      environments: {
+        list: environments,
+        base: baseEnv,
+        terminal: terminalEnv,
+        current: currentEnv,
+      },
+      metrics: {
+        blueprints: {
+          total: allBlueprints.length,
+          singletonsCount: singletons.length,
+          collectionsCount: collections.length,
+        },
+        contentEntries: {
+          total: totalPublishedEntries + totalDraftEntries,
+          publishedCount: totalPublishedEntries,
+          draftCount: totalDraftEntries,
+        },
+        assets: {
+          count: totalAssetsCount,
+          storageBytes: Number(totalAssetBytes),
+          storageMB: assetStorageMB,
+        },
+        team: {
+          membersCount,
+        },
+        apiKeys: {
+          count: apiKeysCount,
+        },
+      },
+      shortcuts: {
+        singletons: singletonsList,
+        collections: collectionsList,
+      },
+      recentEntries: formattedRecentEntries,
+    };
+  },
+
 };

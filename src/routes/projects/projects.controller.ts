@@ -641,3 +641,14 @@ export const getProjectUsage = async (req: any, res: any, next: any) => {
   }
 };
 
+export const getProjectSummary = async (req: any, res: any, next: any) => {
+  try {
+    const projectId = Number(req.params.projectId);
+    const env = req.query.env as string | undefined;
+    const summary = await ProjectService.getProjectSummary(projectId, env);
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    next(error);
+  }
+};
+
