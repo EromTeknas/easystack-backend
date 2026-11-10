@@ -234,35 +234,30 @@ export async function seedTravelAgency(prisma: PrismaClient) {
       },
     });
 
-    // Environments: strictly 2 environments (dev: rank 10, live: rank 20, isEditable: false)
+    // Environments: initial dev and live environments if none exist
     const existingEnvs = await tx.environment.findMany({
       where: { projectId: project.id },
+      orderBy: { rank: 'asc' },
     });
 
-    const hasDev = existingEnvs.some((e) => e.name === 'dev' || e.name === 'development');
-    const hasProd = existingEnvs.some((e) => e.name === 'live' || e.name === 'production');
-
-    if (!hasDev) {
-      await tx.environment.create({
-        data: {
-          projectId: project.id,
-          name: 'dev',
-          displayName: 'Dev',
-          rank: 10,
-          isEditable: true,
-        },
-      });
-    }
-
-    if (!hasProd) {
-      await tx.environment.create({
-        data: {
-          projectId: project.id,
-          name: 'live',
-          displayName: 'Live',
-          rank: 20,
-          isEditable: false,
-        },
+    if (existingEnvs.length === 0) {
+      await tx.environment.createMany({
+        data: [
+          {
+            projectId: project.id,
+            name: 'dev',
+            displayName: 'Dev',
+            rank: 10,
+            isEditable: true,
+          },
+          {
+            projectId: project.id,
+            name: 'live',
+            displayName: 'Live',
+            rank: 20,
+            isEditable: false,
+          },
+        ],
       });
     }
 
@@ -565,6 +560,23 @@ export async function seedTravelAgency(prisma: PrismaClient) {
 
   const savedBlueprints: Record<string, any> = {};
 
+  const allProjectEnvs = await prisma.environment.findMany({
+    where: { projectId: seeded.projectId },
+    orderBy: { rank: 'asc' },
+  });
+
+  const envVersionsMap: Record<string, number> = {};
+  const deployedAtMap: Record<string, Date> = {};
+  const envNamesList: string[] = [];
+
+  for (const pe of allProjectEnvs) {
+    envVersionsMap[pe.name] = 1;
+    envVersionsMap[String(pe.id)] = 1;
+    deployedAtMap[pe.name] = new Date();
+    deployedAtMap[String(pe.id)] = new Date();
+    envNamesList.push(pe.name);
+  }
+
   for (const def of blueprintDefinitions) {
     const blueprint = await SchemaBlueprint.findOneAndUpdate(
       { projectId: seeded.projectId, slug: def.slug },
@@ -578,9 +590,9 @@ export async function seedTravelAgency(prisma: PrismaClient) {
           description: def.description,
           schemaDefinition: def.schemaDefinition,
           activeVersionNumber: 1,
-          environmentVersions: { dev: 1, live: 1 },
-          environments: ['dev', 'live'],
-          deployedAt: { dev: new Date(), live: new Date() },
+          environmentVersions: envVersionsMap,
+          environments: envNamesList,
+          deployedAt: deployedAtMap,
           createdBy: seeded.userId,
         },
       },
@@ -895,9 +907,7 @@ export async function seedTravelAgency(prisma: PrismaClient) {
     { schemaSlug: 'agency-settings', entries: mockAgencySettings },
   ];
 
-  const environmentsToSeed = ['dev', 'live'];
-
-  for (const env of environmentsToSeed) {
+  for (const env of allProjectEnvs) {
     for (const group of entryGroups) {
       const blueprint = savedBlueprints[group.schemaSlug];
       if (!blueprint) continue;
@@ -908,13 +918,14 @@ export async function seedTravelAgency(prisma: PrismaClient) {
           fr: { status: 'completed' as const, updatedAt: new Date() },
         };
 
-        const isProd = env === 'live' || env === 'production';
-
         await ContentEntry.findOneAndUpdate(
           {
             projectId: seeded.projectId,
             schemaSlug: group.schemaSlug,
-            environment: env,
+            $or: [
+              { environment: env.name },
+              { environmentId: env.id },
+            ],
             slug: entryDef.slug,
           },
           {
@@ -925,7 +936,8 @@ export async function seedTravelAgency(prisma: PrismaClient) {
               slug: entryDef.slug,
               title: entryDef.title,
               status: 'published',
-              environment: env,
+              environment: env.name,
+              environmentId: env.id,
               baseLanguage: 'en',
               content: entryDef.content,
               translations: entryDef.translations,

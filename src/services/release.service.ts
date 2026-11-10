@@ -85,15 +85,21 @@ export const ReleaseService = {
     const sourceEnvName = sourceEnv.name.toLowerCase().trim();
     const targetEnvName = targetEnv.name.toLowerCase().trim();
 
-    const isBaseSourceEnv = sourceIndex === 0;
+    const isBaseSourceEnv = sourceIndex === 0 || sourceEnv.isEditable;
 
     if (!isBaseSourceEnv) {
       for (const bp of selectedBlueprints) {
         const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-        const sourceVer = envVers[sourceEnvName] || 0;
-        const targetVer = envVers[targetEnvName] || 0;
+        const sourceVer =
+          envVers[String(sourceEnv.id)] !== undefined
+            ? Number(envVers[String(sourceEnv.id)])
+            : Number(envVers[sourceEnvName]) || 0;
+        const targetVer =
+          envVers[String(targetEnv.id)] !== undefined
+            ? Number(envVers[String(targetEnv.id)])
+            : Number(envVers[targetEnvName]) || 0;
         const isDeletion = sourceVer === 0 && targetVer > 0;
-        if (!isDeletion && !envVers[sourceEnvName]) {
+        if (!isDeletion && sourceVer <= 0) {
           throw new BadRequestError(
             `Blueprint '${bp.name}' has not been deployed to source environment '${sourceEnv.name}'.`
           );
@@ -104,10 +110,15 @@ export const ReleaseService = {
     const blueprintSummaries = selectedBlueprints.map((bp) => {
       const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
       const sourceVer =
-        envVers[sourceEnvName] !== undefined
+        envVers[String(sourceEnv.id)] !== undefined
+          ? Number(envVers[String(sourceEnv.id)])
+          : envVers[sourceEnvName] !== undefined
           ? Number(envVers[sourceEnvName])
-          : (isBaseSourceEnv || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 0);
-      const targetVer = Number(envVers[targetEnvName]) || 0;
+          : (isBaseSourceEnv ? bp.activeVersionNumber || 1 : 0);
+      const targetVer =
+        envVers[String(targetEnv.id)] !== undefined
+          ? Number(envVers[String(targetEnv.id)])
+          : Number(envVers[targetEnvName]) || 0;
       const action = sourceVer === 0 && targetVer > 0 ? 'DELETE' : 'DEPLOY';
       return {
         id: bp._id.toString(),
@@ -542,16 +553,21 @@ export const ReleaseService = {
             const sourceVer =
               bpSummary?.sourceVersionNumber !== undefined
                 ? Number(bpSummary.sourceVersionNumber)
-                : (envVers[sourceEnvName] !== undefined
+                : (envVers[String(release.sourceEnvironment.id)] !== undefined
+                    ? Number(envVers[String(release.sourceEnvironment.id)])
+                    : envVers[sourceEnvName] !== undefined
                     ? Number(envVers[sourceEnvName])
-                    : (isBaseSource || sourceEnvName === 'development' ? bp.activeVersionNumber || 1 : 1));
+                    : (isBaseSource || release.sourceEnvironment.isEditable ? bp.activeVersionNumber || 1 : 1));
 
             const isDeletion = bpSummary?.action === 'DELETE' || sourceVer === 0;
 
             if (isDeletion) {
               // Destructive deletion promotion
               envVers[targetEnvName] = 0;
-              const updatedEnvs = currentEnvs.filter((e) => e !== targetEnvName);
+              envVers[String(release.targetEnvironment.id)] = 0;
+              const updatedEnvs = currentEnvs.filter(
+                (e) => e !== targetEnvName && e !== String(release.targetEnvironment.id)
+              );
 
               // Soft-delete content entries in target environment
               const { ContentEntry } = await import('../models/content-entry.model');
@@ -559,7 +575,11 @@ export const ReleaseService = {
                 {
                   projectId: release.projectId,
                   schemaId: bp._id,
-                  environment: targetEnvName,
+                  $or: [
+                    { environment: targetEnvName },
+                    { environment: String(release.targetEnvironment.id) },
+                    { environmentId: release.targetEnvironment.id },
+                  ],
                   removedAt: null,
                 },
                 { $set: { removedAt: new Date() } }
@@ -583,7 +603,9 @@ export const ReleaseService = {
               const updatedEnvs = Array.from(new Set([...currentEnvs, targetEnvName]));
               const deployedAtMap: Record<string, Date> = (bp.deployedAt as any) || {};
               deployedAtMap[targetEnvName] = new Date();
+              deployedAtMap[String(release.targetEnvironment.id)] = new Date();
               envVers[targetEnvName] = sourceVer;
+              envVers[String(release.targetEnvironment.id)] = sourceVer;
 
               // Fetch snapshot for sourceVer if exists, else fallback to bp.schemaDefinition
               const sourceSnapshot = await SchemaBlueprintVersion.findOne({
@@ -965,13 +987,14 @@ export const ReleaseService = {
       where: { projectId },
       orderBy: { rank: 'asc' },
     });
-    const isBaseSource = Boolean(allEnvs[0] && allEnvs[0].id === sourceEnv.id);
+    const isBaseSource = sourceEnv.isEditable || Boolean(allEnvs[0] && allEnvs[0].id === sourceEnv.id);
 
     const blueprints = await SchemaBlueprint.find({ projectId, removedAt: null }).exec();
     const sourceEnvName = sourceEnv.name.toLowerCase().trim();
     const targetEnvName = targetEnv.name.toLowerCase().trim();
 
-    const getEnvVer = (envVers: Record<string, number>, envName: string) => {
+    const getEnvVer = (envVers: Record<string, number>, envName: string, envId?: number) => {
+      if (envId && envVers[String(envId)] !== undefined) return Number(envVers[String(envId)]);
       const clean = envName.toLowerCase().trim();
       if (envVers[clean] !== undefined) return Number(envVers[clean]);
       if (clean === 'dev' && envVers['development'] !== undefined) return Number(envVers['development']);
@@ -983,13 +1006,12 @@ export const ReleaseService = {
 
     for (const bp of blueprints) {
       const envVers: Record<string, number> = (bp.environmentVersions as any) || {};
-      const resolvedSource = getEnvVer(envVers, sourceEnvName);
-      const isDevSource = isBaseSource || sourceEnvName === 'dev' || sourceEnvName === 'development';
+      const resolvedSource = getEnvVer(envVers, sourceEnvName, sourceEnv.id);
       const sourceVer = resolvedSource !== undefined
         ? resolvedSource
-        : (isDevSource ? bp.activeVersionNumber || 1 : 0);
+        : (isBaseSource ? bp.activeVersionNumber || 1 : 0);
 
-      const resolvedTarget = getEnvVer(envVers, targetEnvName);
+      const resolvedTarget = getEnvVer(envVers, targetEnvName, targetEnv.id);
       const targetVer = resolvedTarget !== undefined ? resolvedTarget : 0;
 
       if (sourceVer > 0 && sourceVer !== targetVer) {

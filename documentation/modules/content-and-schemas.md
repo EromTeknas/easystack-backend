@@ -29,6 +29,7 @@ src/
 │       └── content-entry.controller.ts    # Content CRUD, publish, environment sync, audit
 │
 ├── services/
+│   ├── environment-resolver.service.ts     # Dynamic environment resolution by ID, name, or rank
 │   ├── schema-blueprint.service.ts         # Schema creation, field validation, versioning
 │   ├── content-entry.service.ts            # Entry drafting, schema conformance, publishing
 │   └── content-audit.service.ts            # Content audit trail logger
@@ -120,18 +121,23 @@ graph TD
 
 ---
 
-## 6. Environment Resolution & Aliasing Rules
+## 6. Dynamic Environment Resolution & Rank Hierarchy
 
-To ensure seamless interoperability between legacy environment identifiers and standardized environment names, both the Content Entry Service and Delivery API enforce canonical environment aliasing:
+Environments are completely decoupled from hardcoded names (such as "dev" or "production"). The system resolves environments dynamically using `EnvironmentResolverService`:
 
-- **Canonical Aliases**:
-  - `dev` <-> `development`
-  - `live` <-> `production`
-- **Draft / Authoring Environment Semantics**:
-  - In `dev` (the base authoring environment), schemas are edited directly and are never promoted through release version numbers. `ContentEntryService.getSchema` always returns the active schema directly when `targetEnv` is `dev` or `development`.
-- **Deployed Environment Semantics**:
-  - In `live` (and any non-dev environments), `ContentEntryService.getSchema` checks `schema.environmentVersions` using canonical alias fallbacks (`live` -> `production`). If a deployed version exists, it hydrates the schema definition snapshot from `SchemaBlueprintVersion`. If `deployedVersion <= 0`, a 404 `Blueprint '{slug}' is not deployed to '{env}'` is thrown.
+- **Rank-Based Hierarchy**:
+  - Environments for a project are ordered ascending by `rank`.
+  - The lowest rank environment (or `isEditable: true`) is treated as the **Base Authoring Environment**.
+  - All higher rank environments (`rank > lowestRank` or `isEditable: false`) are downstream deployment targets.
+- **Dynamic Resolution (`EnvironmentResolverService.resolve`)**:
+  - Resolves by numeric environment ID, exact name, or canonical fallback.
+  - If no identifier is provided, automatically falls back to the project's base authoring environment (lowest rank).
+  - Returns metadata: `{ id, name, displayName, rank, isEditable, isBaseAuthoring }`.
+- **Authoring vs. Deployed Environments**:
+  - In the base authoring environment (`isBaseAuthoring: true`), blueprints are edited directly and `ContentEntryService.getSchema` returns the active schema without requiring a deployment version.
+  - In downstream environments (`isBaseAuthoring: false`), `ContentEntryService.getSchema` checks `schema.environmentVersions` by both environment ID string and environment name. If `deployedVersion <= 0`, a 404 `Blueprint '{slug}' is not deployed to '{env}'` is thrown.
 - **Data Persistence & Queries**:
-  - Database queries across `ContentEntryRepository` match environments using `{ environment: { $in: getEnvAliases(env) } }` to ensure entries seeded or created under either naming convention are retrieved without friction.
+  - `ContentEntry` documents record `environmentId: number` alongside `environment: string`.
+  - Content queries support `{ environmentId }` matching as well as name matching, guaranteeing stability even if an environment is renamed in MySQL.
 
 

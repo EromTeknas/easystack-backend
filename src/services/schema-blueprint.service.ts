@@ -4,6 +4,7 @@ import { BadRequestError, NotFoundError, ConflictError } from '../errors';
 import { prisma } from '../db';
 import { ISchemaBlueprint } from '../models/schema-blueprint.model';
 import logger from '../utils/logger';
+import { EnvironmentResolverService } from './environment-resolver.service';
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -60,20 +61,14 @@ export const SchemaBlueprintService = {
     if (!schema || schema.projectId !== projectId) {
       throw new NotFoundError('Schema blueprint not found in this project');
     }
-    const cleanEnv = (environment || 'dev').toLowerCase().trim();
-    const isDev = cleanEnv === 'dev' || cleanEnv === 'development';
-    if (isDev) {
-      const envVers = (schema.environmentVersions as any) || {};
-      const devVer = Number(envVers['dev'] !== undefined ? envVers['dev'] : envVers['development']);
-      if (devVer === 0) {
-        throw new NotFoundError("Schema blueprint is not active in 'dev'");
-      }
+    const env = await EnvironmentResolverService.resolve(projectId, environment);
+    if (env.isBaseAuthoring) {
       return schema;
     }
     const envVers = (schema.environmentVersions as any) || {};
-    const verNum = Number(envVers[cleanEnv] !== undefined ? envVers[cleanEnv] : (cleanEnv === 'live' ? envVers['production'] : 0)) || 0;
+    const verNum = Number(envVers[String(env.id)] ?? envVers[env.name]) || 0;
     if (verNum <= 0) {
-      throw new NotFoundError(`Schema blueprint is not deployed to '${cleanEnv}'`);
+      throw new NotFoundError(`Schema blueprint is not deployed to '${env.displayName || env.name}'`);
     }
     const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
     const versionDoc = await SchemaBlueprintVersion.findOne({
@@ -88,26 +83,20 @@ export const SchemaBlueprintService = {
     return schema;
   },
 
-  async getSchemaBySlug(projectId: number, slug: string, environment?: string): Promise<ISchemaBlueprint> {
+  async getSchemaBySlug(projectId: number, slug: string, environment?: string | number | null): Promise<ISchemaBlueprint> {
     await this.assertProjectExists(projectId);
     const schema = await SchemaBlueprintRepository.findBySlug(projectId, slug);
     if (!schema) {
       throw new NotFoundError(`Schema blueprint '${slug}' not found in this project`);
     }
-    const cleanEnv = (environment || 'dev').toLowerCase().trim();
-    const isDev = cleanEnv === 'dev' || cleanEnv === 'development';
-    if (isDev) {
-      const envVers = (schema.environmentVersions as any) || {};
-      const devVer = Number(envVers['dev'] !== undefined ? envVers['dev'] : envVers['development']);
-      if (devVer === 0) {
-        throw new NotFoundError(`Schema blueprint '${slug}' is not active in 'dev'`);
-      }
+    const env = await EnvironmentResolverService.resolve(projectId, environment);
+    if (env.isBaseAuthoring) {
       return schema;
     }
     const envVers = (schema.environmentVersions as any) || {};
-    const verNum = Number(envVers[cleanEnv] !== undefined ? envVers[cleanEnv] : (cleanEnv === 'live' ? envVers['production'] : 0)) || 0;
+    const verNum = Number(envVers[String(env.id)] ?? envVers[env.name]) || 0;
     if (verNum <= 0) {
-      throw new NotFoundError(`Schema blueprint '${slug}' is not deployed to '${cleanEnv}'`);
+      throw new NotFoundError(`Schema blueprint '${slug}' is not deployed to '${env.displayName || env.name}'`);
     }
     const { SchemaBlueprintVersion } = await import('../models/schema-blueprint-version.model');
     const versionDoc = await SchemaBlueprintVersion.findOne({

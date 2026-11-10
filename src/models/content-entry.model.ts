@@ -16,7 +16,8 @@ export interface IContentEntry extends Document {
   slug: string; // e.g., "my-first-post" or "default" for singletons
   title: string; // Human readable title
   status: ContentEntryStatus;
-  environment: string; // e.g. "production", "staging", "development"
+  environmentId?: number; // References MySQL Environment ID
+  environment: string; // Environment slug/name
   scheduledAt?: Date;
   publishedAt?: Date;
   publishedContent?: Record<string, any>;
@@ -46,9 +47,12 @@ const ContentEntrySchema = new Schema(
       default: 'draft',
       index: true,
     },
+    environmentId: {
+      type: Number,
+      index: true,
+    },
     environment: {
       type: String,
-      default: 'development',
       index: true,
     },
 

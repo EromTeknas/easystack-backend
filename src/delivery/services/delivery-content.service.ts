@@ -2,6 +2,7 @@ import { PublishedContentRepository, PublishedCollectionQueryOptions } from '../
 import { DeliveryContext, DeliveryResponse, DeliveryListQueryParams } from '../types/delivery.types';
 import { NotFoundError } from '../../errors';
 import { IContentEntry } from '../../models/content-entry.model';
+import { EnvironmentResolverService } from '../../services/environment-resolver.service';
 
 export const DeliveryContentService = {
   getEnvironmentAliases(envName: string): string[] {
@@ -64,39 +65,40 @@ export const DeliveryContentService = {
       throw new NotFoundError(`Blueprint '${blueprintSlug}' not found in this project`);
     }
 
-    const envAliases = this.getEnvironmentAliases(context.environmentName);
+    const resolvedEnv = await EnvironmentResolverService.resolve(
+      context.projectId,
+      context.environmentId || context.environmentName
+    );
 
-    // Verify blueprint is deployed to this environment (for non-dev environments)
-    const isDev = envAliases.includes('dev') || envAliases.includes('development');
-    if (!isDev) {
+    // Verify blueprint is deployed to this environment (for non-base authoring environments)
+    if (!resolvedEnv.isBaseAuthoring) {
       const envVers = (blueprint.environmentVersions || {}) as Record<string, number>;
-      let deployedVer = 0;
-      for (const alias of envAliases) {
-        if (envVers[alias] !== undefined && envVers[alias] > 0) {
-          deployedVer = envVers[alias];
-          break;
-        }
-      }
+      const deployedVer =
+        envVers[String(resolvedEnv.id)] ??
+        envVers[resolvedEnv.name.toLowerCase()] ??
+        envVers[context.environmentName.toLowerCase()] ??
+        0;
       if (deployedVer <= 0) {
         throw new NotFoundError(
-          `Blueprint '${blueprintSlug}' is not published in environment '${context.environmentName}'`
+          `Blueprint '${blueprintSlug}' is not published in environment '${resolvedEnv.displayName || resolvedEnv.name}'`
         );
       }
     }
 
     const nowIso = new Date().toISOString();
+    const envTarget = { environmentId: resolvedEnv.id, environmentName: resolvedEnv.name };
 
     // 1. Singleton Delivery
     if (blueprint.type === 'singleton') {
       const entry = await PublishedContentRepository.findPublishedSingleton(
         context.projectId,
         blueprintSlug,
-        envAliases
+        envTarget
       );
 
       if (!entry) {
         throw new NotFoundError(
-          `Singleton entry for '${blueprintSlug}' is not published in environment '${context.environmentName}'`
+          `Singleton entry for '${blueprintSlug}' is not published in environment '${resolvedEnv.displayName || resolvedEnv.name}'`
         );
       }
 
@@ -112,7 +114,7 @@ export const DeliveryContentService = {
         },
         meta: {
           project: context.projectName,
-          environment: context.environmentName,
+          environment: resolvedEnv.name,
           blueprint: blueprint.slug,
           type: 'singleton',
           locale: resolved.effectiveLocale,
@@ -132,7 +134,7 @@ export const DeliveryContentService = {
     const result = await PublishedContentRepository.findPublishedCollectionList(
       context.projectId,
       blueprintSlug,
-      envAliases,
+      envTarget,
       queryOptions
     );
 
@@ -155,7 +157,7 @@ export const DeliveryContentService = {
       data: items,
       meta: {
         project: context.projectName,
-        environment: context.environmentName,
+        environment: resolvedEnv.name,
         blueprint: blueprint.slug,
         type: 'collection',
         locale: effectiveLocale,
@@ -186,36 +188,38 @@ export const DeliveryContentService = {
       throw new NotFoundError(`Blueprint '${blueprintSlug}' not found in this project`);
     }
 
-    const envAliases = this.getEnvironmentAliases(context.environmentName);
+    const resolvedEnv = await EnvironmentResolverService.resolve(
+      context.projectId,
+      context.environmentId || context.environmentName
+    );
 
-    // Verify blueprint is deployed to this environment (for non-dev environments)
-    const isDev = envAliases.includes('dev') || envAliases.includes('development');
-    if (!isDev) {
+    // Verify blueprint is deployed to this environment (for non-base authoring environments)
+    if (!resolvedEnv.isBaseAuthoring) {
       const envVers = (blueprint.environmentVersions || {}) as Record<string, number>;
-      let deployedVer = 0;
-      for (const alias of envAliases) {
-        if (envVers[alias] !== undefined && envVers[alias] > 0) {
-          deployedVer = envVers[alias];
-          break;
-        }
-      }
+      const deployedVer =
+        envVers[String(resolvedEnv.id)] ??
+        envVers[resolvedEnv.name.toLowerCase()] ??
+        envVers[context.environmentName.toLowerCase()] ??
+        0;
       if (deployedVer <= 0) {
         throw new NotFoundError(
-          `Blueprint '${blueprintSlug}' is not published in environment '${context.environmentName}'`
+          `Blueprint '${blueprintSlug}' is not published in environment '${resolvedEnv.displayName || resolvedEnv.name}'`
         );
       }
     }
+
+    const envTarget = { environmentId: resolvedEnv.id, environmentName: resolvedEnv.name };
 
     const entry = await PublishedContentRepository.findPublishedCollectionEntry(
       context.projectId,
       blueprintSlug,
       entrySlug,
-      envAliases
+      envTarget
     );
 
     if (!entry) {
       throw new NotFoundError(
-        `Entry '${entrySlug}' not found in '${blueprintSlug}' for environment '${context.environmentName}'`
+        `Entry '${entrySlug}' not found in '${blueprintSlug}' for environment '${resolvedEnv.displayName || resolvedEnv.name}'`
       );
     }
 
@@ -234,7 +238,7 @@ export const DeliveryContentService = {
       },
       meta: {
         project: context.projectName,
-        environment: context.environmentName,
+        environment: resolvedEnv.name,
         blueprint: blueprint.slug,
         type: 'entry',
         locale: resolved.effectiveLocale,

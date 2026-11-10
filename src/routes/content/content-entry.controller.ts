@@ -18,7 +18,7 @@ export const listContentEntries = asyncHandler(async (req: any, res: Response) =
   const limit = req.query.limit ? Number(req.query.limit) : undefined;
   const search = req.query.search as string | undefined;
   const status = req.query.status as any;
-  const environment = (req.query.environment as string) || 'dev';
+  const environment = (req.query.environment as string) || (req.query.environmentId as string) || undefined;
 
   const result = await ContentEntryService.listEntries(projectId, schemaSlug, {
     page,
@@ -39,7 +39,7 @@ export const checkContentEntrySlug = asyncHandler(async (req: any, res: Response
   const { schemaSlug } = req.params;
   const slug = (req.query.slug as string || '').trim();
   const excludeId = req.query.excludeId as string | undefined;
-  const environment = (req.query.environment as string) || 'dev';
+  const environment = (req.query.environment as string) || (req.query.environmentId as string) || undefined;
 
   const result = await ContentEntryService.checkSlugAvailability(
     projectId,
@@ -57,7 +57,7 @@ export const checkContentEntrySlug = asyncHandler(async (req: any, res: Response
 export const getContentEntry = asyncHandler(async (req: any, res: Response) => {
   const projectId = Number(req.params.projectId);
   const { schemaSlug, entryId } = req.params;
-  const environment = (req.query.environment as string) || 'dev';
+  const environment = (req.query.environment as string) || (req.query.environmentId as string) || undefined;
 
   const result = await ContentEntryService.getEntry(projectId, schemaSlug, entryId, environment);
   return ok(res, result);
@@ -70,13 +70,14 @@ export const createContentEntry = asyncHandler(async (req: any, res: Response) =
   const projectId = Number(req.params.projectId);
   const { schemaSlug } = req.params;
   const userId = Number(req.user!.id);
-  const { title, slug, status, environment, baseLanguage, content, translations } = req.body;
-  const targetEnv = environment || (req.query.environment as string) || 'dev';
+  const { title, slug, status, environment, environmentId, baseLanguage, content, translations } = req.body;
+  const targetEnv = environmentId || environment || (req.query.environment as string) || (req.query.environmentId as string) || undefined;
 
   const entry = await ContentEntryService.createEntry(projectId, schemaSlug, userId, {
     title,
     slug,
     status,
+    environmentId: environmentId ? Number(environmentId) : undefined,
     environment: targetEnv,
     baseLanguage,
     content: content || {},
@@ -127,7 +128,7 @@ export const publishContentEntry = asyncHandler(async (req: any, res: Response) 
   const projectId = Number(req.params.projectId);
   const { schemaSlug, entryId } = req.params;
   const userId = Number(req.user!.id);
-  const targetEnv = (req.body?.targetEnv as string) || (req.query?.environment as string) || 'dev';
+  const targetEnv = (req.body?.targetEnv as string) || (req.body?.environmentId as string) || (req.query?.environment as string) || (req.query?.environmentId as string) || undefined;
   const forcePublish = Boolean(req.body?.forcePublish);
 
   const entry = await ContentEntryService.publishEntry(
@@ -138,7 +139,7 @@ export const publishContentEntry = asyncHandler(async (req: any, res: Response) 
     targetEnv,
     forcePublish
   );
-  return ok(res, { entry, message: `Content entry published in ${targetEnv} successfully` });
+  return ok(res, { entry, message: `Content entry published successfully` });
 });
 
 /**
@@ -148,7 +149,7 @@ export const discardContentEntryDraft = asyncHandler(async (req: any, res: Respo
   const projectId = Number(req.params.projectId);
   const { schemaSlug, entryId } = req.params;
   const userId = Number(req.user!.id);
-  const targetEnv = (req.body?.targetEnv as string) || (req.query?.environment as string) || 'dev';
+  const targetEnv = (req.body?.targetEnv as string) || (req.body?.environmentId as string) || (req.query?.environment as string) || (req.query?.environmentId as string) || undefined;
 
   const result = await ContentEntryService.discardDraft(projectId, schemaSlug, entryId, userId, targetEnv);
   return ok(res, result);

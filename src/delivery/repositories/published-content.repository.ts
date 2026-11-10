@@ -19,6 +19,32 @@ export interface PublishedCollectionQueryResult {
   hasMore: boolean;
 }
 
+function buildPublishedEnvQuery(
+  target: string[] | { environmentId?: number; environmentName?: string }
+): any {
+  if (Array.isArray(target)) {
+    return { environment: { $in: target } };
+  }
+  const conditions: any[] = [];
+  if (target.environmentId) {
+    conditions.push({ environmentId: target.environmentId });
+    conditions.push({ environment: String(target.environmentId) });
+  }
+  if (target.environmentName) {
+    const clean = target.environmentName.toLowerCase().trim();
+    conditions.push({ environment: clean });
+    if (clean === 'dev' || clean === 'development') {
+      conditions.push({ environment: { $in: ['dev', 'development'] } });
+    }
+    if (clean === 'live' || clean === 'production') {
+      conditions.push({ environment: { $in: ['live', 'production'] } });
+    }
+  }
+  if (conditions.length === 1) return conditions[0];
+  if (conditions.length > 1) return { $or: conditions };
+  return {};
+}
+
 export const PublishedContentRepository = {
   async findBlueprint(
     projectId: number,
@@ -44,31 +70,33 @@ export const PublishedContentRepository = {
   async findPublishedSingleton(
     projectId: number,
     schemaSlug: string,
-    environmentAliases: string[]
+    environmentTarget: string[] | { environmentId?: number; environmentName?: string }
   ): Promise<IContentEntry | null> {
+    const envFilter = buildPublishedEnvQuery(environmentTarget);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
-      environment: { $in: environmentAliases },
       status: 'published',
+      ...envFilter,
     }).exec();
   },
 
   async findPublishedCollectionList(
     projectId: number,
     schemaSlug: string,
-    environmentAliases: string[],
+    environmentTarget: string[] | { environmentId?: number; environmentName?: string },
     options: PublishedCollectionQueryOptions = {}
   ): Promise<PublishedCollectionQueryResult> {
     const page = Math.max(1, options.page || 1);
     const limit = Math.max(1, Math.min(100, options.limit || 20));
     const skip = (page - 1) * limit;
 
+    const envFilter = buildPublishedEnvQuery(environmentTarget);
     const query: any = {
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
-      environment: { $in: environmentAliases },
       status: 'published',
+      ...envFilter,
     };
 
     if (options.search && options.search.trim()) {
@@ -113,14 +141,15 @@ export const PublishedContentRepository = {
     projectId: number,
     schemaSlug: string,
     entrySlug: string,
-    environmentAliases: string[]
+    environmentTarget: string[] | { environmentId?: number; environmentName?: string }
   ): Promise<IContentEntry | null> {
+    const envFilter = buildPublishedEnvQuery(environmentTarget);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
       slug: entrySlug.toLowerCase().trim(),
-      environment: { $in: environmentAliases },
       status: 'published',
+      ...envFilter,
     }).exec();
   },
 };

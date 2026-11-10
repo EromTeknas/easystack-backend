@@ -8,6 +8,7 @@ export interface CreateContentEntryDto {
   slug: string;
   title: string;
   status?: ContentEntryStatus | undefined;
+  environmentId?: number | undefined;
   environment?: string | undefined;
   scheduledAt?: Date | null | undefined;
   publishedAt?: Date | null | undefined;
@@ -26,6 +27,7 @@ export interface UpdateContentEntryDto {
   title?: string | undefined;
   slug?: string | undefined;
   status?: ContentEntryStatus | undefined;
+  environmentId?: number | undefined;
   environment?: string | undefined;
   scheduledAt?: Date | null | undefined;
   publishedAt?: Date | null | undefined;
@@ -45,6 +47,7 @@ export interface ListContentEntriesOptions {
   limit?: number | undefined;
   search?: string | undefined;
   status?: ContentEntryStatus | undefined;
+  environmentId?: number | undefined;
   environment?: string | undefined;
 }
 
@@ -56,8 +59,13 @@ export interface PaginatedContentEntries {
   totalPages: number;
 }
 
+export interface EnvironmentQueryTarget {
+  environmentId?: number | undefined;
+  environmentName?: string | undefined;
+}
+
 function getEnvAliases(env?: string): string[] {
-  const clean = (env || 'dev').toLowerCase().trim();
+  const clean = (env || '').toLowerCase().trim();
   if (clean === 'dev' || clean === 'development') {
     return ['dev', 'development'];
   }
@@ -65,6 +73,38 @@ function getEnvAliases(env?: string): string[] {
     return ['live', 'production'];
   }
   return [clean];
+}
+
+function buildEnvQuery(target?: EnvironmentQueryTarget | string | number): any {
+  if (!target) return {};
+  if (typeof target === 'number') {
+    return {
+      $or: [{ environmentId: target }, { environment: String(target) }],
+    };
+  }
+  if (typeof target === 'string') {
+    const clean = target.trim().toLowerCase();
+    const asNum = Number(clean);
+    if (!isNaN(asNum) && asNum > 0) {
+      return {
+        $or: [{ environmentId: asNum }, { environment: clean }],
+      };
+    }
+    const aliases = getEnvAliases(clean);
+    return { environment: { $in: aliases } };
+  }
+  const conditions: any[] = [];
+  if (target.environmentId) {
+    conditions.push({ environmentId: target.environmentId });
+    conditions.push({ environment: String(target.environmentId) });
+  }
+  if (target.environmentName) {
+    const aliases = getEnvAliases(target.environmentName);
+    conditions.push({ environment: { $in: aliases } });
+  }
+  if (conditions.length === 1) return conditions[0];
+  if (conditions.length > 1) return { $or: conditions };
+  return {};
 }
 
 export const ContentEntryRepository = {
@@ -86,8 +126,13 @@ export const ContentEntryRepository = {
       query.status = options.status;
     }
 
-    const aliases = getEnvAliases(options.environment);
-    query.environment = { $in: aliases };
+    const envFilter = buildEnvQuery({
+      environmentId: options.environmentId,
+      environmentName: options.environment,
+    });
+    if (Object.keys(envFilter).length > 0) {
+      Object.assign(query, envFilter);
+    }
 
     if (options.search && options.search.trim()) {
       const searchRegex = new RegExp(options.search.trim(), 'i');
@@ -120,27 +165,27 @@ export const ContentEntryRepository = {
     projectId: number,
     schemaSlug: string,
     slug: string,
-    environment: string = 'dev'
+    environmentTarget?: EnvironmentQueryTarget | string | number
   ): Promise<IContentEntry | null> {
-    const aliases = getEnvAliases(environment);
+    const envFilter = buildEnvQuery(environmentTarget);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
       slug: slug.toLowerCase().trim(),
-      environment: { $in: aliases },
+      ...envFilter,
     }).exec();
   },
 
   async findSingleton(
     projectId: number,
     schemaSlug: string,
-    environment: string = 'dev'
+    environmentTarget?: EnvironmentQueryTarget | string | number
   ): Promise<IContentEntry | null> {
-    const aliases = getEnvAliases(environment);
+    const envFilter = buildEnvQuery(environmentTarget);
     return ContentEntry.findOne({
       projectId,
       schemaSlug: schemaSlug.toLowerCase().trim(),
-      environment: { $in: aliases },
+      ...envFilter,
     }).exec();
   },
 
@@ -152,7 +197,8 @@ export const ContentEntryRepository = {
       slug: data.slug.toLowerCase().trim(),
       title: data.title.trim(),
       status: data.status || 'draft',
-      environment: (data.environment || 'dev').toLowerCase().trim(),
+      environmentId: data.environmentId,
+      environment: (data.environment || '').toLowerCase().trim(),
 
       scheduledAt: data.scheduledAt,
       publishedAt: data.publishedAt,
@@ -177,6 +223,7 @@ export const ContentEntryRepository = {
     if (data.title !== undefined) updatePayload.title = data.title.trim();
     if (data.slug !== undefined) updatePayload.slug = data.slug.toLowerCase().trim();
     if (data.status !== undefined) updatePayload.status = data.status;
+    if (data.environmentId !== undefined) updatePayload.environmentId = data.environmentId;
     if (data.environment !== undefined) updatePayload.environment = data.environment;
     if (data.scheduledAt !== undefined) updatePayload.scheduledAt = data.scheduledAt;
     if (data.publishedAt !== undefined) updatePayload.publishedAt = data.publishedAt;

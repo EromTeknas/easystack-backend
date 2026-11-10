@@ -42,7 +42,7 @@ src/
 │   ├── services/
 │   │   ├── api-key-auth.service.ts        # Key generation (SHA-256), verification, Redis caching
 │   │   ├── delivery-cache.service.ts      # Version tracking (cdn:version), ETag, conditional 304, Redis cache
-│   │   └── delivery-content.service.ts    # Content resolution, environment aliasing, locale fallback
+│   │   └── delivery-content.service.ts    # Dynamic environment resolution, rank/ID matching, locale fallback
 │   ├── middlewares/
 │   │   ├── request-id.middleware.ts       # Assigns and traces X-Request-ID
 │   │   ├── api-key-auth.middleware.ts     # Header auth, query rejection, origin enforcement
