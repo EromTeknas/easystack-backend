@@ -248,20 +248,12 @@ export const ProjectService = {
   async deleteProject(projectId: number, userId: number): Promise<void> {
     const project = await this.assertProjectAccess(projectId, userId);
     
-    const projectWithFeeds = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: { feeds: { select: { id: true } } }
-    });
-    
-    const feedIds = projectWithFeeds?.feeds.map(f => f.id) || [];
-
     await ProjectRepository.deleteProject(prisma, projectId);
 
     const { enqueueCleanupJob } = require('./cleanup/infrastructure/queue/cleanup.queue');
     await enqueueCleanupJob({
       type: 'project',
       projectId,
-      feedIds,
       projectResourceId: project.resourceId
     });
   },
@@ -656,8 +648,6 @@ export const ProjectService = {
 
     // Dynamically iterate over all quotas configured on the workspace plan
     for (const [key, limit] of Object.entries(billing.quotas)) {
-      if (key === 'feeds_per_project') continue; // Purge legacy feeds
-
       const def = getQuotaDefinition(key);
       const isProjectScoped = def?.scope === 'PROJECT' || key.includes('_per_project') || key === 'asset_storage_mb';
 

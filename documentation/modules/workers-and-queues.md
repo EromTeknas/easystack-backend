@@ -35,7 +35,7 @@ src/
 └── services/*/infrastructure/queue/   # Service-owned job definitions and processors
     ├── email/infrastructure/queue/     # Email queue, producer, processor, and worker pool
     ├── storage/infrastructure/queue/   # Storage GC queue, reconciliation, and retention
-    ├── feed/infrastructure/queue/      # Feed translation queue and LLM worker pool
+    ├── translation/infrastructure/queue/ # Generalized translation queue and LLM worker pool
     ├── cleanup/infrastructure/queue/   # Workspace & Project cascade purge worker
     └── releases/infrastructure/queue/  # Scheduled deployment queue and release worker
 ```
@@ -48,8 +48,8 @@ src/
 |---|---|---|---|---|
 | **Email** | `email` | `createEmailWorkers()` | Sends OTP codes, welcome messages, password reset links, invitations | `npm run worker:email` |
 | **Storage** | `storage` | `createStorageWorkers()` | Hourly reconciliation of expired upload intents, deletion of abandoned S3 files, 30-day intent retention purge | `npm run worker:storage` |
-| **Translation**| `translation` | `createTranslationWorkers()` | Batch translates JSON feeds by locale via LLM Service (Gemini) | `npm run worker:translation` |
-| **Cleanup** | `cleanup` | `createCleanupWorkers()` | Cascades deletions to MongoDB (versions, comments, audit logs) and S3 assets upon project/workspace removal | `npm run worker:cleanup` |
+| **Translation**| `translation` | `createTranslationWorkers()` | Batch translates arbitrary content entries and payloads by locale via LLM Service (Gemini) | `npm run worker:translation` |
+| **Cleanup** | `cleanup` | `createCleanupWorkers()` | Cascades deletions to MongoDB (blueprints, versions, content entries, audit logs) and S3 assets upon project/workspace removal | `npm run worker:cleanup` |
 | **Release** | `release` | `startReleaseWorker()` | Executes scheduled environment deployments every minute | `npm run worker:release` |
 
 To run all worker groups in a single unified process (e.g., during development):

@@ -10,9 +10,9 @@ export const createCleanupWorker = () => {
     async (job: Job<CleanupJobData>) => {
       logger.info(`Processing cleanup job ${job.id} for ${job.data.type}`);
       if (job.data.type === 'project') {
-        await cleanupProjectExternalData(job.data.projectId, job.data.feedIds, job.data.projectResourceId);
+        await cleanupProjectExternalData(job.data.projectId, job.data.projectResourceId);
       } else if (job.data.type === 'workspace') {
-        await cleanupWorkspaceExternalData(job.data.workspaceId, job.data.projectIds, job.data.feedIds, job.data.workspaceResourceId);
+        await cleanupWorkspaceExternalData(job.data.workspaceId, job.data.projectIds, job.data.workspaceResourceId);
       }
     },
     {

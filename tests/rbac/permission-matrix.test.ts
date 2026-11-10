@@ -57,36 +57,44 @@ describe('RBAC Permission Matrix', () => {
       assert.ok(hasPermission(owner.permissions, 'project:read'));
       assert.ok(hasPermission(owner.permissions, 'project:update'));
       assert.ok(hasPermission(owner.permissions, 'project:delete'));
-      assert.ok(hasPermission(owner.permissions, 'feed:delete'));
+      assert.ok(hasPermission(owner.permissions, 'schema:delete'));
+      assert.ok(hasPermission(owner.permissions, 'content:delete'));
     });
 
     test('PROJECT_ADMIN has all manage capabilities but not project deletion', () => {
       assert.ok(hasPermission(admin.permissions, 'project:read'));
       assert.ok(hasPermission(admin.permissions, 'project:update'));
-      assert.ok(hasPermission(admin.permissions, 'feed:delete'));
+      assert.ok(hasPermission(admin.permissions, 'schema:delete'));
+      assert.ok(hasPermission(admin.permissions, 'content:delete'));
       assert.ok(hasPermission(admin.permissions, 'project_member:invite'));
       assert.strictEqual(hasPermission(admin.permissions, 'project:delete'), false);
     });
 
-    test('PROJECT_EDITOR can manage content but not members', () => {
+    test('PROJECT_EDITOR can manage content and schemas but not members', () => {
       assert.ok(hasPermission(editor.permissions, 'project:read'));
-      assert.ok(hasPermission(editor.permissions, 'feed:create'));
-      assert.ok(hasPermission(editor.permissions, 'feed:update'));
-      assert.strictEqual(hasPermission(editor.permissions, 'feed:delete'), false);
+      assert.ok(hasPermission(editor.permissions, 'schema:create'));
+      assert.ok(hasPermission(editor.permissions, 'schema:update'));
+      assert.ok(hasPermission(editor.permissions, 'content:create'));
+      assert.ok(hasPermission(editor.permissions, 'content:update'));
+      assert.ok(hasPermission(editor.permissions, 'content:delete'));
+      assert.strictEqual(hasPermission(editor.permissions, 'schema:delete'), false);
       assert.strictEqual(hasPermission(editor.permissions, 'project_member:invite'), false);
     });
 
-    test('PROJECT_CONTRIBUTOR can update content but not create feeds', () => {
+    test('PROJECT_CONTRIBUTOR can contribute content but not create schemas', () => {
       assert.ok(hasPermission(contributor.permissions, 'project:read'));
-      assert.ok(hasPermission(contributor.permissions, 'localization:update'));
-      assert.strictEqual(hasPermission(contributor.permissions, 'feed:create'), false);
-      assert.strictEqual(hasPermission(contributor.permissions, 'feed:update'), false);
+      assert.ok(hasPermission(contributor.permissions, 'content:read'));
+      assert.ok(hasPermission(contributor.permissions, 'content:create'));
+      assert.ok(hasPermission(contributor.permissions, 'content:update'));
+      assert.strictEqual(hasPermission(contributor.permissions, 'schema:create'), false);
+      assert.strictEqual(hasPermission(contributor.permissions, 'schema:update'), false);
     });
 
     test('PROJECT_VIEWER is read-only', () => {
       assert.ok(hasPermission(viewer.permissions, 'project:read'));
-      assert.ok(hasPermission(viewer.permissions, 'feed:read'));
-      assert.strictEqual(hasPermission(viewer.permissions, 'localization:update'), false);
+      assert.ok(hasPermission(viewer.permissions, 'schema:read'));
+      assert.ok(hasPermission(viewer.permissions, 'content:read'));
+      assert.strictEqual(hasPermission(viewer.permissions, 'content:update'), false);
     });
   });
 });

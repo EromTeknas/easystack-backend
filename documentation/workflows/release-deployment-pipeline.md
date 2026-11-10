@@ -6,7 +6,7 @@ This workflow traces the promotion of Schema Blueprints from the lowest-rank edi
 
 ### Triggers
 - **Diff Inspection**: `GET /api/projects/:projectId/releases/diff?sourceEnvironmentId=:src&targetEnvironmentId=:tgt`
-- **SemVer Suggestion**: `GET /api/projects/:projectId/releases/suggest-version?targetEnvironmentId=:tgt&feedIds=:ids`
+- **SemVer Suggestion**: `GET /api/projects/:projectId/releases/suggest-version?targetEnvironmentId=:tgt&schemaIds=:ids`
 - **Create Release Draft**: `POST /api/projects/:projectId/releases`
 - **Instant Schema Deploy**: `POST /api/projects/:projectId/schemas/:schemaId/deploy`
 - **Request Approval**: `POST /api/projects/:projectId/releases/:releaseId/request-approval`

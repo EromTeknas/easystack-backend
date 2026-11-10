@@ -38,7 +38,7 @@ tests/
 │
 ├── billing.payment.test.ts             # Stripe webhook payload and signature parsing
 ├── billing.validators.test.ts          # Plan limits, quota checks, and usage decrement tests
-├── feed-schema-validation.test.ts      # Strict JSON structural, depth, and homogeneity tests
+├── schema-validation.test.ts           # Schema field definitions, type validations, and content matching tests
 ├── schema-blueprint.test.ts            # Blueprint field definition tests
 └── content-entry.test.ts               # Content entry drafting, publishing, and revision tests
 ```

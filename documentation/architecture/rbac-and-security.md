@@ -19,7 +19,7 @@ graph TD
     end
 
     subgraph ProjectScope[Project Scope: Local Capability]
-        PR -->|Defines| P_Perms[Project Permissions: FEED.READ, RELEASE.EXECUTE, etc.]
+        PR -->|Defines| P_Perms[Project Permissions: SCHEMA.READ, RELEASE.EXECUTE, etc.]
     end
 
     WR -.->|Implicit Inheritance| Synthesis[Cache Builder Synthesis]
@@ -51,9 +51,9 @@ Defined in [`src/services/authorization/configs/project-roles.config.ts`](file:/
 |---|---|---|---|
 | `PROJECT_OWNER` | Owner | Complete control over project configuration, environments, and members. | `PROJECT_ALL` |
 | `PROJECT_ADMIN` | Admin | Administrative authority over project resources and member assignments. | `PROJECT_ADMIN_ALL` |
-| `PROJECT_EDITOR` | Editor | Authors content, edits schemas, and manages draft feeds. | `PROJECT_EDITOR_ALL` |
-| `PROJECT_CONTRIBUTOR` | Contributor | Edits translations and localized feeds, but cannot modify core schemas or project settings. | `PROJECT_CONTRIBUTOR_ALL` |
-| `PROJECT_VIEWER` | Viewer | Read-only viewing of project feeds, schemas, and releases. | `PROJECT_VIEWER_ALL` |
+| `PROJECT_EDITOR` | Editor | Authors content, edits schemas, and manages content drafts. | `PROJECT_EDITOR_ALL` |
+| `PROJECT_CONTRIBUTOR` | Contributor | Edits and contributes content, but cannot modify core schemas or project settings. | `PROJECT_CONTRIBUTOR_ALL` |
+| `PROJECT_VIEWER` | Viewer | Read-only viewing of project schemas, content, and releases. | `PROJECT_VIEWER_ALL` |
 
 ---
 
@@ -80,7 +80,7 @@ To prevent slow, recursive SQL joins on every HTTP request, authorization decisi
     "project": {
       "101": {
         "roles": ["PROJECT_ADMIN"],
-        "permissions": ["project:read", "feed:read", "feed:create", "feed:update"],
+        "permissions": ["project:read", "schema:read", "content:read", "content:create"],
         "version": 1,
         "updatedAt": 1718000000000
       }
@@ -158,7 +158,7 @@ router.get(
 
 ### Invariant: NEVER Bypass the Authorization Engine
 - Routes accessing workspace or project resources must always apply `authorize`.
-- Even internal routes that access nested resources (e.g., `/projects/:projectId/feeds/:feedId`) must authorize against the containing scope (here, `project` with `projectId`).
+- Even internal routes that access nested resources (e.g., `/projects/:projectId/content/:schemaSlug`) must authorize against the containing scope (here, `project` with `projectId`).
 
 ---
 

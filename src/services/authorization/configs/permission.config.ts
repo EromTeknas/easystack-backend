@@ -23,7 +23,14 @@ export const PermissionConfig = {
     "remove",
   ],
 
-  feed: [
+  schema: [
+    "read",
+    "create",
+    "update",
+    "delete",
+  ],
+
+  content: [
     "read",
     "create",
     "update",

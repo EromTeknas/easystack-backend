@@ -46,14 +46,6 @@ export const Quotas = {
     resetPolicy: QuotaResetPolicy.DAILY,
   },
 
-  FEEDS_PER_PROJECT: {
-    key: "feeds_per_project",
-    displayName: "Feeds per Project",
-    description: "Maximum feedback feeds allowed in a single project (legacy)",
-    unit: "per project",
-    scope: "PROJECT",
-    resetPolicy: QuotaResetPolicy.NEVER,
-  },
 
   ENVIRONMENTS_PER_PROJECT: {
     key: "environments_per_project",

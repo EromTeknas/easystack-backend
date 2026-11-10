@@ -73,16 +73,13 @@ erDiagram
     UPLOAD_INTENT ||--|| STORAGE_ASSET : resolves_to
 
     %% Cross-Store Relationships (MySQL -> MongoDB)
-    PROJECT ||--o{ MONGO_FEED_VERSION : "references via projectId"
     PROJECT ||--o{ MONGO_SCHEMA_BLUEPRINT : "references via projectId"
-    ENVIRONMENT ||--o{ MONGO_FEED_VERSION : "tracks activeVersionId"
+    PROJECT ||--o{ MONGO_CONTENT_ENTRY : "references via projectId"
 
     %% MongoDB Document Models
-    MONGO_FEED_VERSION ||--o{ MONGO_FEED_LOCALIZATION : embeds_or_links
-    MONGO_FEED_VERSION ||--o{ MONGO_FEED_AUDIT_LOG : tracks
-    MONGO_FEED_LOCALIZATION ||--o{ MONGO_FEED_COMMENT : contains_threads
     MONGO_SCHEMA_BLUEPRINT ||--o{ MONGO_SCHEMA_VERSION : snapshots
-    MONGO_SCHEMA_BLUEPRINT ||--o{ MONGO_CONTENT_ENTRY : instantiates
+    MONGO_SCHEMA_BLUEPRINT ||--o{ MONGO_CONTENT_ENTRY : validates
+    MONGO_CONTENT_ENTRY ||--o{ MONGO_CONTENT_AUDIT_LOG : tracks
 ```
 
 ---

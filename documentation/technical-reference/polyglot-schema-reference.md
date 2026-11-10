@@ -47,11 +47,9 @@ Source file: [`prisma/schema.prisma`](file:///home/eteknas/Projects/easystack-ba
   - `removedAt: DateTime?`
   - Relations: `members`, `environments`, `languages`
 - **`Environment`**:
-  - `id: Int`, `projectId: Int`, `name: String` (e.g. `development`, `staging`, `production`)
-  - `isEditable: Boolean` (default: false; true only for development)
-- **`EnvironmentState`**:
-  - `environmentId: Int`, `feedId: Int`
-  - `activeVersionId: String` (MongoDB `FeedVersion._id` pointer)
+  - `id: Int`, `projectId: Int`, `name: String`, `displayName: String?`, `rank: Int`
+  - `isEditable: Boolean` (true for authoring environments)
+  - `requiresApproval: Boolean`
 - **`ProjectLanguage`**:
   - `id: Int`, `projectId: Int`, `code: String` (e.g. `es-ES`), `name: String`, `isBase: Boolean`
 
@@ -59,7 +57,7 @@ Source file: [`prisma/schema.prisma`](file:///home/eteknas/Projects/easystack-ba
 - **`Role`**:
   - `id: Int`, `key: String` (unique, e.g. `WORKSPACE_ADMIN`, `PROJECT_EDITOR`), `scope: RoleScope` (`WORKSPACE`, `PROJECT`)
 - **`Permission`**:
-  - `id: Int`, `key: String` (unique, e.g. `feed:update`, `project:read`)
+  - `id: Int`, `key: String` (unique, e.g. `schema:update`, `content:read`)
 - **`RolePermission`**:
   - `roleId: Int`, `permissionId: Int`
 
@@ -90,58 +88,88 @@ Source file: [`prisma/schema.prisma`](file:///home/eteknas/Projects/easystack-ba
 
 ## 2. MongoDB Document Models (Mongoose)
 
-### A. `FeedVersion` ([`src/models/feed-version.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-version.model.ts))
+### A. `SchemaBlueprint` ([`src/models/schema-blueprint.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/schema-blueprint.model.ts))
 ```typescript
 {
   _id: ObjectId,
-  feedId: Number,              // References MySQL Feed/Project ID
   projectId: Number,
-  baseLanguage: String,        // e.g. "en-US"
-  baseContent: Object,         // Arbitrary JSON payload
-  selectedKeys: [String],      // Wildcard translation paths (e.g. ["items.*.title"])
-  schemaDefinition: Object,    // Optional blueprint constraints
+  name: String,
+  slug: String,
+  description: String,
+  type: "collection" | "single",
+  icon: String,
+  schemaDefinition: {
+    version: Number,
+    fields: SchemaFieldDefinition[]
+  },
+  environmentVersions: Record<string, number>,
+  activeVersionNumber: Number,
   createdBy: Number,
+  removedAt: Date | null,
   createdAt: Date,
   updatedAt: Date
 }
 ```
 
-### B. `FeedLocalization` ([`src/models/feed-localization.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-localization.model.ts))
+### B. `SchemaBlueprintVersion` ([`src/models/schema-blueprint-version.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/schema-blueprint-version.model.ts))
 ```typescript
 {
   _id: ObjectId,
-  feedVersionId: ObjectId,     // Ref to FeedVersion
-  languageCode: String,        // e.g. "es-ES"
-  localizedContent: Object,    // Translated JSON structure
-  status: String,              // "UNTRANSLATED" | "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "STALE"
-  lastTranslatedAt: Date,
-  errorDetails: Object
+  blueprintId: ObjectId,
+  projectId: Number,
+  versionNumber: Number,
+  schemaDefinition: {
+    version: Number,
+    fields: SchemaFieldDefinition[]
+  },
+  changelog: String,
+  createdBy: Number,
+  createdAt: Date
 }
 ```
 
-### C. `FeedComment` ([`src/models/feed-comment.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-comment.model.ts))
+### C. `ContentEntry` ([`src/models/content-entry.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/content-entry.model.ts))
 ```typescript
 {
   _id: ObjectId,
-  feedId: Number,
-  languageCode: String,
-  parentId: ObjectId,          // null for root comments / review threads
-  authorId: Number,            // -1 indicates system message
-  isSystem: Boolean,           // true for system timeline events
-  type: String,                // "COMMENT" | "REVIEW_REQUEST"
-  status: String,              // "ACTIVE" | "COMPLETED" | "OUTDATED" | "DELETED"
-  reviewers: [{
-    userId: Number,
-    status: String,            // "PENDING" | "APPROVED" | "REJECTED"
-    respondedAt: Date
-  }],
-  content: String              // Markdown content (scrubbed to null on deletion)
+  projectId: Number,
+  schemaBlueprintId: ObjectId,
+  schemaSlug: String,
+  environmentId: Number,
+  environment: String,
+  slug: String,
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED" | "SCHEDULED",
+  content: Record<string, any>,           // Current draft working copy
+  publishedContent: Record<string, any>,  // Canonical published version
+  translations: Record<string, {
+    status: "UNTRANSLATED" | "PENDING" | "TRANSLATED" | "FAILED" | "READY",
+    content: Record<string, any>,
+    publishedContent: Record<string, any>,
+    lastTranslatedAt?: Date,
+    outdatedFields?: string[]
+  }>,
+  version: Number,
+  publishedVersion: Number,
+  publishedAt?: Date,
+  scheduledPublishAt?: Date,
+  createdBy: Number,
+  updatedBy: Number,
+  removedAt?: Date
 }
 ```
 
-### D. `SchemaBlueprint` & `ContentEntry`
-- **`SchemaBlueprint`**: Stores content model definitions, field identifiers, and types (`text`, `number`, `image`, `relation`).
-- **`ContentEntry`**: Stores authored instances of blueprints with `draft` and `published` revisions.
+### D. `ContentAuditLog` ([`src/models/content-audit-log.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/content-audit-log.model.ts))
+```typescript
+{
+  _id: ObjectId,
+  entryId: ObjectId,
+  projectId: Number,
+  action: "CREATED" | "UPDATED" | "PUBLISHED" | "DISCARDED" | "SCHEDULED" | "TRANSLATED" | "DELETED",
+  userId: Number,
+  changes?: Record<string, any>,
+  createdAt: Date
+}
+```
 
 ---
 

@@ -43,7 +43,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.CONTENT.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   listContentEntries
@@ -54,7 +54,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.CONTENT.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   checkContentEntrySlug
@@ -65,7 +65,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.CONTENT.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   getContentAuditLogs
@@ -76,7 +76,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.CONTENT.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   getContentEntry
@@ -87,7 +87,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.CREATE,
+    permission: PERMISSIONS.CONTENT.CREATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   createContentEntry
@@ -98,7 +98,7 @@ router.put(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.CONTENT.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   updateContentEntry
@@ -109,7 +109,7 @@ router.delete(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.DELETE,
+    permission: PERMISSIONS.CONTENT.DELETE,
     scopeId: (req) => req.params.projectId as string,
   }),
   deleteContentEntry
@@ -120,7 +120,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.CONTENT.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   publishContentEntry
@@ -131,7 +131,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.CONTENT.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   discardContentEntryDraft
@@ -142,7 +142,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.CONTENT.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   scheduleContentEntry
@@ -153,7 +153,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.CONTENT.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   triggerContentEntryTranslations

@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { SchemaDefinition } from './feed-version.model';
+import { SchemaDefinition } from '../types/schema.types';
 
 export interface FieldChangeSummary {
   addedFields: string[];

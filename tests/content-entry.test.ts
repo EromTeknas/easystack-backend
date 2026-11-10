@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FeedSchemaValidationService } from '../src/services/feed-schema-validation.service';
-import { SchemaDefinition } from '../src/models/feed-version.model';
+import { SchemaValidationService } from '../src/services/schema-validation.service';
+import { SchemaDefinition } from '../src/types/schema.types';
 
 const blogPostSchema: SchemaDefinition = {
   version: 1,
@@ -46,7 +46,7 @@ test('ContentEntry - successfully validates conforming content', () => {
   };
 
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(content, blogPostSchema);
+    SchemaValidationService.validateContentAgainstSchema(content, blogPostSchema);
   });
 });
 
@@ -58,7 +58,7 @@ test('ContentEntry - fails validation when required field is missing', () => {
 
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
+      SchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
     },
     /Missing required value for 'Published'/
   );
@@ -72,7 +72,7 @@ test('ContentEntry - fails validation when string exceeds maxLength', () => {
 
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
+      SchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
     },
     /cannot exceed 100 characters/
   );
@@ -87,7 +87,7 @@ test('ContentEntry - fails validation when number is below min', () => {
 
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
+      SchemaValidationService.validateContentAgainstSchema(invalidContent, blogPostSchema);
     },
     /must be greater than or equal to 0/
   );
@@ -233,7 +233,7 @@ test('ContentEntry - publication guard permits publication when forcePublish is 
   assert.deepEqual(forcePublishStatuses.fr.outdatedFields, []);
 });
 
-test('FeedSchemaValidationService - validates schema with video and lists of media', () => {
+test('SchemaValidationService - validates schema with video and lists of media', () => {
   const schema = {
     version: 1,
     fields: [
@@ -278,7 +278,7 @@ test('FeedSchemaValidationService - validates schema with video and lists of med
     ],
   };
 
-  const validatedSchema = FeedSchemaValidationService.validateSchemaDefinition(schema);
+  const validatedSchema = SchemaValidationService.validateSchemaDefinition(schema);
   assert.equal(validatedSchema.fields.length, 3);
   assert.equal(validatedSchema.fields[1]?.type, 'video');
 
@@ -306,7 +306,7 @@ test('FeedSchemaValidationService - validates schema with video and lists of med
   };
 
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(validContent, validatedSchema, { isDraft: false });
+    SchemaValidationService.validateContentAgainstSchema(validContent, validatedSchema, { isDraft: false });
   });
 
   // Saving draft with partial/empty fields must also succeed
@@ -316,7 +316,7 @@ test('FeedSchemaValidationService - validates schema with video and lists of med
     },
   };
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(draftContent, validatedSchema, { isDraft: true });
+    SchemaValidationService.validateContentAgainstSchema(draftContent, validatedSchema, { isDraft: true });
   });
 });
 

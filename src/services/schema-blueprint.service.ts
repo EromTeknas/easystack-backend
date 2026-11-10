@@ -1,5 +1,5 @@
 import { SchemaBlueprintRepository, CreateSchemaBlueprintDto, UpdateSchemaBlueprintDto } from '../repositories/schema-blueprint.repository';
-import { FeedSchemaValidationService } from './feed-schema-validation.service';
+import { SchemaValidationService } from './schema-validation.service';
 import { BadRequestError, NotFoundError, ConflictError } from '../errors';
 import { prisma } from '../db';
 import { ISchemaBlueprint } from '../models/schema-blueprint.model';
@@ -148,7 +148,7 @@ export const SchemaBlueprintService = {
     // Validate schema definition if provided
     let validatedDefinition = data.schemaDefinition;
     if (validatedDefinition && validatedDefinition.fields && validatedDefinition.fields.length > 0) {
-      validatedDefinition = FeedSchemaValidationService.validateSchemaDefinition(validatedDefinition);
+      validatedDefinition = SchemaValidationService.validateSchemaDefinition(validatedDefinition);
     } else {
       validatedDefinition = { version: 1, fields: [] };
     }
@@ -182,7 +182,7 @@ export const SchemaBlueprintService = {
     let validatedDefinition = data.schemaDefinition;
     let shouldBumpVersion = false;
     if (validatedDefinition) {
-      validatedDefinition = FeedSchemaValidationService.validateSchemaDefinition(validatedDefinition);
+      validatedDefinition = SchemaValidationService.validateSchemaDefinition(validatedDefinition);
       const prevDefStr = JSON.stringify(existing.schemaDefinition?.fields || []);
       const newDefStr = JSON.stringify(validatedDefinition?.fields || []);
       if (prevDefStr !== newDefStr) {
@@ -279,7 +279,6 @@ export const SchemaBlueprintService = {
             sourceEnvironmentId: devEnv.id,
             targetEnvironmentId: targetEnv.id,
             version: suggestedVersion,
-            feedIds: [existing._id.toString()],
             blueprintIds: [existing._id.toString()],
             schemaIds: [existing._id.toString()],
           }

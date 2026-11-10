@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { SchemaDefinition } from './feed-version.model';
+import { SchemaDefinition } from '../types/schema.types';
 
 export type SchemaBlueprintType = 'collection' | 'singleton';
 
@@ -9,7 +9,7 @@ export interface ISchemaBlueprint extends Document {
   slug: string; // e.g., "blog-posts", "homepage", "products"
   description?: string;
   type: SchemaBlueprintType; // 'collection' (multi-entry) or 'singleton' (single-entry)
-  icon?: string; // e.g., "article", "home", "store", "chat", "feed"
+  icon?: string; // e.g., "article", "home", "store", "chat"
   schemaDefinition: SchemaDefinition;
   activeVersionNumber: number;
   environmentVersions: Record<string, number>;

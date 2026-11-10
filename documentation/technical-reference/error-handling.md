@@ -31,7 +31,7 @@ All application errors inherit from `AppError` in [`src/errors/AppError.ts`](fil
 | `BadRequestError` | 400 | `BAD_REQUEST` | Malformed input, uneditable environment, invalid keys |
 | `UnauthorizedError` | 401 | `UNAUTHORIZED` | Missing, expired, or invalid JWT or cookie |
 | `ForbiddenError` | 403 | `FORBIDDEN` | Caller lacks RBAC permission or quota is exhausted |
-| `NotFoundError` | 404 | `NOT_FOUND` | Resource (project, feed, workspace, user) does not exist |
+| `NotFoundError` | 404 | `NOT_FOUND` | Resource (project, schema, content entry, workspace, user) does not exist |
 | `ConflictError` | 409 | `CONFLICT` | Resource already exists (e.g. subdomain taken, duplicate email) |
 | `ValidationError` | 422 | `VALIDATION_ERROR` | Schema validation failure, Zod parsing error |
 | `TooManyRequestsError` | 429 | `TOO_MANY_REQUESTS` | Exceeded rate limit on auth or public endpoints |
@@ -52,7 +52,7 @@ if (!project) {
 
 // 2. Throwing bad request with context
 if (!targetEnv.isEditable) {
-  throw new BadRequestError('Cannot edit feeds in a read-only environment.');
+  throw new BadRequestError('Cannot edit content in a read-only environment.');
 }
 
 // 3. Throwing with custom error code and details

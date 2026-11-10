@@ -3,7 +3,7 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { Queue } from 'bullmq';
 import redisConnectionOptions from './redis';
-import { TRANSLATION_QUEUE_NAME } from '../services/feed/infrastructure/queue/translation.queue';
+import { TRANSLATION_QUEUE_NAME } from '../services/translation/infrastructure/queue/translation.queue';
 import { EMAIL_QUEUE_NAME } from '../services/email/infrastructure/queue/email.jobs';
 import { STORAGE_QUEUE_NAME } from '../services/storage/infrastructure/queue/storage.jobs';
 import { CLEANUP_QUEUE_NAME } from '../services/cleanup/infrastructure/queue/cleanup.queue';

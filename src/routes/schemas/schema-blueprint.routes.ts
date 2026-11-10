@@ -25,7 +25,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.SCHEMA.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   listSchemas
@@ -36,7 +36,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.SCHEMA.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   listStagedDeletedSchemas
@@ -47,7 +47,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.SCHEMA.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   checkSchemaSlug
@@ -58,7 +58,7 @@ router.get(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.READ,
+    permission: PERMISSIONS.SCHEMA.READ,
     scopeId: (req) => req.params.projectId as string,
   }),
   getSchema
@@ -69,7 +69,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.CREATE,
+    permission: PERMISSIONS.SCHEMA.CREATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   createSchema
@@ -80,7 +80,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.SCHEMA.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   deploySchema
@@ -91,7 +91,7 @@ router.put(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.SCHEMA.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   updateSchema
@@ -102,7 +102,7 @@ router.delete(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.DELETE,
+    permission: PERMISSIONS.SCHEMA.DELETE,
     scopeId: (req) => req.params.projectId as string,
   }),
   deleteSchema
@@ -113,7 +113,7 @@ router.post(
   authenticate,
   authorize({
     scope: 'project',
-    permission: PERMISSIONS.FEED.UPDATE,
+    permission: PERMISSIONS.SCHEMA.UPDATE,
     scopeId: (req) => req.params.projectId as string,
   }),
   restoreSchema

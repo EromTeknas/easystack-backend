@@ -32,7 +32,7 @@ flowchart TD
    - Express API Server (`src/server.ts`) with nodemon hot reloading.
    - Email Worker watching `src/services/email`.
    - Storage Worker watching `src/services/storage`.
-   - Translation Worker watching `src/services/feed`.
+   - Translation Worker watching `src/services/translation`.
    - Cleanup Worker watching `src/services/cleanup`.
 
 ---

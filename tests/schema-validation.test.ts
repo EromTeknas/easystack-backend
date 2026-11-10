@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  FeedSchemaValidationService,
-  FeedSchemaValidationError,
-} from "../src/services/feed-schema-validation.service";
+  SchemaValidationService,
+  SchemaValidationError,
+} from "../src/services/schema-validation.service";
 
-test("FeedSchemaValidationService - validates a valid schema definition", () => {
+test("SchemaValidationService - validates a valid schema definition", () => {
   const validSchema = {
     version: 1,
     fields: [
@@ -74,12 +74,12 @@ test("FeedSchemaValidationService - validates a valid schema definition", () => 
     ],
   };
 
-  const validated = FeedSchemaValidationService.validateSchemaDefinition(validSchema);
+  const validated = SchemaValidationService.validateSchemaDefinition(validSchema);
   assert.equal(validated.version, 1);
   assert.equal(validated.fields.length, 4);
 });
 
-test("FeedSchemaValidationService - detects duplicate keys in schema", () => {
+test("SchemaValidationService - detects duplicate keys in schema", () => {
   const invalidSchema = {
     version: 1,
     fields: [
@@ -105,12 +105,12 @@ test("FeedSchemaValidationService - detects duplicate keys in schema", () => {
   };
 
   assert.throws(
-    () => FeedSchemaValidationService.validateSchemaDefinition(invalidSchema),
+    () => SchemaValidationService.validateSchemaDefinition(invalidSchema),
     /Duplicate key 'title'/
   );
 });
 
-test("FeedSchemaValidationService - extracts localized keys accurately", () => {
+test("SchemaValidationService - extracts localized keys accurately", () => {
   const schema = {
     version: 1,
     fields: [
@@ -190,11 +190,11 @@ test("FeedSchemaValidationService - extracts localized keys accurately", () => {
     ],
   };
 
-  const localizedKeys = FeedSchemaValidationService.extractLocalizedKeys(schema);
+  const localizedKeys = SchemaValidationService.extractLocalizedKeys(schema);
   assert.deepEqual(localizedKeys, ["title", "author.bio", "itinerary.*.description"]);
 });
 
-test("FeedSchemaValidationService - validates content conforming to schema", () => {
+test("SchemaValidationService - validates content conforming to schema", () => {
   const schema = {
     version: 1,
     fields: [
@@ -223,7 +223,7 @@ test("FeedSchemaValidationService - validates content conforming to schema", () 
 
   // Valid content
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(
+    SchemaValidationService.validateContentAgainstSchema(
       { title: "Hello World", rating: 4 },
       schema
     );
@@ -232,7 +232,7 @@ test("FeedSchemaValidationService - validates content conforming to schema", () 
   // Invalid: missing required rating
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(
+      SchemaValidationService.validateContentAgainstSchema(
         { title: "Hello World" },
         schema
       );
@@ -243,7 +243,7 @@ test("FeedSchemaValidationService - validates content conforming to schema", () 
   // Invalid: rating out of bounds
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(
+      SchemaValidationService.validateContentAgainstSchema(
         { title: "Hello World", rating: 10 },
         schema
       );
@@ -252,7 +252,7 @@ test("FeedSchemaValidationService - validates content conforming to schema", () 
   );
 });
 
-test("FeedSchemaValidationService - generates default content accurately", () => {
+test("SchemaValidationService - generates default content accurately", () => {
   const schema = {
     version: 1,
     fields: [
@@ -287,7 +287,7 @@ test("FeedSchemaValidationService - generates default content accurately", () =>
     ],
   };
 
-  const defaultContent = FeedSchemaValidationService.generateDefaultContent(schema);
+  const defaultContent = SchemaValidationService.generateDefaultContent(schema);
   assert.deepEqual(defaultContent, {
     title: "Default Title",
     published: false,
@@ -295,7 +295,7 @@ test("FeedSchemaValidationService - generates default content accurately", () =>
   });
 });
 
-test("FeedSchemaValidationService - allows saving drafts with empty required fields", () => {
+test("SchemaValidationService - allows saving drafts with empty required fields", () => {
   const schema = {
     version: 1,
     fields: [
@@ -322,7 +322,7 @@ test("FeedSchemaValidationService - allows saving drafts with empty required fie
 
   // Draft mode with empty content must pass without throwing
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(
+    SchemaValidationService.validateContentAgainstSchema(
       {},
       schema,
       { isDraft: true }
@@ -331,7 +331,7 @@ test("FeedSchemaValidationService - allows saving drafts with empty required fie
 
   // Draft mode with empty tags array must pass without throwing
   assert.doesNotThrow(() => {
-    FeedSchemaValidationService.validateContentAgainstSchema(
+    SchemaValidationService.validateContentAgainstSchema(
       { tags_1: [] },
       schema,
       { isDraft: true }
@@ -341,7 +341,7 @@ test("FeedSchemaValidationService - allows saving drafts with empty required fie
   // Non-draft (publish) mode must throw missing required error
   assert.throws(
     () => {
-      FeedSchemaValidationService.validateContentAgainstSchema(
+      SchemaValidationService.validateContentAgainstSchema(
         {},
         schema,
         { isDraft: false }

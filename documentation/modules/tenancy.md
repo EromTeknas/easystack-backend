@@ -76,9 +76,9 @@ graph TD
   3. Creator assignment: creator becomes `PROJECT_OWNER`.
 
 ### 3. Environments & Mutability Control
-- Environments define where feed drafts are edited and published.
-- **Rule**: Content and feeds can **only be directly edited in editable environments** (`isEditable: true`, normally `development`).
-- Non-editable environments (`staging`, `production`) can only receive content via the **Releases** deployment workflow.
+- Environments define where content drafts and schemas are authored, edited, and published.
+- **Rule**: Content can **only be directly authored and edited in editable environments** (`isEditable: true`, normally the lowest-rank base authoring environment).
+- Non-editable environments (e.g. `staging`, `production`) can only receive schema changes via the **Releases** deployment workflow.
 
 ---
 

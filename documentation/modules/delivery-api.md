@@ -161,7 +161,7 @@ Every authenticated request is evaluated against a per-key sliding window in Red
   1. `ZREMRANGEBYSCORE key 0 (now - 60000)`: Clears timestamps older than the 60-second window.
   2. `ZCARD key`: Counts requests remaining in the active window.
   3. Conditional: If count < limit, executes `ZADD key now now` and sets `PEXPIRE key 60000`. If count >= limit, computes exact `retryAfterSeconds` from the oldest entry.
-- **Fail-Open Resilience**: If Redis is unreachable or throws an error during rate check, the error is logged and traffic is allowed through to avoid bringing down live site feeds.
+- **Fail-Open Resilience**: If Redis is unreachable or throws an error during rate check, the error is logged and traffic is allowed through to avoid bringing down live client traffic.
 - **Response Headers**:
   - `X-RateLimit-Limit`: Maximum allowed requests per 60-second window.
   - `X-RateLimit-Remaining`: Remaining requests allowed in the current window.

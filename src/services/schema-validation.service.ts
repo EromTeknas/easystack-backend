@@ -1,10 +1,10 @@
 import { BadRequestError } from '../errors/AppError';
-import { SchemaDefinition, SchemaFieldDefinition } from '../models/feed-version.model';
+import { SchemaDefinition, SchemaFieldDefinition } from '../types/schema.types';
 
-export class FeedSchemaValidationError extends BadRequestError {
+export class SchemaValidationError extends BadRequestError {
   constructor(message: string) {
     super(message);
-    this.name = 'FeedSchemaValidationError';
+    this.name = 'SchemaValidationError';
   }
 }
 
@@ -29,21 +29,21 @@ export type SupportedComponentType = typeof SUPPORTED_COMPONENT_TYPES[number];
 
 const VALID_KEY_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-export const FeedSchemaValidationService = {
+export const SchemaValidationService = {
   /**
    * Validates the structural integrity and constraints of a SchemaDefinition.
    */
   validateSchemaDefinition(schema: any): SchemaDefinition {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
-      throw new FeedSchemaValidationError('Schema definition must be a valid JSON object.');
+      throw new SchemaValidationError('Schema definition must be a valid JSON object.');
     }
 
     if (typeof schema.version !== 'number' || schema.version < 1) {
-      throw new FeedSchemaValidationError('Schema version must be a positive integer.');
+      throw new SchemaValidationError('Schema version must be a positive integer.');
     }
 
     if (!Array.isArray(schema.fields)) {
-      throw new FeedSchemaValidationError("Schema must contain a 'fields' array.");
+      throw new SchemaValidationError("Schema must contain a 'fields' array.");
     }
 
     this.validateFieldList(schema.fields, 0, 'root');
@@ -55,7 +55,7 @@ export const FeedSchemaValidationService = {
    */
   validateFieldList(fields: SchemaFieldDefinition[], depth: number, scopePath: string) {
     if (depth > 10) {
-      throw new FeedSchemaValidationError(`Schema is too deeply nested at '${scopePath}'. Maximum nesting depth is 10.`);
+      throw new SchemaValidationError(`Schema is too deeply nested at '${scopePath}'. Maximum nesting depth is 10.`);
     }
 
     const seenKeys = new Set<string>();
@@ -65,68 +65,68 @@ export const FeedSchemaValidationService = {
       const fieldPath = `${scopePath}.${field?.key || `index[${i}]`}`;
 
       if (!field || typeof field !== 'object') {
-        throw new FeedSchemaValidationError(`Field at ${fieldPath} must be an object.`);
+        throw new SchemaValidationError(`Field at ${fieldPath} must be an object.`);
       }
 
       if (!field.id || typeof field.id !== 'string') {
-        throw new FeedSchemaValidationError(`Field at ${fieldPath} must have a valid string 'id'.`);
+        throw new SchemaValidationError(`Field at ${fieldPath} must have a valid string 'id'.`);
       }
 
       if (!field.key || typeof field.key !== 'string') {
-        throw new FeedSchemaValidationError(`Field at ${fieldPath} must have a non-empty 'key'.`);
+        throw new SchemaValidationError(`Field at ${fieldPath} must have a non-empty 'key'.`);
       }
 
       if (!VALID_KEY_REGEX.test(field.key)) {
-        throw new FeedSchemaValidationError(
+        throw new SchemaValidationError(
           `Invalid key '${field.key}' at ${fieldPath}. Keys must start with a letter or underscore and contain only alphanumeric characters or underscores.`
         );
       }
 
       if (seenKeys.has(field.key)) {
-        throw new FeedSchemaValidationError(`Duplicate key '${field.key}' found within scope '${scopePath}'.`);
+        throw new SchemaValidationError(`Duplicate key '${field.key}' found within scope '${scopePath}'.`);
       }
       seenKeys.add(field.key);
 
       if (!field.label || typeof field.label !== 'string' || !field.label.trim()) {
-        throw new FeedSchemaValidationError(`Field '${field.key}' at ${fieldPath} must have a non-empty display 'label'.`);
+        throw new SchemaValidationError(`Field '${field.key}' at ${fieldPath} must have a non-empty display 'label'.`);
       }
 
       if (!SUPPORTED_COMPONENT_TYPES.includes(field.type as SupportedComponentType)) {
-        throw new FeedSchemaValidationError(
+        throw new SchemaValidationError(
           `Field '${field.key}' has unsupported component type '${field.type}'. Supported types: ${SUPPORTED_COMPONENT_TYPES.join(', ')}`
         );
       }
 
       if (typeof field.required !== 'boolean') {
-        throw new FeedSchemaValidationError(`Field '${field.key}' must define 'required' as a boolean.`);
+        throw new SchemaValidationError(`Field '${field.key}' must define 'required' as a boolean.`);
       }
 
       if (typeof field.isLocalized !== 'boolean') {
-        throw new FeedSchemaValidationError(`Field '${field.key}' must define 'isLocalized' as a boolean.`);
+        throw new SchemaValidationError(`Field '${field.key}' must define 'isLocalized' as a boolean.`);
       }
 
       if (typeof field.isClientEditable !== 'boolean') {
-        throw new FeedSchemaValidationError(`Field '${field.key}' must define 'isClientEditable' as a boolean.`);
+        throw new SchemaValidationError(`Field '${field.key}' must define 'isClientEditable' as a boolean.`);
       }
 
       // Type-specific validations
       if (field.type === 'object') {
         const childFields = field.config?.fields;
         if (!Array.isArray(childFields)) {
-          throw new FeedSchemaValidationError(`Object field '${field.key}' must have 'config.fields' as an array.`);
+          throw new SchemaValidationError(`Object field '${field.key}' must have 'config.fields' as an array.`);
         }
         this.validateFieldList(childFields, depth + 1, fieldPath);
       } else if (field.type === 'list') {
         const itemDef = field.config?.itemDefinition;
         if (!itemDef || typeof itemDef !== 'object') {
-          throw new FeedSchemaValidationError(`List field '${field.key}' must define a valid 'config.itemDefinition'.`);
+          throw new SchemaValidationError(`List field '${field.key}' must define a valid 'config.itemDefinition'.`);
         }
         // Validate single item definition (wrap in array to reuse logic)
         this.validateFieldList([itemDef], depth + 1, `${fieldPath}[item]`);
       } else if (field.type === 'select') {
         const options = field.config?.options;
         if (options && !Array.isArray(options)) {
-          throw new FeedSchemaValidationError(`Select field '${field.key}' options must be an array.`);
+          throw new SchemaValidationError(`Select field '${field.key}' options must be an array.`);
         }
       }
     }
@@ -141,7 +141,7 @@ export const FeedSchemaValidationService = {
     options: { isLocalized?: boolean; locale?: string; isDraft?: boolean } = {}
   ) {
     if (!content || typeof content !== 'object' || Array.isArray(content)) {
-      throw new FeedSchemaValidationError('Content payload must be a JSON object.');
+      throw new SchemaValidationError('Content payload must be a JSON object.');
     }
 
     this.validateContentScope(content, schema.fields, 'root', options);
@@ -182,7 +182,7 @@ export const FeedSchemaValidationService = {
         );
 
       if (!options.isDraft && field.required && isEmpty) {
-        throw new FeedSchemaValidationError(`Missing required value for '${field.label}' (${fieldPath}).`);
+        throw new SchemaValidationError(`Missing required value for '${field.label}' (${fieldPath}).`);
       }
 
       // If empty, skip further type checks (allows partial drafts or empty optional fields)
@@ -198,15 +198,15 @@ export const FeedSchemaValidationService = {
         case 'color':
         case 'url': {
           if (typeof val !== 'string') {
-            throw new FeedSchemaValidationError(`Expected text value for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected text value for '${field.label}' at '${fieldPath}'.`);
           }
           if (!options.isDraft && field.config?.minLength && val.length < field.config.minLength) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) must be at least ${field.config.minLength} characters.`
             );
           }
           if (field.config?.maxLength && val.length > field.config.maxLength) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) cannot exceed ${field.config.maxLength} characters.`
             );
           }
@@ -214,7 +214,7 @@ export const FeedSchemaValidationService = {
             try {
               const regex = new RegExp(field.config.regexPattern);
               if (!regex.test(val)) {
-                throw new FeedSchemaValidationError(`'${field.label}' (${fieldPath}) does not match the required pattern.`);
+                throw new SchemaValidationError(`'${field.label}' (${fieldPath}) does not match the required pattern.`);
               }
             } catch (err: any) {
               // Ignore invalid regex in user config or pass
@@ -227,25 +227,25 @@ export const FeedSchemaValidationService = {
         case 'video': {
           if (typeof val === 'string') {
             if (val.trim() && !/^https?:\/\/.+/i.test(val.trim()) && !val.startsWith('/')) {
-              throw new FeedSchemaValidationError(
+              throw new SchemaValidationError(
                 `'${field.label}' (${fieldPath}) must be a valid URL starting with http://, https://, or /.`
               );
             }
           } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
             if (val.url !== undefined && val.url !== null && typeof val.url !== 'string') {
-              throw new FeedSchemaValidationError(
+              throw new SchemaValidationError(
                 `Expected string URL in media object for '${field.label}' at '${fieldPath}'.`
               );
             }
             if (val.url && typeof val.url === 'string' && val.url.trim()) {
               if (!/^https?:\/\/.+/i.test(val.url.trim()) && !val.url.startsWith('/')) {
-                throw new FeedSchemaValidationError(
+                throw new SchemaValidationError(
                   `'${field.label}' (${fieldPath}) media URL must start with http://, https://, or /.`
                 );
               }
             }
           } else {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `Expected image/video URL string or media object for '${field.label}' at '${fieldPath}'.`
             );
           }
@@ -254,22 +254,22 @@ export const FeedSchemaValidationService = {
 
         case 'tags': {
           if (!Array.isArray(val) || val.some((item) => typeof item !== 'string')) {
-            throw new FeedSchemaValidationError(`Expected array of strings for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected array of strings for '${field.label}' at '${fieldPath}'.`);
           }
           break;
         }
 
         case 'number': {
           if (typeof val !== 'number' || isNaN(val)) {
-            throw new FeedSchemaValidationError(`Expected numeric value for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected numeric value for '${field.label}' at '${fieldPath}'.`);
           }
           if (field.config?.min !== undefined && val < field.config.min) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) must be greater than or equal to ${field.config.min}.`
             );
           }
           if (field.config?.max !== undefined && val > field.config.max) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) cannot exceed ${field.config.max}.`
             );
           }
@@ -278,14 +278,14 @@ export const FeedSchemaValidationService = {
 
         case 'boolean': {
           if (typeof val !== 'boolean') {
-            throw new FeedSchemaValidationError(`Expected boolean true/false for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected boolean true/false for '${field.label}' at '${fieldPath}'.`);
           }
           break;
         }
 
         case 'date': {
           if (typeof val !== 'string' || isNaN(Date.parse(val))) {
-            throw new FeedSchemaValidationError(`Expected valid date string for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected valid date string for '${field.label}' at '${fieldPath}'.`);
           }
           break;
         }
@@ -294,18 +294,18 @@ export const FeedSchemaValidationService = {
           const allowedValues = (field.config?.options || []).map((opt: any) => opt.value);
           if (field.config?.allowMultiple) {
             if (!Array.isArray(val)) {
-              throw new FeedSchemaValidationError(`Expected array of selections for '${field.label}' at '${fieldPath}'.`);
+              throw new SchemaValidationError(`Expected array of selections for '${field.label}' at '${fieldPath}'.`);
             }
             if (allowedValues.length > 0) {
               for (const item of val) {
                 if (!allowedValues.includes(item)) {
-                  throw new FeedSchemaValidationError(`Invalid selection '${item}' for '${field.label}' at '${fieldPath}'.`);
+                  throw new SchemaValidationError(`Invalid selection '${item}' for '${field.label}' at '${fieldPath}'.`);
                 }
               }
             }
           } else {
             if (allowedValues.length > 0 && !allowedValues.includes(val)) {
-              throw new FeedSchemaValidationError(`Invalid option '${val}' selected for '${field.label}' at '${fieldPath}'.`);
+              throw new SchemaValidationError(`Invalid option '${val}' selected for '${field.label}' at '${fieldPath}'.`);
             }
           }
           break;
@@ -313,7 +313,7 @@ export const FeedSchemaValidationService = {
 
         case 'object': {
           if (typeof val !== 'object' || Array.isArray(val)) {
-            throw new FeedSchemaValidationError(`Expected object container for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected object container for '${field.label}' at '${fieldPath}'.`);
           }
           const childFields = field.config?.fields || [];
           this.validateContentScope(val, childFields, fieldPath, options);
@@ -322,15 +322,15 @@ export const FeedSchemaValidationService = {
 
         case 'list': {
           if (!Array.isArray(val)) {
-            throw new FeedSchemaValidationError(`Expected list array for '${field.label}' at '${fieldPath}'.`);
+            throw new SchemaValidationError(`Expected list array for '${field.label}' at '${fieldPath}'.`);
           }
           if (!options.isDraft && field.config?.minItems && val.length < field.config.minItems) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) requires at least ${field.config.minItems} items.`
             );
           }
           if (field.config?.maxItems && val.length > field.config.maxItems) {
-            throw new FeedSchemaValidationError(
+            throw new SchemaValidationError(
               `'${field.label}' (${fieldPath}) cannot have more than ${field.config.maxItems} items.`
             );
           }
@@ -340,7 +340,7 @@ export const FeedSchemaValidationService = {
               const itemVal = val[i];
               if (itemDef.type === 'object') {
                 if (typeof itemVal !== 'object' || Array.isArray(itemVal)) {
-                  throw new FeedSchemaValidationError(`Item at '${fieldPath}[${i}]' must be an object.`);
+                  throw new SchemaValidationError(`Item at '${fieldPath}[${i}]' must be an object.`);
                 }
                 this.validateContentScope(itemVal, itemDef.config?.fields || [], `${fieldPath}[${i}]`, options);
               } else {

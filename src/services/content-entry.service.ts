@@ -6,7 +6,7 @@ import {
   PaginatedContentEntries,
 } from '../repositories/content-entry.repository';
 import { SchemaBlueprintRepository } from '../repositories/schema-blueprint.repository';
-import { FeedSchemaValidationService } from './feed-schema-validation.service';
+import { SchemaValidationService } from './schema-validation.service';
 import { BadRequestError, NotFoundError, ConflictError } from '../errors';
 import { prisma } from '../db';
 import { IContentEntry, ContentEntryStatus } from '../models/content-entry.model';
@@ -239,12 +239,12 @@ export const ContentEntryService = {
 
       const isDraft = (data.status || 'draft') === 'draft';
       const defaultContent = schema.schemaDefinition
-        ? FeedSchemaValidationService.generateDefaultContent(schema.schemaDefinition)
+        ? SchemaValidationService.generateDefaultContent(schema.schemaDefinition)
         : {};
       const mergedContent = { ...defaultContent, ...(data.content || {}) };
 
       if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-        FeedSchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
+        SchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
       }
 
       const isPublished = (data.status || 'draft') === 'published';
@@ -301,12 +301,12 @@ export const ContentEntryService = {
 
     const isDraft = (data.status || 'draft') === 'draft';
     const defaultContent = schema.schemaDefinition
-      ? FeedSchemaValidationService.generateDefaultContent(schema.schemaDefinition)
+      ? SchemaValidationService.generateDefaultContent(schema.schemaDefinition)
       : {};
     const mergedContent = { ...defaultContent, ...(data.content || {}) };
 
     if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-      FeedSchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
+      SchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
     }
 
     const isPublished = (data.status || 'draft') === 'published';
@@ -373,11 +373,11 @@ export const ContentEntryService = {
       if (!existing) {
         const isDraft = (data.status || 'draft') === 'draft';
         const defaultContent = schema.schemaDefinition
-          ? FeedSchemaValidationService.generateDefaultContent(schema.schemaDefinition)
+          ? SchemaValidationService.generateDefaultContent(schema.schemaDefinition)
           : {};
         const mergedContent = { ...defaultContent, ...(data.content || {}) };
         if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-          FeedSchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
+          SchemaValidationService.validateContentAgainstSchema(mergedContent, schema.schemaDefinition, { isDraft });
         }
         const isPublished = (data.status || 'draft') === 'published';
         const createdSingleton = await ContentEntryRepository.create({
@@ -478,7 +478,7 @@ export const ContentEntryService = {
 
     if (data.content !== undefined) {
       if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-        FeedSchemaValidationService.validateContentAgainstSchema(data.content, schema.schemaDefinition, { isDraft });
+        SchemaValidationService.validateContentAgainstSchema(data.content, schema.schemaDefinition, { isDraft });
       }
       updatePayload.content = data.content;
 
@@ -537,7 +537,7 @@ export const ContentEntryService = {
       }
     } else if (data.status !== undefined && !isDraft) {
       if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-        FeedSchemaValidationService.validateContentAgainstSchema(existing.content, schema.schemaDefinition, { isDraft: false });
+        SchemaValidationService.validateContentAgainstSchema(existing.content, schema.schemaDefinition, { isDraft: false });
       }
     }
 
@@ -713,7 +713,7 @@ export const ContentEntryService = {
     } else {
       // For singleton never published, clear content to defaults
       const defaultContent = schema.schemaDefinition
-        ? FeedSchemaValidationService.generateDefaultContent(schema.schemaDefinition)
+        ? SchemaValidationService.generateDefaultContent(schema.schemaDefinition)
         : {};
       const cleared = await ContentEntryRepository.update(entry._id.toString(), {
         content: defaultContent,
@@ -737,7 +737,7 @@ export const ContentEntryService = {
       const supportedLanguages = project.supportedLanguages as string[];
       const baseLanguage = entry.baseLanguage || 'en';
 
-      const { translationQueue } = require('./feed/infrastructure/queue/translation.queue');
+      const { translationQueue } = require('./translation/infrastructure/queue/translation.queue');
 
       const statuses: Record<string, any> = (entry.translationStatuses as any) || {};
       for (const lang of supportedLanguages) {
@@ -749,9 +749,17 @@ export const ContentEntryService = {
         };
 
         await translationQueue.add('translate-content-entry', {
-          contentEntryId: entry._id.toString(),
+          type: 'content_entry',
           targetLang: lang,
-          userId,
+          sourceLang: baseLanguage,
+          content: entry.content,
+          context: {
+            contentEntryId: entry._id.toString(),
+            projectId,
+            schemaSlug: entry.schemaSlug,
+            environment: entry.environment,
+            userId,
+          },
         });
       }
 
@@ -778,7 +786,7 @@ export const ContentEntryService = {
 
     // Validate required fields
     if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-      FeedSchemaValidationService.validateContentAgainstSchema(entry.content, schema.schemaDefinition, {
+      SchemaValidationService.validateContentAgainstSchema(entry.content, schema.schemaDefinition, {
         isDraft: false,
       });
 
@@ -926,7 +934,7 @@ export const ContentEntryService = {
       };
     }
 
-    const { translationQueue } = require('./feed/infrastructure/queue/translation.queue');
+    const { translationQueue } = require('./translation/infrastructure/queue/translation.queue');
     const statuses: Record<string, any> = (entry.translationStatuses as any) || {};
 
     for (const lang of targetLanguages) {
@@ -936,9 +944,17 @@ export const ContentEntryService = {
       };
 
       await translationQueue.add('translate-content-entry', {
-        contentEntryId: entry._id.toString(),
+        type: 'content_entry',
         targetLang: lang,
-        userId,
+        sourceLang: entry.baseLanguage || 'en',
+        content: entry.content,
+        context: {
+          contentEntryId: entry._id.toString(),
+          projectId,
+          schemaSlug: entry.schemaSlug,
+          environment: entry.environment,
+          userId,
+        },
       });
     }
 
@@ -979,7 +995,7 @@ export const ContentEntryService = {
     }
 
     if (schema.schemaDefinition && schema.schemaDefinition.fields) {
-      FeedSchemaValidationService.validateContentAgainstSchema(entry.content, schema.schemaDefinition, {
+      SchemaValidationService.validateContentAgainstSchema(entry.content, schema.schemaDefinition, {
         isDraft: false,
       });
     }

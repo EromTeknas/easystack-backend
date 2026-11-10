@@ -1,27 +1,22 @@
-import { FeedVersion } from '../models/feed-version.model';
-import { FeedLocalization } from '../models/feed-localization.model';
-import { FeedAuditLog } from '../models/feed-audit-log.model';
-import { FeedComment } from '../models/feed-comment.model';
+import { SchemaBlueprint } from '../models/schema-blueprint.model';
+import { SchemaBlueprintVersion } from '../models/schema-blueprint-version.model';
+import { ContentEntry } from '../models/content-entry.model';
+import { ContentAuditLog } from '../models/content-audit-log.model';
+import { ProjectLanguageAuditLog } from '../models/project-language-audit-log.model';
 import { prisma } from '../db';
 import { storageService } from './storage/storage.instance';
 import { deletionLogger as logger } from '../utils/logger';
 
-export const cleanupProjectExternalData = async (projectId: number, feedIds: number[], projectResourceId: string) => {
+export const cleanupProjectExternalData = async (projectId: number, projectResourceId: string) => {
   try {
-    logger.info(`Starting external data cleanup for project ${projectId}`, { feedIds, projectResourceId });
+    logger.info(`Starting external data cleanup for project ${projectId}`, { projectResourceId });
 
-    if (feedIds.length > 0) {
-      const versions = await FeedVersion.find({ feedId: { $in: feedIds } }, { _id: 1 });
-      const versionIds = versions.map(v => v._id);
-
-      if (versionIds.length > 0) {
-        await FeedLocalization.deleteMany({ feedVersionId: { $in: versionIds } });
-        await FeedVersion.deleteMany({ _id: { $in: versionIds } });
-      }
-      await FeedAuditLog.deleteMany({ feedId: { $in: feedIds } });
-    }
-
-    await FeedComment.deleteMany({ projectId });
+    // Clean up MongoDB entities
+    await ContentEntry.deleteMany({ projectId });
+    await ContentAuditLog.deleteMany({ projectId });
+    await SchemaBlueprintVersion.deleteMany({ projectId });
+    await SchemaBlueprint.deleteMany({ projectId });
+    await ProjectLanguageAuditLog.deleteMany({ projectId });
 
     const assets = await prisma.storageAsset.findMany({
       where: { targetKey: { contains: `projects:${projectResourceId}` } }
@@ -44,27 +39,18 @@ export const cleanupProjectExternalData = async (projectId: number, feedIds: num
   }
 };
 
-export const cleanupWorkspaceExternalData = async (workspaceId: number, projectIds: number[], feedIds: number[], workspaceResourceId: string) => {
+export const cleanupWorkspaceExternalData = async (workspaceId: number, projectIds: number[], workspaceResourceId: string) => {
   try {
-    logger.info(`Starting external data cleanup for workspace ${workspaceId}`, { projectIds, feedIds, workspaceResourceId });
-
-    if (feedIds.length > 0) {
-      const versions = await FeedVersion.find({ feedId: { $in: feedIds } }, { _id: 1 });
-      const versionIds = versions.map(v => v._id);
-
-      if (versionIds.length > 0) {
-        await FeedLocalization.deleteMany({ feedVersionId: { $in: versionIds } });
-        await FeedVersion.deleteMany({ _id: { $in: versionIds } });
-      }
-      await FeedAuditLog.deleteMany({ feedId: { $in: feedIds } });
-    }
+    logger.info(`Starting external data cleanup for workspace ${workspaceId}`, { projectIds, workspaceResourceId });
 
     if (projectIds.length > 0) {
-      await FeedComment.deleteMany({ projectId: { $in: projectIds } });
+      await ContentEntry.deleteMany({ projectId: { $in: projectIds } });
+      await ContentAuditLog.deleteMany({ projectId: { $in: projectIds } });
+      await SchemaBlueprintVersion.deleteMany({ projectId: { $in: projectIds } });
+      await SchemaBlueprint.deleteMany({ projectId: { $in: projectIds } });
+      await ProjectLanguageAuditLog.deleteMany({ projectId: { $in: projectIds } });
     }
 
-    // This will delete all project assets inside the workspace, PLUS the workspace logo!
-    // Because targetKey looks like workspaces:wrk_XXX/projects:prj_YYY OR workspaces:wrk_XXX
     const assets = await prisma.storageAsset.findMany({
       where: { targetKey: { contains: `workspaces:${workspaceResourceId}` } }
     });

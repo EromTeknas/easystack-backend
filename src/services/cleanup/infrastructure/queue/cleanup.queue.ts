@@ -15,8 +15,8 @@ export const cleanupQueue = new Queue(CLEANUP_QUEUE_NAME, {
 });
 
 export type CleanupJobData =
-  | { type: 'project'; projectId: number; feedIds: number[]; projectResourceId: string }
-  | { type: 'workspace'; workspaceId: number; projectIds: number[]; feedIds: number[]; workspaceResourceId: string };
+  | { type: 'project'; projectId: number; projectResourceId: string }
+  | { type: 'workspace'; workspaceId: number; projectIds: number[]; workspaceResourceId: string };
 
 export const enqueueCleanupJob = async (data: CleanupJobData) => {
   await cleanupQueue.add(`cleanup-${data.type}-${'projectId' in data ? data.projectId : data.workspaceId}`, data);

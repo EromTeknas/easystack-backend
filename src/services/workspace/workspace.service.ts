@@ -153,7 +153,7 @@ export class WorkspaceService {
       where: { id: workspaceId },
       include: {
         projects: {
-          include: { feeds: { select: { id: true } } }
+          select: { id: true }
         },
         subscription: true
       }
@@ -168,7 +168,6 @@ export class WorkspaceService {
     }
 
     const projectIds = workspace.projects.map(p => p.id);
-    const feedIds = workspace.projects.flatMap(p => p.feeds.map(f => f.id));
 
     await WorkspaceRepository.deleteWorkspace(workspaceId);
 
@@ -177,7 +176,6 @@ export class WorkspaceService {
       type: 'workspace',
       workspaceId,
       projectIds,
-      feedIds,
       workspaceResourceId: workspace.resourceId
     });
   }

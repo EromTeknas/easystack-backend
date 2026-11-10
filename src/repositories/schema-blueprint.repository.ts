@@ -1,5 +1,5 @@
 import { SchemaBlueprint, ISchemaBlueprint, SchemaBlueprintType } from '../models/schema-blueprint.model';
-import { SchemaDefinition } from '../models/feed-version.model';
+import { SchemaDefinition } from '../types/schema.types';
 
 export interface CreateSchemaBlueprintDto {
   projectId: number;

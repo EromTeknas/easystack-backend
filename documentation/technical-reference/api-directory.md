@@ -90,40 +90,13 @@ Mounted in [`src/routes/projects/projects.routes.ts`](file:///home/eteknas/Proje
 
 ---
 
-## 4. Feeds & Collaboration Endpoints (Decommissioned)
-
-> [!NOTE]
-> The legacy `/api/projects/:projectId/feeds` router has been unmounted from [`src/routes/projects/projects.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/projects/projects.routes.ts) in favor of the flexible Schema Blueprints (`/api/projects/:projectId/schemas`) and Content Engine (`/api/projects/:projectId/content`).
-
-| Method | Endpoint | Guards | Purpose |
-|---|---|---|---|
-| `GET` | `/` | `authenticate`, `authorize(FEED.READ)` | List feeds in project |
-| `POST` | `/` | `authenticate`, `authorize(FEED.CREATE)` | Create new feed |
-| `GET` | `/:feedId` | `authenticate`, `authorize(FEED.READ)` | Get feed details |
-| `GET` | `/:feedId/draft` | `authenticate`, `authorize(FEED.READ)` | Get active draft content for feed |
-| `PUT` | `/:feedId/draft` | `authenticate`, `authorize(FEED.UPDATE)` | Update base content in draft environment |
-| `POST` | `/:feedId/publish` | `authenticate`, `authorize(FEED.PUBLISH)` | Promote draft to published in environment |
-| `POST` | `/:feedId/auto-translate` | `authenticate`, `authorize(FEED.UPDATE)` | Enqueue AI translation batch job |
-| `GET` | `/:feedId/translations` | `authenticate`, `authorize(FEED.READ)` | List all language translations for feed |
-| `GET` | `/:feedId/translations/:lang` | `authenticate`, `authorize(FEED.READ)` | Get localized JSON for specific language |
-| `PUT` | `/:feedId/translations/:lang` | `authenticate`, `authorize(FEED.UPDATE)` | Save manual translation (triggers approval reset) |
-| `POST` | `/:feedId/translations/:lang/mark-correct` | `authenticate`, `authorize(FEED.UPDATE)` | Mark STALE translation COMPLETED without changes |
-| `GET` | `/:feedId/audit-logs` | `authenticate`, `authorize(FEED.READ)` | Paginated feed change history |
-| `POST` | `/:feedId/translations/:lang/review-request` | `authenticate`, `authorize(FEED.UPDATE)` | Request PR-style review |
-| `POST` | `/:feedId/translations/:lang/reviews/:reviewId/approve` | `authenticate`, `authorize(FEED.UPDATE)` | Approve active review |
-| `POST` | `/:feedId/translations/:lang/reviews/:reviewId/close` | `authenticate`, `authorize(FEED.UPDATE)` | Close active review thread |
-| `POST` | `/:feedId/translations/:lang/comments` | `authenticate`, `authorize(FEED.READ)` | Post comment or reply in review thread |
-| `GET` | `/:feedId/translations/:lang/comments` | `authenticate`, `authorize(FEED.READ)` | Get comment thread messages |
-
----
-
-## 5. Releases Endpoints (`/api/projects/:projectId/releases`)
+## 4. Releases Endpoints (`/api/projects/:projectId/releases`)
 
 Mounted in [`src/routes/releases/release.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/releases/release.routes.ts).
 
 | Method | Endpoint | Guards | Purpose |
 |---|---|---|---|
-| `GET` | `/diff` | `authenticate`, `authorize(RELEASE.READ)` | Diff source vs target environment feeds |
+| `GET` | `/diff` | `authenticate`, `authorize(RELEASE.READ)` | Diff source vs target environment schema blueprints |
 | `GET` | `/suggest-version` | `authenticate`, `authorize(RELEASE.READ)` | Suggest SemVer bump (PATCH, MINOR, MAJOR) |
 | `POST` | `/` | `authenticate`, `authorize(RELEASE.CREATE)` | Create release with frozen snapshots |
 | `GET` | `/` | `authenticate`, `authorize(RELEASE.READ)` | List project releases |
@@ -138,7 +111,7 @@ Mounted in [`src/routes/releases/release.routes.ts`](file:///home/eteknas/Projec
 
 ---
 
-## 6. Schemas & Content Endpoints
+## 5. Schemas & Content Endpoints
 
 Mounted in [`src/routes/schemas/schema-blueprint.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/schemas/schema-blueprint.routes.ts) and [`src/routes/content/content-entry.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/content/content-entry.routes.ts).
 
@@ -180,7 +153,7 @@ Mounted in [`src/routes/assets/assets.routes.ts`](file:///home/eteknas/Projects/
 
 ---
 
-## 7. Storage Endpoints (`/api/storage`)
+## 6. Storage Endpoints (`/api/storage`)
 
 Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Projects/easystack-backend/src/routes/storage/storage.routes.ts).
 
@@ -197,7 +170,7 @@ Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Project
 
 ---
 
-## 8. Billing Endpoints (`/api/billing` & `/api/public/billing`)
+## 7. Billing Endpoints (`/api/billing` & `/api/public/billing`)
 
 - `GET /api/public/billing/plans`: Public available subscription plan catalog.
 - `GET /api/billing/workspaces/:workspaceId/my-plan`: Get workspace subscription, version, and quota usage.
@@ -205,7 +178,7 @@ Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Project
 
 ---
 
-## 9. Public Invitations & User Endpoints
+## 8. Public Invitations & User Endpoints
 
 - `GET /api/public/invitations/:token`: Public invitation lookup (unauthenticated).
 - `GET /api/user/search`: Exact-match email user lookup (`authenticate`).
@@ -215,7 +188,7 @@ Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Project
 
 ---
 
-## 10. Operational & Queue Endpoints
+## 9. Operational & Queue Endpoints
 
 - `GET /api/health`: Health status.
 - `GET /api/hello`: Simple ping.

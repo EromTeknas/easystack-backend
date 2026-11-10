@@ -9,7 +9,7 @@ graph TD
     App([EasyStack Application Services])
     
     App -->|Relational & Billing Data| MySQL[(MySQL 8 / Prisma)]
-    App -->|Flexible Schemas & Feeds| Mongo[(MongoDB / Mongoose)]
+    App -->|Schemas & Content Entries| Mongo[(MongoDB / Mongoose)]
     App -->|Auth Cache, OTPs & Queues| Redis[(Redis 7 / ioredis)]
     App -->|Presigned Assets & CDN| S3[(S3 / MinIO Object Storage)]
 
@@ -22,11 +22,9 @@ graph TD
     end
 
     subgraph Mongo[MongoDB via Mongoose: Dynamic Document Store]
-        Feeds[FeedVersions & Localizations]
         Schemas[SchemaBlueprints & Versions]
-        Content[ContentEntries]
-        Collaboration[FeedComments & Reviews]
-        Audit[FeedAuditLog & ContentAuditLog]
+        Content[ContentEntries & Translations]
+        Audit[ContentAuditLog]
     end
 
     subgraph Redis[Redis: Fast In-Memory Nodes]
@@ -56,14 +54,11 @@ graph TD
   - `UploadIntent`, `StorageAsset`
 
 ### B. MongoDB (Managed via Mongoose)
-- **Document Store** for user-authored dynamic content, schema blueprints, localized feeds, review comments, and event audit trails.
+- **Document Store** for user-authored dynamic content, schema blueprints, multi-language translations, and event audit trails.
 - **Why MongoDB?** User-defined JSON structures vary dynamically per project. MongoDB handles deeply nested JSON trees, versioned document snapshots, and high-frequency audit appending without requiring SQL schema migrations for every content structure change.
 - **Core Collections / Models**:
   - `SchemaBlueprint`, `SchemaBlueprintVersion` ([`src/models/schema-blueprint.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/schema-blueprint.model.ts))
   - `ContentEntry`, `ContentAuditLog` ([`src/models/content-entry.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/content-entry.model.ts))
-  - `FeedVersion`, `FeedLocalization` ([`src/models/feed-version.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-version.model.ts), [`src/models/feed-localization.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-localization.model.ts))
-  - `FeedComment` ([`src/models/feed-comment.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-comment.model.ts))
-  - `FeedAuditLog`, `ProjectLanguageAuditLog` ([`src/models/feed-audit-log.model.ts`](file:///home/eteknas/Projects/easystack-backend/src/models/feed-audit-log.model.ts))
 
 ### C. Redis (Managed via `ioredis` & BullMQ)
 - **High-Performance In-Memory Store** for low-latency middleware gates, ephemeral credentials, and background task queuing.
@@ -91,7 +86,7 @@ Because an entity's metadata lives in MySQL while its content documents live in 
 
 ### 1. Dual-Write & Transaction Coordination
 - MySQL operations use Prisma interactive transactions (`prisma.$transaction(async tx => { ... })`).
-- When a workflow updates both MySQL (e.g., creating an `EnvironmentState` or `Release`) and MongoDB (e.g., cloning a `FeedVersion`), the service:
+- When a workflow updates both MySQL (e.g., creating an `Environment` or `Release`) and MongoDB (e.g., snapshotting a `SchemaBlueprintVersion`), the service:
   1. Writes the MongoDB document first or verifies its schema.
   2. Executes the MySQL transaction linking to the MongoDB `_id` string.
   3. If the MySQL transaction aborts, compensation logic removes or marks the orphaned MongoDB document.
@@ -101,7 +96,7 @@ When a project or workspace is soft-deleted or removed:
 - MySQL marks `removedAt: new Date()` for the workspace, projects, and members.
 - The service calls [`cleanupProjectExternalData`](file:///home/eteknas/Projects/easystack-backend/src/services/cleanup.service.ts) or enqueues a `cleanup` job in BullMQ ([`src/services/cleanup/infrastructure/queue/cleanup.worker.ts`](file:///home/eteknas/Projects/easystack-backend/src/services/cleanup/infrastructure/queue/cleanup.worker.ts)).
 - The cleanup routine deletes:
-  - MongoDB `FeedVersion`, `FeedLocalization`, `FeedComment`, and `FeedAuditLog` documents associated with the feed and project.
+  - MongoDB `SchemaBlueprint`, `SchemaBlueprintVersion`, `ContentEntry`, and `ContentAuditLog` documents associated with the project.
   - S3 object blobs associated with the project's `StorageAsset` records.
 
 ### 3. Cache Invalidation

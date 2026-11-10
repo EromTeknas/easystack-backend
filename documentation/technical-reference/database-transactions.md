@@ -72,7 +72,7 @@ export async function createProjectWithDefaults(
 
 Use an interactive transaction whenever:
 1. **Multi-Table Dependent Inserts**: A parent entity requires dependent rows (e.g., Workspace + WorkspaceMember + Subscription).
-2. **State Pointer Switches**: Swapping active environment versions in Releases (`EnvironmentState.activeVersionId`).
+2. **State Pointer Switches**: Updating environment deployment records in Releases.
 3. **Role Promotions with Cleanup**: Promoting a member to Workspace Admin while soft-deleting legacy project-member records.
 4. **Quota Usage Increments**: Applying metered usage changes alongside business operations.
 
@@ -90,12 +90,12 @@ sequenceDiagram
     participant MySQL as MySQL (Prisma tx)
     participant Redis as Redis Cache
 
-    Svc->>Mongo: 1. Validate & Save Document (e.g., FeedVersion)
+    Svc->>Mongo: 1. Validate & Save Document (e.g., SchemaBlueprintVersion)
     Svc->>MySQL: 2. Begin Prisma Transaction
     MySQL->>MySQL: Insert pointers referencing Mongo _id
     alt Prisma Transaction Fails
         MySQL-->>Svc: Rollback
-        Svc->>Mongo: Compensation: Delete orphaned FeedVersion
+        Svc->>Mongo: Compensation: Delete orphaned document
     else Prisma Transaction Succeeds
         MySQL-->>Svc: Commit Success
         Svc->>Redis: 3. Invalidate Redis Auth / Billing Caches

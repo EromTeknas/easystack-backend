@@ -31,7 +31,7 @@ export const workerRegistry: Record<WorkerGroup, WorkerGroupRegistration> = {
   translation: {
     create: async () => {
       const { createTranslationWorkers } = await import(
-        "../services/feed/infrastructure/queue/createTranslationWorkers"
+        "../services/translation/infrastructure/queue/createTranslationWorkers"
       );
       return createTranslationWorkers();
     },

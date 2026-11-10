@@ -26,7 +26,7 @@ export const ReleaseController = {
     try {
       const projectId = parseInt(req.params.projectId as string);
       const targetEnvId = parseInt(req.query.targetEnvironmentId as string);
-      const rawIds = (req.query.schemaIds || req.query.blueprintIds || req.query.feedIds || '') as string;
+      const rawIds = (req.query.schemaIds || req.query.blueprintIds || '') as string;
       const ids: (string | number)[] = rawIds
         ? rawIds.split(',').map((s) => s.trim()).filter(Boolean).map((s) => /^\d+$/.test(s) ? Number(s) : s)
         : [];
@@ -44,7 +44,7 @@ export const ReleaseController = {
     try {
       const projectId = parseInt(req.params.projectId as string);
       const userId = req.user!.id;
-      const { name, description, sourceEnvironmentId, targetEnvironmentId, version, feedIds, schemaIds, blueprintIds } = req.body;
+      const { name, description, sourceEnvironmentId, targetEnvironmentId, version, schemaIds, blueprintIds } = req.body;
 
       const release = await ReleaseService.createRelease(projectId, userId, {
         name,
@@ -52,7 +52,6 @@ export const ReleaseController = {
         sourceEnvironmentId,
         targetEnvironmentId,
         version,
-        feedIds,
         schemaIds,
         blueprintIds,
       });

@@ -136,8 +136,6 @@ export class BillingService {
     };
 
     for (const [key, limit] of Object.entries(cache.quotas)) {
-      if (key === 'feeds_per_project') continue; // Purge legacy feeds
-
       const def = getQuotaDefinition(key);
       const isProjectScoped = def?.scope === 'PROJECT' || key.includes('_per_project') || key === 'asset_storage_mb';
       const scope: 'WORKSPACE' | 'PROJECT' = isProjectScoped ? 'PROJECT' : 'WORKSPACE';

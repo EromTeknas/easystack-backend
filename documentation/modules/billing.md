@@ -114,7 +114,6 @@ router.post(
 - `data_entries_per_project`: Total content entries across blueprints permitted per project (`scope: 'PROJECT'`). Free: 100, Pro: 5000.
 - `storage.gb`: Total workspace storage across S3 (`scope: 'WORKSPACE'`).
 - `api.requests.daily`: Metered API calls per day (`scope: 'WORKSPACE'`).
-- `feeds_per_project`: Deprecated in favor of modern content blueprints and data entries metrics.
 
 ---
 

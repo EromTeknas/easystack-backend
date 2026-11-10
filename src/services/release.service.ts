@@ -1,9 +1,6 @@
 import { prisma } from '../db';
 import { NotFoundError, BadRequestError } from '../errors';
-import { FeedService } from './feed.service';
 import { AuthorizationService } from './authorization/services/authorization.service';
-import { FeedVersion } from '../models/feed-version.model';
-import { FeedLocalization } from '../models/feed-localization.model';
 import logger from '../utils/logger';
 import { 
   scheduleReleaseJob, 
@@ -27,7 +24,6 @@ export const ReleaseService = {
     sourceEnvironmentId: number;
     targetEnvironmentId: number;
     version: string;
-    feedIds?: (number | string)[];
     blueprintIds?: string[];
     schemaIds?: string[];
   }) {
@@ -57,7 +53,7 @@ export const ReleaseService = {
       throw new BadRequestError(`Cannot create a release targeting the initial lowest-rank environment ('${baseName}')`);
     }
 
-    const rawIds: (string | number)[] = payload.blueprintIds || payload.schemaIds || payload.feedIds || [];
+    const rawIds: (string | number)[] = payload.blueprintIds || payload.schemaIds || [];
     const stringIds: string[] = [];
     const legacyNumericIds: number[] = [];
 
@@ -358,7 +354,7 @@ export const ReleaseService = {
   async executeRelease(releaseId: number, projectId?: number, userId?: number) {
     const release = await prisma.release.findUnique({
       where: { id: releaseId, ...(projectId ? { projectId } : {}) },
-      include: { items: true, targetEnvironment: true, sourceEnvironment: true }
+      include: { targetEnvironment: true, sourceEnvironment: true }
     });
 
     if (!release) throw new NotFoundError('Release not found');
@@ -417,7 +413,7 @@ export const ReleaseService = {
   async performDeployment(releaseId: number) {
     const release = await prisma.release.findUnique({
       where: { id: releaseId },
-      include: { items: true, targetEnvironment: true, sourceEnvironment: true }
+      include: { targetEnvironment: true, sourceEnvironment: true }
     });
 
     if (!release) throw new NotFoundError(`Release ${releaseId} not found for deployment`);
@@ -476,59 +472,18 @@ export const ReleaseService = {
           }
         }
       }
-      for (const item of release.items) {
-        const v = await FeedVersion.findById(item.versionId).lean();
-        if (!v) {
-          throw new BadRequestError(`Version ${item.versionId} not found for feed ${item.feedId}`);
-        }
-      }
       await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(1, 'COMPLETED', 25);
       logger.info(`[DeploymentWorker] Stage 1 complete: Pre-flight checks passed for release ${release.id}`);
 
       // Stage 2: Target Environment State Snapshot & Rollback Point Creation
       await updateStage(2, 'RUNNING', 30);
-      for (const item of release.items) {
-        const currentState = await prisma.environmentState.findUnique({
-          where: {
-            environmentId_feedId: {
-              environmentId: release.targetEnvironmentId,
-              feedId: item.feedId
-            }
-          }
-        });
-        const previousVersionId = currentState ? currentState.activeVersionId : null;
-        await prisma.releaseItem.update({
-          where: { id: item.id },
-          data: { previousVersionId }
-        });
-      }
       await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(2, 'COMPLETED', 45);
       logger.info(`[DeploymentWorker] Stage 2 complete: Environment snapshot captured for release ${release.id}`);
 
       // Stage 3: Atomic State Pointer Synchronization
       await updateStage(3, 'RUNNING', 50);
-      if (release.items.length > 0) {
-        await prisma.$transaction(async (tx) => {
-          for (const item of release.items) {
-            await tx.environmentState.upsert({
-              where: {
-                environmentId_feedId: {
-                  environmentId: release.targetEnvironmentId,
-                  feedId: item.feedId,
-                },
-              },
-              update: { activeVersionId: item.versionId },
-              create: {
-                environmentId: release.targetEnvironmentId,
-                feedId: item.feedId,
-                activeVersionId: item.versionId,
-              },
-            });
-          }
-        });
-      }
 
       // Sync blueprint target environment versions
       if (bpIds.length > 0) {
@@ -654,33 +609,6 @@ export const ReleaseService = {
 
       // Stage 4: Release Artifact Locking & Development Version Branching
       await updateStage(4, 'RUNNING', 70);
-      const allProjectEnvs = await prisma.environment.findMany({
-        where: { projectId: release.projectId },
-        orderBy: { rank: 'asc' },
-      });
-      const isBaseSourceStage = Boolean(allProjectEnvs[0] && allProjectEnvs[0].id === release.sourceEnvironmentId);
-
-      for (const item of release.items) {
-        if (isBaseSourceStage || release.sourceEnvironment.name === 'development') {
-          await FeedService.lockAndCloneForDevelopment(
-            release.projectId,
-            item.feedId,
-            item.versionId,
-            release.createdById
-          );
-        } else {
-          const project = await prisma.project.findUnique({ where: { id: release.projectId } });
-          const projectLanguages = (project?.supportedLanguages as string[]) || [];
-          const existing = await FeedVersion.findById(item.versionId);
-          if (existing) {
-            existing.isLocked = true;
-            if (!existing.supportedLanguages || existing.supportedLanguages.length === 0) {
-              existing.supportedLanguages = projectLanguages;
-            }
-            await existing.save();
-          }
-        }
-      }
       await new Promise(resolve => setTimeout(resolve, 2000));
       await updateStage(4, 'COMPLETED', 85);
       logger.info(`[DeploymentWorker] Stage 4 complete: Version locking finished for release ${release.id}`);
@@ -776,40 +704,14 @@ export const ReleaseService = {
   async rollbackRelease(releaseId: number, projectId: number, userId: number) {
     const release = await prisma.release.findUnique({
       where: { id: releaseId, projectId },
-      include: { items: true }
     });
 
     if (!release) throw new NotFoundError('Release not found');
     if (release.status !== 'DEPLOYED') throw new BadRequestError('Only DEPLOYED releases can be rolled back');
 
-    await prisma.$transaction(async (tx) => {
-      for (const item of release.items) {
-        if (item.previousVersionId) {
-          await tx.environmentState.update({
-            where: {
-              environmentId_feedId: {
-                environmentId: release.targetEnvironmentId,
-                feedId: item.feedId
-              }
-            },
-            data: { activeVersionId: item.previousVersionId }
-          });
-        } else {
-          await tx.environmentState.delete({
-            where: {
-              environmentId_feedId: {
-                environmentId: release.targetEnvironmentId,
-                feedId: item.feedId
-              }
-            }
-          }).catch(() => {});
-        }
-      }
-
-      await tx.release.update({
-        where: { id: releaseId },
-        data: { status: 'ROLLED_BACK' }
-      });
+    await prisma.release.update({
+      where: { id: releaseId },
+      data: { status: 'ROLLED_BACK' },
     });
 
     return { success: true };
@@ -843,133 +745,7 @@ export const ReleaseService = {
     return { success: true };
   },
 
-  
-  async computeFeedDiff(feed: any, sourceVersionId: string, targetVersionId: string | null) {
-    const sourceMongoVersion = await FeedVersion.findById(sourceVersionId).lean();
-    let targetMongoVersion = null;
-    if (targetVersionId) {
-      targetMongoVersion = await FeedVersion.findById(targetVersionId).lean();
-    }
 
-    const sourceLocalizations = await FeedLocalization.find({ feedVersionId: sourceVersionId }).lean();
-    const targetLocalizations = targetVersionId 
-      ? await FeedLocalization.find({ feedVersionId: targetVersionId }).lean()
-      : [];
-
-    const baseLanguage = feed.baseLanguage || sourceMongoVersion?.baseLanguage || 'en';
-
-    // Collect all language codes
-    const langCodesSet = new Set<string>();
-    langCodesSet.add(baseLanguage);
-    sourceLocalizations.forEach(l => langCodesSet.add(l.languageCode));
-    targetLocalizations.forEach(l => langCodesSet.add(l.languageCode));
-
-    const languages: any[] = [];
-    const addedLanguages: string[] = [];
-    const modifiedLanguages: string[] = [];
-    const unchangedLanguages: string[] = [];
-    let baseChanged = false;
-
-    const getLanguageName = (code: string) => {
-      try {
-        const intl = new Intl.DisplayNames(['en'], { type: 'language' });
-        return intl.of(code) || code.toUpperCase();
-      } catch {
-        return code.toUpperCase();
-      }
-    };
-
-    // 1. Process base language first
-    const sourceBaseContent = sourceMongoVersion?.baseContent || {};
-    const targetBaseContent = targetMongoVersion?.baseContent || null;
-
-    let baseStatus: 'ADDED' | 'MODIFIED' | 'UNCHANGED' = 'UNCHANGED';
-    if (!targetBaseContent) {
-      baseStatus = 'ADDED';
-      baseChanged = true;
-    } else if (JSON.stringify(sourceBaseContent) !== JSON.stringify(targetBaseContent)) {
-      baseStatus = 'MODIFIED';
-      baseChanged = true;
-    } else {
-      unchangedLanguages.push(baseLanguage);
-    }
-
-    languages.push({
-      languageCode: baseLanguage,
-      languageName: getLanguageName(baseLanguage),
-      isBaseLanguage: true,
-      status: baseStatus,
-      sourceStatus: 'COMPLETED',
-      targetStatus: targetBaseContent ? 'COMPLETED' : null,
-      previousContent: targetBaseContent,
-      targetContent: sourceBaseContent,
-    });
-
-    // 2. Process all other languages
-    for (const code of Array.from(langCodesSet)) {
-      if (code === baseLanguage) continue;
-
-      const sourceLoc = sourceLocalizations.find(l => l.languageCode === code);
-      const targetLoc = targetLocalizations.find(l => l.languageCode === code);
-
-      const sourceContent = sourceLoc?.localizedContent || null;
-      const targetContent = targetLoc?.localizedContent || null;
-
-      let status: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' = 'UNCHANGED';
-
-      if (sourceLoc && !targetLoc) {
-        status = 'ADDED';
-        addedLanguages.push(code);
-      } else if (!sourceLoc && targetLoc) {
-        status = 'REMOVED';
-        modifiedLanguages.push(code);
-      } else if (sourceLoc && targetLoc) {
-        const isContentDifferent = JSON.stringify(sourceContent) !== JSON.stringify(targetContent);
-        const isStatusDifferent = sourceLoc.status !== targetLoc.status;
-        if (isContentDifferent || isStatusDifferent) {
-          status = 'MODIFIED';
-          modifiedLanguages.push(code);
-        } else {
-          status = 'UNCHANGED';
-          unchangedLanguages.push(code);
-        }
-      }
-
-      languages.push({
-        languageCode: code,
-        languageName: getLanguageName(code),
-        isBaseLanguage: false,
-        status,
-        sourceStatus: sourceLoc?.status || null,
-        targetStatus: targetLoc?.status || null,
-        previousContent: targetContent,
-        targetContent: sourceContent,
-      });
-    }
-
-    const hasAnyChange = baseChanged || addedLanguages.length > 0 || modifiedLanguages.length > 0;
-
-    return {
-      feedId: feed.id,
-      feedName: feed.name,
-      baseLanguage,
-      sourceVersionId,
-      sourceVersionNumber: sourceMongoVersion?.versionNumber ?? 0,
-      targetVersionId,
-      targetVersionNumber: targetMongoVersion?.versionNumber ?? null,
-      languages,
-      summary: {
-        baseChanged,
-        addedLanguages,
-        modifiedLanguages,
-        unchangedLanguages,
-        hasAnyChange
-      },
-      sourceContent: sourceBaseContent,
-      targetContent: sourceBaseContent,
-      previousContent: targetBaseContent || {},
-    };
-  },
 
   async getEnvironmentDiff(projectId: number, sourceEnvId: number, targetEnvId: number) {
     const sourceEnv = await prisma.environment.findUnique({ where: { id: sourceEnvId } });
@@ -1059,9 +835,7 @@ export const ReleaseService = {
 
         diffs.push({
           id: bpIdStr,
-          feedId: bpIdStr,
           blueprintId: bpIdStr,
-          feedName: `Schema: ${bp.name}`,
           schemaName: bp.name,
           slug: bp.slug,
           type: bp.type || 'collection',
@@ -1128,9 +902,7 @@ export const ReleaseService = {
 
         diffs.push({
           id: bpIdStr,
-          feedId: bpIdStr,
           blueprintId: bpIdStr,
-          feedName: `Schema: ${bp.name} (Deletion)`,
           schemaName: bp.name,
           slug: bp.slug,
           type: bp.type || 'collection',
@@ -1234,8 +1006,7 @@ export const ReleaseService = {
           include: {
             approver: { select: { id: true, firstName: true, lastName: true, email: true } }
           }
-        },
-        items: true
+        }
       }
     });
 
@@ -1322,9 +1093,7 @@ export const ReleaseService = {
 
           schemaDiffs.push({
             id: bpIdStr,
-            feedId: bpIdStr,
             blueprintId: bpIdStr,
-            feedName: isDeletion ? `Schema: ${bp.name} (Deletion)` : `Schema: ${bp.name}`,
             schemaName: bp.name,
             slug: bp.slug,
             type: bp.type || 'collection',
@@ -1393,8 +1162,7 @@ export const ReleaseService = {
         createdAt: a.createdAt,
         approver: a.approver
       })),
-      schemas: schemaDiffs,
-      feeds: schemaDiffs
+      schemas: schemaDiffs
     };
   }
 };

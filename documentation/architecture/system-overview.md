@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-**EasyStack** is a multi-tenant backend platform for managing application schemas, structured JSON feeds, automated and human-in-the-loop multi-language localizations, and scheduled environment releases. It provides an enterprise-ready headless CMS and localization engine designed for high throughput, strict role-based access control, and seamless deployment across multi-tier environments (e.g., development, staging, production).
+**EasyStack** is a multi-tenant backend platform for managing schema blueprints, dynamic content entries, automated multi-language localizations, and scheduled environment releases. It provides an enterprise-ready headless CMS and localization engine designed for high throughput, strict role-based access control, and seamless deployment across multi-tier environments (e.g., development, staging, production).
 
 ---
 
@@ -13,7 +13,7 @@
 | **Runtime & Language** | Node.js (v20+), TypeScript (v5.9+) | Server runtime & strict type safety | [`package.json`](file:///home/eteknas/Projects/easystack-backend/package.json), [`tsconfig.json`](file:///home/eteknas/Projects/easystack-backend/tsconfig.json) |
 | **HTTP Framework** | Express 5.2 | REST API routing and middleware pipeline | [`src/server.ts`](file:///home/eteknas/Projects/easystack-backend/src/server.ts), [`src/routes/`](file:///home/eteknas/Projects/easystack-backend/src/routes) |
 | **Relational Data ORM** | Prisma 6.2 (MySQL 8 / MariaDB) | Workspaces, Projects, Users, RBAC, Subscriptions, Storage intents | [`prisma/schema.prisma`](file:///home/eteknas/Projects/easystack-backend/prisma/schema.prisma), [`src/db/prisma.ts`](file:///home/eteknas/Projects/easystack-backend/src/db/prisma.ts) |
-| **Document Store** | MongoDB (Mongoose 9.1) | Dynamic JSON Feeds, Blueprints, Content Entries, Comments, Audit Logs | [`src/models/`](file:///home/eteknas/Projects/easystack-backend/src/models), [`src/db/mongo.ts`](file:///home/eteknas/Projects/easystack-backend/src/db/mongo.ts) |
+| **Document Store** | MongoDB (Mongoose 9.1) | Dynamic Blueprints, Versions, Content Entries, Translations, Audit Logs | [`src/models/`](file:///home/eteknas/Projects/easystack-backend/src/models), [`src/db/mongo.ts`](file:///home/eteknas/Projects/easystack-backend/src/db/mongo.ts) |
 | **In-Memory Cache & Broker** | Redis 7 (ioredis 5.9) | Authorization cache (`authorization:v1:<userId>`), Billing context, Ephemeral OTPs, BullMQ backend | [`src/db/redis.ts`](file:///home/eteknas/Projects/easystack-backend/src/db/redis.ts), [`src/config/redis.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/redis.ts) |
 | **Background Processing** | BullMQ 5.67 & Bull-Board 9.4 | Async email dispatch, storage GC, translation workers, cleanup, and scheduled releases | [`src/infrastructure/queue/`](file:///home/eteknas/Projects/easystack-backend/src/infrastructure/queue), [`src/workers/`](file:///home/eteknas/Projects/easystack-backend/src/workers) |
 | **Object Storage** | AWS SDK v3 S3 / MinIO | Presigned asset uploads, CDN delivery, intent verification | [`src/services/storage/`](file:///home/eteknas/Projects/easystack-backend/src/services/storage), [`infra/storage/`](file:///home/eteknas/Projects/easystack-backend/infra/storage) |

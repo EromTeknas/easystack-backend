@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SchemaBlueprintService } from '../src/services/schema-blueprint.service';
-import { FeedSchemaValidationService } from '../src/services/feed-schema-validation.service';
+import { SchemaValidationService } from '../src/services/schema-validation.service';
 
 test('SchemaBlueprintService - checkSlugAvailability correctly validates slug format', async () => {
   // Test slug regex
@@ -74,7 +74,7 @@ test('SchemaBlueprint - validates schema definition fields with supported types'
     ],
   };
 
-  const validated = FeedSchemaValidationService.validateSchemaDefinition(blueprintSchema);
+  const validated = SchemaValidationService.validateSchemaDefinition(blueprintSchema);
   assert.strictEqual(validated.version, 1);
   assert.strictEqual(validated.fields.length, 5);
   assert.strictEqual(validated.fields[0]?.key, 'title');

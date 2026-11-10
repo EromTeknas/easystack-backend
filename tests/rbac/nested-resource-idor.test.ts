@@ -1,8 +1,13 @@
-import test, { after } from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { prisma, redisClient } from '../../src/db';
+import { prisma, redisClient, connectMongo } from '../../src/db';
 import mongoose from 'mongoose';
-import { FeedService } from '../../src/services/feed.service';
+import { SchemaBlueprintService } from '../../src/services/schema-blueprint.service';
+import { SchemaBlueprintRepository } from '../../src/repositories/schema-blueprint.repository';
+
+before(async () => {
+  await connectMongo();
+});
 
 after(async () => {
   await prisma.$disconnect();
@@ -10,7 +15,7 @@ after(async () => {
   await mongoose.disconnect();
 });
 
-test('Nested Resource IDOR Protection (Feeds)', async (t) => {
+test('Nested Resource IDOR Protection (Schema Blueprints)', async (t) => {
   const user = await prisma.user.create({
     data: {
       email: `idor-user-${Date.now()}@example.com`,
@@ -29,53 +34,64 @@ test('Nested Resource IDOR Protection (Feeds)', async (t) => {
     }
   });
 
-  // Project A (Belongs to User)
+  // Project A
   const projectA = await prisma.project.create({
     data: {
       name: 'Project A',
       slug: `proj-a-${Date.now()}`,
       workspaceId: workspace.id,
       createdById: user.id,
-      resourceId: `proj_a_${Date.now()}`
+      resourceId: `proj_a_${Date.now()}`,
+      environments: {
+        create: {
+          name: 'development',
+          displayName: 'Development',
+          isEditable: true,
+          rank: 10,
+        }
+      }
     }
   });
 
-  // Project B (Belongs to someone else, but we create it here for the test)
+  // Project B
   const projectB = await prisma.project.create({
     data: {
       name: 'Project B',
       slug: `proj-b-${Date.now()}`,
       workspaceId: workspace.id,
       createdById: user.id,
-      resourceId: `proj_b_${Date.now()}`
+      resourceId: `proj_b_${Date.now()}`,
+      environments: {
+        create: {
+          name: 'development',
+          displayName: 'Development',
+          isEditable: true,
+          rank: 10,
+        }
+      }
     }
   });
 
-  // Feed in Project B
-  const feedB = await prisma.feed.create({
-    data: {
-      name: 'Feed B',
-      projectId: projectB.id,
-      baseLanguage: 'en',
-    }
+  // Schema Blueprint in Project B
+  const blueprintB = await SchemaBlueprintRepository.create({
+    projectId: projectB.id,
+    name: 'Blueprint B',
+    slug: 'blueprint-b',
+    type: 'collection',
+    schemaDefinition: { version: 1, fields: [] },
+    createdBy: user.id,
   });
 
-  // Test 1: getFeedDetail should fail when requesting Feed B under Project A
+  // Test 1: getSchemaById should fail when requesting Blueprint B under Project A
   await assert.rejects(
-    FeedService.getFeedDetail(projectA.id, feedB.id),
-    (err: any) => err.message === 'Feed not found',
-    'getFeedDetail must enforce projectId matching'
-  );
-
-  // Test 2: getLocalizationStatuses should fail when requesting Feed B under Project A
-  await assert.rejects(
-    FeedService.getLocalizationStatuses(projectA.id, feedB.id),
-    (err: any) => err.message === 'Feed not active in development environment' || err.message.includes('not found'),
-    'getLocalizationStatuses must enforce projectId matching'
+    SchemaBlueprintService.getSchemaById(projectA.id, String(blueprintB._id)),
+    (err: any) => err.message.includes('not found'),
+    'getSchemaById must enforce projectId matching'
   );
 
   // Clean up
-  await prisma.feed.delete({ where: { id: feedB.id } });
+  await SchemaBlueprintRepository.delete(String(blueprintB._id));
+  await prisma.environment.deleteMany({ where: { projectId: { in: [projectA.id, projectB.id] } } });
   await prisma.project.delete({ where: { id: projectA.id } });
   await prisma.project.delete({ where: { id: projectB.id } });
   await prisma.workspace.delete({ where: { id: workspace.id } });
