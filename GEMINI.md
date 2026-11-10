@@ -22,6 +22,7 @@ This project enforces a strict **Route -> Controller -> Service -> Repo** patter
 
 ## 3. Enforcement (Hard Lines)
 
+*   **Development Mode & Zero Backward Compatibility**: The project is in active development mode. We do NOT maintain backward compatibility, legacy migration bridges, deprecated parameter aliases, or compatibility shims. Always maintain only the single latest canonical version of code, data structures, and APIs. When refactoring or updating features, remove obsolete legacy code rather than preserving backward compatibility.
 *   Never skip a layer (e.g., a Controller should not call a Repo directly).
 *   Keep files within their respective domain folders or layer folders as per the existing `src` structure.
 *   **Soft Deletions**: We do NOT use `DELETE` SQL statements for Users, Members, or critical entities. We use `removedAt: new Date()`. Queries MUST explicitly filter `removedAt: null`.
