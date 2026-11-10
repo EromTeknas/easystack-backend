@@ -118,4 +118,20 @@ graph TD
   - *On Discard Draft*: Restores published snapshot, marks translations `outdated`, and prompts to re-generate AI translations.
   - *On Publish*: If translations are ready, publishes directly. If translations are pending or outdated, presents an interactive modal offering to generate AI translations, force publish with translations marked ready as-is, or cancel.
 
+---
+
+## 6. Environment Resolution & Aliasing Rules
+
+To ensure seamless interoperability between legacy environment identifiers and standardized environment names, both the Content Entry Service and Delivery API enforce canonical environment aliasing:
+
+- **Canonical Aliases**:
+  - `dev` <-> `development`
+  - `live` <-> `production`
+- **Draft / Authoring Environment Semantics**:
+  - In `dev` (the base authoring environment), schemas are edited directly and are never promoted through release version numbers. `ContentEntryService.getSchema` always returns the active schema directly when `targetEnv` is `dev` or `development`.
+- **Deployed Environment Semantics**:
+  - In `live` (and any non-dev environments), `ContentEntryService.getSchema` checks `schema.environmentVersions` using canonical alias fallbacks (`live` -> `production`). If a deployed version exists, it hydrates the schema definition snapshot from `SchemaBlueprintVersion`. If `deployedVersion <= 0`, a 404 `Blueprint '{slug}' is not deployed to '{env}'` is thrown.
+- **Data Persistence & Queries**:
+  - Database queries across `ContentEntryRepository` match environments using `{ environment: { $in: getEnvAliases(env) } }` to ensure entries seeded or created under either naming convention are retrieved without friction.
+
 
