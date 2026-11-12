@@ -1,47 +1,77 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     "audit-context-building": {
       "source": "trailofbits/skills",
       "sourceType": "github",
       "skillPath": "plugins/audit-context-building/skills/audit-context-building/SKILL.md",
-      "computedHash": "aed6088124a47915aa4708e4fbb9be7383348dbb67bff2b44dd4dcde459699c7"
+      "computedHash": "69aff40ecdbfcd0f03f231f9c68c9657512aa911752e68a83d2d912815cf47b6"
     },
     "differential-review": {
       "source": "trailofbits/skills",
       "sourceType": "github",
       "skillPath": "plugins/differential-review/skills/differential-review/SKILL.md",
-      "computedHash": "3c330b7d8e2a7a6bba9ff9c7f9971d3b6c17fef84b9382efdd325abdd481371c"
+      "computedHash": "41b93cf300a463adf697abb9467fc281fd0b6cdadee1092db8f11619e9be4362"
+    },
+    "docker-build-strategies": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-build-strategies/SKILL.md",
+      "computedHash": "f6376cf97e353c4ec469f3037486603e6ade3b4642f65fee14f389f9f0bbc613"
+    },
+    "docker-compose-patterns": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-compose-patterns/SKILL.md",
+      "computedHash": "ab8353137a2f7054f113b7aa565eff12248bca7b41518a4d4183f7da522af2c3"
+    },
+    "docker-docs": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-docs/SKILL.md",
+      "computedHash": "aabfaa9cfa94d32a46b46d056091dff9dd92512d3797a110f42e5d3ea1ae5379"
+    },
+    "docker-project-foundations": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-project-foundations/SKILL.md",
+      "computedHash": "67b9b39419c68097af89fc5188bf1574a7cd925991ebf795b724da56804bf829"
+    },
+    "jenkins-pipeline": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "skillPath": "skills/jenkins-pipeline/SKILL.md",
+      "computedHash": "4bb5fa58141ec10d024d46c57b8145cfc20f556337aad1f30c18c1f151f9b09e"
     },
     "prisma-cli": {
       "source": "prisma/skills",
       "sourceType": "github",
       "skillPath": "prisma-cli/SKILL.md",
-      "computedHash": "aaec1e0169bb8ae74b0e3c4b39a4ed00cef79741df42fb9c93771736fccf378f"
+      "computedHash": "5867232acad55272d7278be9144b2cb8dcadd500d5a60a89260a2332bf70bd62"
     },
     "prisma-client-api": {
       "source": "prisma/skills",
       "sourceType": "github",
       "skillPath": "prisma-client-api/SKILL.md",
-      "computedHash": "cbbabff961c8e16b2d59f8c1ffb4e7e20be52154e778ab95121e0211d6d09969"
+      "computedHash": "a4810158b4b436a69e782e6fab95a0ed5e5e0b2786c2ed00322051d29c4c2b64"
     },
     "prisma-orm-setup": {
       "source": "prisma/skills",
       "sourceType": "github",
       "skillPath": "prisma-orm-setup/SKILL.md",
-      "computedHash": "08c8bc188c5a304f549aea607320905c9edc0485692182bf590a56dfc71617ca"
+      "computedHash": "a688cf20e8b7b92a97425d2f7f6e071a410f124d6e9f90a3fc7f5e0973e883df"
     },
     "supply-chain-risk-auditor": {
       "source": "trailofbits/skills",
       "sourceType": "github",
       "skillPath": "plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/SKILL.md",
-      "computedHash": "1c8dc1f5f5e4321e26fe0d9f3eb123b915efe924f192716e7fe4781a66a4500f"
+      "computedHash": "8a15fe1e5cb75e02781bcf4d823a3ea32095c2e16c964c49182312f666aff866"
     },
     "systematic-debugging": {
       "source": "obra/superpowers",
       "sourceType": "github",
       "skillPath": "skills/systematic-debugging/SKILL.md",
-      "computedHash": "276fb0aadb002ab930cc2a56de89e16995a2e3e70b33587652bf0a5fb123148d"
+      "computedHash": "ceb6a7a4cb02402360846cd466df67a8c6eaa3c5b1e97d1b419b5ba2ceeb734c"
     }
   }
 }

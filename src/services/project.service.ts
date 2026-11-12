@@ -12,6 +12,28 @@ import { DEFAULT_ENVIRONMENTS } from '../config/environment.config';
 
 const SUBDOMAIN_REGEX = /^[a-z0-9_-]+$/i;
 
+const RESERVED_SUBDOMAINS = new Set([
+  'admin',
+  'api',
+  'app',
+  'auth',
+  'billing',
+  'cdn',
+  'dev',
+  'docs',
+  'easystack',
+  'help',
+  'localhost',
+  'mail',
+  'preview',
+  'root',
+  'staging',
+  'status',
+  'support',
+  'test',
+  'www',
+]);
+
 const isPrivilegedWorkspaceRole = (roleKey: string) => {
   return (
     roleKey === APP_ROLES.WORKSPACE.WORKSPACE_OWNER ||
@@ -77,6 +99,10 @@ export const ProjectService = {
     }
 
     const normalizedSubdomain = normalizeSubdomain(subdomain);
+
+    if (RESERVED_SUBDOMAINS.has(normalizedSubdomain)) {
+      throw new BadRequestError(`Subdomain '${normalizedSubdomain}' is reserved and cannot be used`);
+    }
 
     // Check if subdomain already exists globally
     const existingProject = await ProjectRepository.findProjectBySlug(prisma, normalizedSubdomain);
@@ -215,6 +241,10 @@ export const ProjectService = {
         throw new BadRequestError('Subdomain can only contain alphanumeric characters, hyphens, and underscores');
       }
 
+      if (RESERVED_SUBDOMAINS.has(normalizedNewSubdomain)) {
+        throw new BadRequestError(`Subdomain '${normalizedNewSubdomain}' is reserved and cannot be used`);
+      }
+
       const conflictingProject = await ProjectRepository.findProjectBySlug(prisma, normalizedNewSubdomain);
 
       if (conflictingProject && conflictingProject.id !== existingProject.id) {
@@ -269,6 +299,10 @@ export const ProjectService = {
     const normalizedSubdomain = normalizeSubdomain(subdomain);
 
     if (!SUBDOMAIN_REGEX.test(normalizedSubdomain)) {
+      return false;
+    }
+
+    if (RESERVED_SUBDOMAINS.has(normalizedSubdomain)) {
       return false;
     }
 

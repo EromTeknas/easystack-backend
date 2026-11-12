@@ -41,6 +41,8 @@ async function start() {
     app.use(delayMiddleware);
 
     setupBullBoard(app);
+    app.get('/admin', (_req, res) => res.redirect('/admin/queues'));
+    app.get('/queues', (_req, res) => res.redirect('/admin/queues'));
 
     // Routes
     app.use('/api', router);

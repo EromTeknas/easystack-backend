@@ -96,5 +96,46 @@ describe('RBAC Permission Matrix', () => {
       assert.ok(hasPermission(viewer.permissions, 'content:read'));
       assert.strictEqual(hasPermission(viewer.permissions, 'content:update'), false);
     });
+
+    test('PROJECT_CLIENT_EDITOR has content CRUD and localization but no developer permissions', () => {
+      const clientEditor = ProjectRoles.PROJECT_CLIENT_EDITOR;
+      assert.ok(hasPermission(clientEditor.permissions, 'project:read'));
+      assert.ok(hasPermission(clientEditor.permissions, 'content:read'));
+      assert.ok(hasPermission(clientEditor.permissions, 'content:create'));
+      assert.ok(hasPermission(clientEditor.permissions, 'content:update'));
+      assert.ok(hasPermission(clientEditor.permissions, 'content:delete'));
+      assert.ok(hasPermission(clientEditor.permissions, 'localization:read'));
+      assert.ok(hasPermission(clientEditor.permissions, 'localization:create'));
+      assert.ok(hasPermission(clientEditor.permissions, 'asset:create'));
+
+      // Technical concepts must be strictly forbidden
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'schema:create'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'schema:update'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'schema:delete'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'release:create'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'release:execute'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'api_key:read'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'api_key:create'), false);
+      assert.strictEqual(hasPermission(clientEditor.permissions, 'environment:update'), false);
+    });
+
+    test('PROJECT_CLIENT_AUTHOR has draft editing but cannot delete or manage technical concepts', () => {
+      const clientAuthor = ProjectRoles.PROJECT_CLIENT_AUTHOR;
+      assert.ok(hasPermission(clientAuthor.permissions, 'content:read'));
+      assert.ok(hasPermission(clientAuthor.permissions, 'content:create'));
+      assert.ok(hasPermission(clientAuthor.permissions, 'content:update'));
+      assert.strictEqual(hasPermission(clientAuthor.permissions, 'content:delete'), false);
+      assert.strictEqual(hasPermission(clientAuthor.permissions, 'schema:create'), false);
+      assert.strictEqual(hasPermission(clientAuthor.permissions, 'release:create'), false);
+    });
+
+    test('PROJECT_CLIENT_VIEWER is strictly read-only for content and media', () => {
+      const clientViewer = ProjectRoles.PROJECT_CLIENT_VIEWER;
+      assert.ok(hasPermission(clientViewer.permissions, 'content:read'));
+      assert.strictEqual(hasPermission(clientViewer.permissions, 'content:create'), false);
+      assert.strictEqual(hasPermission(clientViewer.permissions, 'content:update'), false);
+      assert.strictEqual(hasPermission(clientViewer.permissions, 'schema:create'), false);
+    });
   });
 });
+

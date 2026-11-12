@@ -1,13 +1,15 @@
 services:
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: quay.io/minio/minio:RELEASE.2024-03-30T09-41-56Z
     command: server /data --console-address ":9001"
+    env_file:
+      - .env
     environment:
-      MINIO_ROOT_USER: admin  
-      MINIO_ROOT_PASSWORD: admin12345
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
     volumes:
       - minio-data:/data
 
@@ -15,10 +17,12 @@ services:
     image: minio/mc:latest
     depends_on:
       - minio
+    env_file:
+      - .env
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: admin12345
-      STORAGE_S3_BUCKET: easystack-dev
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET}
     volumes:
       - ./minio-init.sh:/minio-init.sh:ro
       - ./cors.json:/cors.json:ro
@@ -28,8 +32,10 @@ services:
     image: nginx:alpine
     depends_on:
       - minio
+    env_file:
+      - .env
     ports:
-      - "8081:80"
+      - "${STORAGE_CDN_PORT}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - nginx-cache:/var/cache/nginx

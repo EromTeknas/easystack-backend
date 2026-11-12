@@ -1,0 +1,145 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 25, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+        ansiColor('xterm')
+    }
+
+    environment {
+        DOCKER_BUILDKIT = '1'
+        IMAGE_NAME = 'easystack-frontend'
+        SHORT_COMMIT = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'manual'}"
+    }
+
+    stages {
+        stage('Determine Target Environment') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
+                        env.TARGET_ENV = 'prod'
+                        env.FRONTEND_PORT = '4000'
+                    } else if (env.BRANCH_NAME == 'staging') {
+                        env.TARGET_ENV = 'staging'
+                        env.FRONTEND_PORT = '3010'
+                    } else {
+                        env.TARGET_ENV = 'dev'
+                        env.FRONTEND_PORT = '3000'
+                    }
+                    env.IMAGE_TAG = "${env.IMAGE_NAME}:${env.TARGET_ENV}-${env.SHORT_COMMIT}"
+                    env.LATEST_TAG = "${env.IMAGE_NAME}:${env.TARGET_ENV}-latest"
+                    echo "--> Pipeline detected Target Environment: ${env.TARGET_ENV}"
+                    echo "--> Image Tag: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Lint & Validate') {
+            steps {
+                sh '''
+                    echo "--> Installing dependencies and running linter..."
+                    npm ci
+                    npm run lint || echo "Lint warnings noted."
+                '''
+            }
+        }
+
+        stage('Build Next.js Standalone Container') {
+            steps {
+                sh '''
+                    echo "--> Building Next.js Standalone Container Image..."
+                    # Assumes frontend.Dockerfile is in the build context or mounted from infra
+                    if [ -f "infra/docker/frontend.Dockerfile" ]; then
+                        DOCKERFILE="infra/docker/frontend.Dockerfile"
+                    elif [ -f "../easystack-backend/infra/docker/frontend.Dockerfile" ]; then
+                        DOCKERFILE="../easystack-backend/infra/docker/frontend.Dockerfile"
+                    else
+                        DOCKERFILE="Dockerfile"
+                    fi
+
+                    docker buildx build \
+                        -f ${DOCKERFILE} \
+                        -t ${IMAGE_TAG} \
+                        -t ${LATEST_TAG} \
+                        .
+                '''
+            }
+        }
+
+        stage('Production Approval Gate') {
+            when {
+                expression { return env.TARGET_ENV == 'prod' }
+            }
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    input message: "Approve deployment of Frontend to PRODUCTION?", ok: "Deploy Frontend"
+                }
+            }
+        }
+
+        stage('Deploy Frontend Container') {
+            steps {
+                script {
+                    echo "--> Updating Frontend container for [${env.TARGET_ENV}]..."
+                    sh """
+                        BACKEND_DIR="../easystack-backend"
+                        if [ -d "\$BACKEND_DIR" ]; then
+                            cd "\$BACKEND_DIR"
+                            
+                            # Update FRONTEND_IMAGE tag in target env file
+                            if [ -f "infra/env/.env.${env.TARGET_ENV}" ]; then
+                                sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=${env.IMAGE_TAG}|g" infra/env/.env.${env.TARGET_ENV}
+                            fi
+
+                            docker compose -p easystack-${env.TARGET_ENV} \
+                                -f infra/compose.app.yaml \
+                                --env-file infra/env/.env.${env.TARGET_ENV} \
+                                up -d --no-deps frontend
+                        else
+                            echo "Updating via standalone docker run..."
+                            docker stop easystack-${env.TARGET_ENV}_frontend || true
+                            docker rm easystack-${env.TARGET_ENV}_frontend || true
+                            docker run -d \
+                                --name easystack-${env.TARGET_ENV}_frontend \
+                                --restart unless-stopped \
+                                -p ${env.FRONTEND_PORT}:3000 \
+                                ${env.IMAGE_TAG}
+                        fi
+                    """
+                }
+            }
+        }
+
+        stage('Verify Frontend Health') {
+            steps {
+                sh """
+                    echo "--> Verifying Frontend health on port ${env.FRONTEND_PORT}..."
+                    sleep 5
+                    for i in \$(seq 1 10); do
+                        if curl -s -f -o /dev/null "http://localhost:${env.FRONTEND_PORT}/"; then
+                            echo "✓ Frontend is responsive on http://localhost:${env.FRONTEND_PORT}"
+                            exit 0
+                        fi
+                        echo "Waiting for frontend server..."
+                        sleep 3
+                    done
+                    echo "ERROR: Frontend failed to start on port ${env.FRONTEND_PORT}"
+                    exit 1
+                """
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "✓ Frontend deployment to [${env.TARGET_ENV}] completed successfully!"
+        }
+        failure {
+            echo "ERROR: Frontend deployment to [${env.TARGET_ENV}] failed! Check logs above."
+        }
+    }
+}

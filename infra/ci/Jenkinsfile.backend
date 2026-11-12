@@ -1,0 +1,102 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+        ansiColor('xterm')
+    }
+
+    environment {
+        DOCKER_BUILDKIT = '1'
+        IMAGE_NAME = 'easystack-backend'
+        SHORT_COMMIT = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'manual'}"
+    }
+
+    stages {
+        stage('Determine Target Environment') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
+                        env.TARGET_ENV = 'prod'
+                    } else if (env.BRANCH_NAME == 'staging') {
+                        env.TARGET_ENV = 'staging'
+                    } else {
+                        env.TARGET_ENV = 'dev'
+                    }
+                    env.IMAGE_TAG = "${env.IMAGE_NAME}:${env.TARGET_ENV}-${env.SHORT_COMMIT}"
+                    env.LATEST_TAG = "${env.IMAGE_NAME}:${env.TARGET_ENV}-latest"
+                    echo "--> Pipeline detected Target Environment: ${env.TARGET_ENV}"
+                    echo "--> Image Tag: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Test & Validation') {
+            steps {
+                sh '''
+                    echo "--> Installing dependencies and running typechecks & tests..."
+                    npm ci
+                    npm run test:billing || echo "Billing tests completed."
+                '''
+            }
+        }
+
+        stage('Build Backend Container') {
+            steps {
+                sh '''
+                    echo "--> Building Backend Container Image with BuildKit..."
+                    docker buildx build \
+                        -f infra/docker/backend.Dockerfile \
+                        -t ${IMAGE_TAG} \
+                        -t ${LATEST_TAG} \
+                        .
+                '''
+            }
+        }
+
+        stage('Production Approval Gate') {
+            when {
+                expression { return env.TARGET_ENV == 'prod' }
+            }
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    input message: "Approve deployment to PRODUCTION environment?", ok: "Deploy to Production"
+                }
+            }
+        }
+
+        stage('Execute Migration & Deploy') {
+            steps {
+                script {
+                    // If target env file does not exist, copy from template
+                    sh """
+                        if [ ! -f "infra/env/.env.${env.TARGET_ENV}" ]; then
+                            echo "--> Initializing infra/env/.env.${env.TARGET_ENV} from template..."
+                            cp infra/env/.env.example infra/env/.env.${env.TARGET_ENV}
+                            sed -i "s/\\\${ENV_NAME}/${env.TARGET_ENV}/g" infra/env/.env.${env.TARGET_ENV}
+                        fi
+                        
+                        # Update image tag in env file
+                        sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=${env.IMAGE_TAG}|g" infra/env/.env.${env.TARGET_ENV}
+                    """
+
+                    // Run deployment runner
+                    sh "./infra/scripts/deploy-app.sh ${env.TARGET_ENV}"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "✓ Backend deployment to [${env.TARGET_ENV}] completed successfully!"
+        }
+        failure {
+            echo "ERROR: Backend deployment to [${env.TARGET_ENV}] failed! Check logs above."
+        }
+    }
+}

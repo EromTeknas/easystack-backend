@@ -17,6 +17,7 @@ const authUserSelect = {
   email: true,
   firstName: true,
   lastName: true,
+  avatarUrl: true,
   emailVerified: true,
   onboardingCompleted: true,
   status: true,

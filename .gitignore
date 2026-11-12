@@ -1,5 +1,7 @@
 node_modules
-.env
+.env*
+!.env.example*
+!*.example
 storage/logs
 .DS_Store
 dist

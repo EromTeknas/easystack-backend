@@ -61,6 +61,7 @@ Use this lookup matrix to jump directly to the documentation, controllers, and s
 | **Add Environment Variables?** | [`technical-reference/configuration.md`](technical-reference/configuration.md) | `src/config/env.ts`<br>`src/config/` |
 | **Serve or Consume Public Delivery APIs?** | [`modules/delivery-api.md`](modules/delivery-api.md) | `src/delivery.server.ts`<br>`src/delivery/` |
 | **Create a Database Migration?** | [`development/database-migrations.md`](development/database-migrations.md) | `prisma/schema.prisma`<br>`prisma/migrations/` |
+| **Manage Docker Containers or Jenkins CI/CD?** | [`development/infrastructure-and-docker.md`](development/infrastructure-and-docker.md) | `infra/compose.shared.yaml`<br>`infra/docker/` |
 | **Handle Errors or Custom Statuses?** | [`technical-reference/error-handling.md`](technical-reference/error-handling.md) | `src/errors/AppError.ts`<br>`src/constants/errorCodes.ts` |
 
 ---
@@ -113,6 +114,7 @@ documentation/
 │   ├── local-setup.md                        # Prerequisites, local databases, MinIO, bootstrap
 │   ├── development-workflow.md               # npm run dev, running workers, Bull-board, debugging
 │   ├── database-migrations.md                # Prisma migration workflows, commands, seeders
+│   ├── infrastructure-and-docker.md          # Shared Compose, Jenkins LTS, MinIO, MySQL, MongoDB, Redis
 │   └── architectural-patterns.md             # 4-layer pattern (Route->Controller->Service->Repo)
 │
 └── reference/

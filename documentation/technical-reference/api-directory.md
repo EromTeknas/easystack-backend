@@ -186,6 +186,8 @@ Mounted in [`src/routes/storage/storage.routes.ts`](file:///home/eteknas/Project
 ## 8. Public Invitations & User Endpoints
 
 - `GET /api/public/invitations/:token`: Public invitation lookup (unauthenticated).
+- `GET /api/user/profile`: Get current authenticated user profile including avatarUrl (`authenticate`).
+- `PATCH /api/user/profile`: Update user profile details (firstName, lastName, avatarUrl) (`authenticate`).
 - `GET /api/user/search`: Exact-match email user lookup (`authenticate`).
 - `GET /api/user/invites`: List user invites (`authenticate`).
 - `POST /api/user/invites/accept-by-token`: Accept invite via token (`authenticate`).

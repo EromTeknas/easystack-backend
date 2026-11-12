@@ -389,6 +389,7 @@ export class AuthenticationService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      avatarUrl: user.avatarUrl ?? null,
       emailVerified: user.emailVerified,
       onboardingCompleted: user.onboardingCompleted,
       status: user.status,

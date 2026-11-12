@@ -77,6 +77,65 @@ export const ProjectRoles = {
       PERMISSIONS.DEPLOYMENT.READ,
     ],
   },
+
+  PROJECT_CLIENT_EDITOR: {
+    key: "PROJECT_CLIENT_EDITOR",
+    name: "Client Editor",
+    description: "Editorial access. Can create, edit, and publish content and manage media without access to developer concepts.",
+    permissions: [
+      PERMISSIONS.PROJECT.READ,
+      PERMISSIONS.SCHEMA.READ,
+      PERMISSIONS.CONTENT.READ,
+      PERMISSIONS.CONTENT.CREATE,
+      PERMISSIONS.CONTENT.UPDATE,
+      PERMISSIONS.CONTENT.DELETE,
+      PERMISSIONS.LOCALIZATION.READ,
+      PERMISSIONS.LOCALIZATION.CREATE,
+      PERMISSIONS.LOCALIZATION.UPDATE,
+      PERMISSIONS.ENVIRONMENT.READ,
+      PERMISSIONS.ASSET.CREATE,
+    ],
+  },
+
+  PROJECT_CLIENT_AUTHOR: {
+    key: "PROJECT_CLIENT_AUTHOR",
+    name: "Client Author",
+    description: "Editorial draft access. Can create and edit draft content and manage media without publishing.",
+    permissions: [
+      PERMISSIONS.PROJECT.READ,
+      PERMISSIONS.SCHEMA.READ,
+      PERMISSIONS.CONTENT.READ,
+      PERMISSIONS.CONTENT.CREATE,
+      PERMISSIONS.CONTENT.UPDATE,
+      PERMISSIONS.LOCALIZATION.READ,
+      PERMISSIONS.LOCALIZATION.UPDATE,
+      PERMISSIONS.ENVIRONMENT.READ,
+      PERMISSIONS.ASSET.CREATE,
+    ],
+  },
+
+  PROJECT_CLIENT_VIEWER: {
+    key: "PROJECT_CLIENT_VIEWER",
+    name: "Client Viewer",
+    description: "Read-only access to project content and media.",
+    permissions: [
+      PERMISSIONS.PROJECT.READ,
+      PERMISSIONS.SCHEMA.READ,
+      PERMISSIONS.CONTENT.READ,
+      PERMISSIONS.LOCALIZATION.READ,
+      PERMISSIONS.ENVIRONMENT.READ,
+    ],
+  },
 } satisfies Record<string, RoleDefinition>;
 
 export type ProjectRole = keyof typeof ProjectRoles;
+
+export const CLIENT_PROJECT_ROLE_KEYS = [
+  'PROJECT_CLIENT_EDITOR',
+  'PROJECT_CLIENT_AUTHOR',
+  'PROJECT_CLIENT_VIEWER',
+] as const;
+
+export function isClientProjectRole(roleKey: string): boolean {
+  return CLIENT_PROJECT_ROLE_KEYS.includes(roleKey as any);
+}

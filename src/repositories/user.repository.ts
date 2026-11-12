@@ -25,6 +25,52 @@ class UserRepository {
   async findByEmail(email: string): Promise<User | null> {
     return prisma.user.findUnique({ where: { email } });
   }
+
+  async getProfile(userId: number) {
+    return prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        resourceId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        emailVerified: true,
+        onboardingCompleted: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async updateProfile(
+    userId: number,
+    data: { firstName?: string | undefined; lastName?: string | undefined; avatarUrl?: string | null | undefined }
+  ) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(data.firstName !== undefined ? { firstName: data.firstName } : {}),
+        ...(data.lastName !== undefined ? { lastName: data.lastName } : {}),
+        ...(data.avatarUrl !== undefined ? { avatarUrl: data.avatarUrl } : {}),
+      },
+      select: {
+        id: true,
+        resourceId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        emailVerified: true,
+        onboardingCompleted: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
 }
 
 export default new UserRepository();

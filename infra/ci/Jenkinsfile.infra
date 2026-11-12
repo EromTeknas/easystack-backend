@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 15, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        ansiColor('xterm')
+    }
+
+    parameters {
+        string(name: 'ENVIRONMENTS', defaultValue: 'dev,staging,prod', description: 'Comma-separated environments to initialize')
+        booleanParam(name: 'DEPLOY_OBSERVABILITY', defaultValue: true, description: 'Deploy Prometheus, Grafana, and Loki')
+    }
+
+    environment {
+        COMPOSE_PROJECT_NAME = 'easystack-shared'
+    }
+
+    stages {
+        stage('Validate Configurations') {
+            steps {
+                sh '''
+                    echo "--> Validating Compose Files..."
+                    ./infra/scripts/verify-shared.sh
+                '''
+            }
+        }
+
+        stage('Deploy Shared Services') {
+            steps {
+                sh '''
+                    echo "--> Deploying MySQL, MongoDB, Redis, MinIO, CDN, and Jenkins..."
+                    docker compose -p easystack-shared -f infra/compose.shared.yaml up -d --remove-orphans
+                '''
+            }
+        }
+
+        stage('Deploy Observability') {
+            when {
+                expression { return params.DEPLOY_OBSERVABILITY }
+            }
+            steps {
+                sh '''
+                    echo "--> Deploying Observability Stack (Prometheus, Grafana, Loki)..."
+                    docker compose -p easystack-shared -f infra/compose.observability.yaml up -d --remove-orphans
+                '''
+            }
+        }
+
+        stage('Verify Shared Health') {
+            steps {
+                sh '''
+                    echo "--> Checking container status..."
+                    docker compose -p easystack-shared -f infra/compose.shared.yaml ps
+                    
+                    echo "--> Checking CDN health endpoint..."
+                    curl -s -f http://localhost:8081/health || (echo "CDN health check failed" && exit 1)
+                    
+                    echo "✓ Shared Infrastructure successfully deployed and healthy."
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            echo "Shared Infrastructure deployment failed! Check container logs above."
+        }
+    }
+}

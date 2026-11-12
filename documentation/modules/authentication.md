@@ -12,6 +12,7 @@ The **Authentication & Identity Module** manages user onboarding, credential val
 - Issuance and rotation of short-lived JWT access tokens (15m) and persistent refresh tokens (7d) in `HttpOnly` cookies.
 - Automatic provisioning of a personal default workspace upon user email verification or Google sign-in.
 - Session listing and revocation.
+- User profile retrieval and personal details/avatar updates via `UserService`.
 
 ---
 

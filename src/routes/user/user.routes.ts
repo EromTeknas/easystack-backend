@@ -5,6 +5,10 @@ import * as userInviteController from './user-invite.controller';
 
 const router = Router();
 
+// Profile
+router.get('/profile', authenticate, userController.getProfile);
+router.patch('/profile', authenticate, userController.updateProfile);
+
 // Search users
 router.get('/search', authenticate, userController.searchUsers);
 

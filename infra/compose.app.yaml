@@ -1,0 +1,73 @@
+services:
+  backend-api:
+    image: ${BACKEND_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}_backend-api
+    restart: unless-stopped
+    command: ["npx", "ts-node", "src/server.ts"]
+    ports:
+      - "${API_PORT}:3000"
+    env_file:
+      - ${ENV_FILE}
+    networks:
+      - easystack-core-net
+      - easystack-edge-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  backend-delivery:
+    image: ${BACKEND_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}_backend-delivery
+    restart: unless-stopped
+    command: ["npx", "ts-node", "src/delivery.server.ts"]
+    ports:
+      - "${DELIVERY_PORT}:3005"
+    env_file:
+      - ${ENV_FILE}
+    networks:
+      - easystack-core-net
+      - easystack-edge-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  backend-workers:
+    image: ${BACKEND_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}_backend-workers
+    restart: unless-stopped
+    command: ["npx", "ts-node", "src/workers/main.ts", "all"]
+    env_file:
+      - ${ENV_FILE}
+    networks:
+      - easystack-core-net
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    container_name: ${COMPOSE_PROJECT_NAME}_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    env_file:
+      - ${ENV_FILE}
+    networks:
+      - easystack-edge-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  easystack-core-net:
+    name: easystack-core-net
+    external: true
+  easystack-edge-net:
+    name: easystack-edge-net
+    external: true

@@ -20,6 +20,7 @@ model User {
 
   firstName String? @map("first_name")
   lastName  String? @map("last_name")
+  avatarUrl String? @map("avatar_url")
 
   status UserStatus @default(PENDING_VERIFICATION)
 

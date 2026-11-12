@@ -1,0 +1,46 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'easystack-monitor'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  - job_name: 'easystack-backend-dev'
+    metrics_path: '/api/health'
+    static_configs:
+      - targets: ['backend-api-dev:3002']
+        labels:
+          env: 'dev'
+          service: 'backend-api'
+
+  - job_name: 'easystack-delivery-dev'
+    metrics_path: '/ready'
+    static_configs:
+      - targets: ['backend-delivery-dev:3005']
+        labels:
+          env: 'dev'
+          service: 'backend-delivery'
+
+  - job_name: 'easystack-backend-prod'
+    metrics_path: '/api/health'
+    static_configs:
+      - targets: ['backend-api-prod:4002']
+        labels:
+          env: 'prod'
+          service: 'backend-api'
+
+  - job_name: 'easystack-delivery-prod'
+    metrics_path: '/ready'
+    static_configs:
+      - targets: ['backend-delivery-prod:4005']
+        labels:
+          env: 'prod'
+          service: 'backend-delivery'

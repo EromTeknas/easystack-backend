@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { z } from "zod";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ok } from "../../utils/response";
 import redisClient from "../../db/redis";
@@ -41,4 +42,37 @@ export const searchUsers = asyncHandler(async (req: any, res: Response) => {
   }
 
   return ok(res, { users });
+});
+
+const updateProfileSchema = z.object({
+  firstName: z.string().trim().min(1, "First name cannot be empty").max(100).optional(),
+  lastName: z.string().trim().max(100).optional(),
+  avatarUrl: z.string().url("Invalid avatar URL").nullable().optional(),
+});
+
+/**
+ * GET /api/user/profile
+ * Get current authenticated user profile
+ */
+export const getProfile = asyncHandler(async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const profile = await UserService.getProfile(userId);
+  return ok(res, { profile });
+});
+
+/**
+ * PATCH /api/user/profile
+ * Update current authenticated user profile
+ */
+export const updateProfile = asyncHandler(async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const parsed = updateProfileSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    const errorMsg = parsed.error.issues.map((i: any) => i.message).join(", ");
+    throw new BadRequestError(errorMsg);
+  }
+
+  const profile = await UserService.updateProfile(userId, parsed.data);
+  return ok(res, { profile, message: "Profile updated successfully" });
 });

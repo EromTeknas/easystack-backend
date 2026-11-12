@@ -54,6 +54,9 @@ Defined in [`src/services/authorization/configs/project-roles.config.ts`](file:/
 | `PROJECT_EDITOR` | Editor | Authors content, edits schemas, and manages content drafts. | `PROJECT_EDITOR_ALL` |
 | `PROJECT_CONTRIBUTOR` | Contributor | Edits and contributes content, but cannot modify core schemas or project settings. | `PROJECT_CONTRIBUTOR_ALL` |
 | `PROJECT_VIEWER` | Viewer | Read-only viewing of project schemas, content, and releases. | `PROJECT_VIEWER_ALL` |
+| `PROJECT_CLIENT_EDITOR` | Client Editor | Editorial-first role. Can create, edit, and directly publish/sync content and manage media. No access to blueprints, releases, or settings. | `project:read`, `content:*`, `localization:*`, `asset:*` |
+| `PROJECT_CLIENT_AUTHOR` | Client Author | Editorial draft role. Can create and edit draft content and manage media without publishing permissions. | `project:read`, `content:read/create/update`, `asset:*` |
+| `PROJECT_CLIENT_VIEWER` | Client Viewer | Read-only access to published and draft content entries and media. | `project:read`, `content:read`, `asset:read` |
 
 ---
 

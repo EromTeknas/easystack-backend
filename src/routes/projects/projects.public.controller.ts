@@ -11,6 +11,8 @@ const serializeProject = (project: any) => ({
   subdomain: project.slug,
   description: project.description,
   workspaceId: project.workspaceId,
+  workspaceName: project.workspace?.name || null,
+  supportedLanguages: project.supportedLanguages || ['en'],
   createdAt: project.createdAt,
   updatedAt: project.updatedAt,
 });

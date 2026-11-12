@@ -19,7 +19,7 @@ All runtime environment access is strictly centralized in [`src/config/`](file:/
 |---|---|---|
 | [`src/config/env.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/env.ts) | Zod schema validating and coercing all raw `.env` strings | `env` |
 | [`src/config/app.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/app.ts) | Port, environment (`local`, `dev`, `stage`, `prod`), logging | `app` |
-| [`src/config/cors.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/cors.ts) | Normalized allowed origins, headers, credentials, preflight cache | `corsConfig` |
+| [`src/config/cors.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/cors.ts) | Normalized allowed origins, dynamic subdomain matching (`*.localhost`, custom domain subdomains), application headers, credentials | `corsConfig`, `applicationOrigins`, `isOriginAllowed` |
 | [`src/config/auth.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/auth.ts) | JWT secrets, token expiries (15m/7d), OTP length and TTL | `auth` |
 | [`src/config/mysql.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/mysql.ts) | MySQL connection credentials and pool sizes | `mysqlConfig` |
 | [`src/config/mongo.ts`](file:///home/eteknas/Projects/easystack-backend/src/config/mongo.ts) | MongoDB connection URI and replica set options | `mongoConfig` |
