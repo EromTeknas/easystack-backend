@@ -32,7 +32,10 @@ async function runMigration() {
   });
 
   // 2. Connect to MongoDB and migrate schema blueprints and content entries
-  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/easystack';
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) {
+    throw new Error('MONGO_URI is required to run migration.');
+  }
   await mongoose.connect(mongoUri);
   console.log('Connected to MongoDB.');
 

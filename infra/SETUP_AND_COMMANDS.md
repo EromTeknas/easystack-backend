@@ -24,12 +24,12 @@ If you want to completely wipe all EasyStack containers, volumes (clean database
 # 1. Stop and remove all EasyStack containers
 docker rm -f $(docker ps -aq --filter "name=easystack") 2>/dev/null || true
 
-# 2. Remove all EasyStack volumes (resets MySQL, MongoDB, Redis, SeaweedFS, Jenkins, Grafana, Loki)
+# 2. Remove all EasyStack volumes (resets MySQL, MongoDB, Redis, MinIO, Jenkins, Grafana, Loki)
 docker volume rm \
   easystack-shared_mysql_data \
   easystack-shared_mongo_data \
   easystack-shared_redis_data \
-  easystack-shared_seaweed_data \
+  easystack-shared_minio_data \
   easystack-shared_nginx_cache \
   easystack-shared_jenkins_home \
   easystack-observability_prometheus_data \
@@ -47,7 +47,7 @@ docker network create easystack-core-net 2>/dev/null || true
 docker network create easystack-edge-net 2>/dev/null || true
 docker network create easystack-ci-net 2>/dev/null || true
 
-# 5. Start Shared Infrastructure (MySQL, MongoDB, Redis, SeaweedFS, CDN, Jenkins)
+# 5. Start Shared Infrastructure (MySQL, MongoDB, Redis, MinIO, CDN, Jenkins)
 cd /home/eteknas/Projects/easystack-backend/infra
 docker compose -p easystack-shared -f compose.shared.yaml up -d --build
 
@@ -73,9 +73,8 @@ cd /home/eteknas/Projects/easystack-backend
 | **MySQL 8.0** | `easystack-mysql` | `3306:3306` | `mysqladmin ping -h localhost` | App: `easystack_app` / `strong-app-password`<br/>Migrate: `easystack_migrate` / `strong-migration-password`<br/>Root: `rootpassword` |
 | **MongoDB 7.0** | `easystack-mongodb` | `27017:27017` | `mongosh --eval "db.adminCommand('ping')"` | User: `easystack` / `strong-password` (`authSource=admin`)<br/>Root: `admin` / `admin12345` |
 | **Redis 7.2** | `easystack-redis` | `6379:6379` | `redis-cli ping` | Dev DB index: `10`, Prod DB index: `1` |
-| **SeaweedFS Filer Dashboard** | `easystack-seaweedfs` | `8888:8888` | `http://localhost:8888/`<br/>`http://localhost:8888/buckets/` | Web File Manager (upload, download, browse buckets) |
-| **SeaweedFS Master Dashboard** | `easystack-seaweedfs` | `9333:9333` | `http://localhost:9333/` | Cluster topology, volume assignments, disk status |
-| **SeaweedFS S3 Gateway** | `easystack-seaweedfs` | `8333:8333` | `http://localhost:8333` | S3 API endpoint (Key: `admin`, Secret: `admin12345`) |
+| **MinIO S3 API** | `easystack-minio` | `9000:9000` | `http://localhost:9000` | S3 API endpoint (Key: `minioadmin`, Secret: `minioadmin123`) |
+| **MinIO Web Console** | `easystack-minio` | `9001:9001` | `http://localhost:9001` | Object Browser UI (User: `minioadmin`, Pass: `minioadmin123`) |
 | **Nginx CDN Proxy** | `easystack-cdn` | `8081:80` | `http://localhost:8081/health` | Routes `/<env>/public/*` to S3 bucket |
 | **Jenkins Controller** | `easystack-jenkins` | `8080:8080`<br/>`50000:50000` | `http://localhost:8080/` | Pre-seeded with 3 pipelines:<br/>• `easystack-infra`<br/>• `easystack-backend`<br/>• `easystack-frontend` |
 | **Grafana** | `easystack-grafana` | `3001:3000` | `http://localhost:3001/api/health` | User: `admin`, Pass: `admin` |
@@ -130,6 +129,20 @@ cd /home/eteknas/Projects/easystack-backend
 ./infra/scripts/deploy-app.sh prod
 ```
 
+### Database Seeding (On-Demand)
+Database seeders run automatically during `./infra/scripts/deploy-app.sh dev` (provisioning authorization roles, permissions, billing plans, billing quotas, fake users, and sample travel agency data).
+
+To manually run or re-run the seeders at any time:
+```bash
+cd /home/eteknas/Projects/easystack-backend
+
+# Seed base system + test users + travel agency project:
+./infra/scripts/seed-db.sh dev --users
+
+# Seed base system data only (roles, permissions, billing plans/quotas):
+./infra/scripts/seed-db.sh dev
+```
+
 ---
 
 ## 5. Provisioning an Arbitrary New Environment On-Demand
@@ -145,7 +158,7 @@ This script automatically:
 1. Creates `easystack_staging` and shadow database in MySQL.
 2. Grants DDL/DML permissions to migration and runtime users.
 3. Provisions MongoDB database and collections with correct user roles.
-4. Creates S3 bucket `easystack-staging` and `/public` folder in SeaweedFS.
+4. Creates S3 bucket `easystack-staging` and `/public` folder in MinIO.
 5. Emits a ready-to-use `.env.staging` file in `infra/env/`.
 
 Then deploy it:
@@ -172,7 +185,7 @@ Expected output:
 * Frontend: `200`
 * Core API: `{"success":true,"data":{"status":"healthy",...}}`
 * Delivery API: `{"status":"healthy","service":"easystack-delivery-api",...}`
-* CDN: `{"status":"healthy","service":"easystack-cdn","storage":"seaweedfs"}`
+* CDN: `{"status":"healthy","service":"easystack-cdn","storage":"minio"}`
 * Prometheus: `Prometheus Server is Healthy.`
 * Grafana: `{"commit":...,"database":"ok",...}`
 
@@ -193,8 +206,8 @@ docker logs -f easystack-dev_backend-workers
 # Next.js Frontend
 docker logs -f easystack-dev_frontend
 
-# SeaweedFS
-docker logs -f easystack-seaweedfs
+# MinIO
+docker logs -f easystack-minio
 
 # Jenkins
 docker logs -f easystack-jenkins
@@ -202,18 +215,16 @@ docker logs -f easystack-jenkins
 
 ---
 
-## 8. Configuration Files & Secret Manager Integration
-
-### How Configuration is Loaded
-In `compose.app.yaml`, all application services (`backend-api`, `backend-delivery`, `backend-workers`, `frontend`) declare:
-```yaml
-env_file:
-  - ${ENV_FILE:-./env/.env.dev}
-```
-This means:
-1. Every key-value pair inside `infra/env/.env.<env>` (e.g. `GOOGLE_AUTH_CLIENT_ID`, `BREVO_API_KEY`, `JWT_SECRET`, database URLs) is **automatically injected** into the containers at runtime.
-2. You do not need to manually modify `compose.app.yaml` every time a new environment variable is introduced.
-3. Service-specific overrides (like `APP_NAME`, `PORT`, `WORKER_GROUP`) remain in `environment:`.
+### Separation of Concerns: Infrastructure vs Application
+EasyStack enforces strict separation of concerns to avoid credential drift or duplication:
+1. **Infrastructure Configuration (`infra/.env`)**:
+   - Manages **only** host port bindings (`3306`, `27017`, `6379`, `8080`, `3001`, `9090`) and root management credentials (`MYSQL_ROOT_PASSWORD`, `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`).
+   - Contains **zero** application database credentials or secrets.
+2. **Environment Configuration (`infra/env/.env.<env>`)**:
+   - The **single source of truth** for that environment's database credentials (`MYSQL_APP_USER`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, `DATABASE_URL`, `MONGO_URI`), JWT secrets, OAuth client IDs, and Next.js frontend variables.
+3. **Dynamic User Provisioning (`deploy-app.sh`)**:
+   - When deploying an environment via `./infra/scripts/deploy-app.sh <env>`, the deploy script automatically connects to MySQL/MongoDB as root and synchronizes the environment's databases, users, and passwords directly from `infra/env/.env.<env>` before executing Prisma migrations.
+   - Any password changes made in `infra/env/.env.<env>` are automatically applied on the next deploy.
 
 ### Driving via Secret Manager
 In production or staging, hardcoding sensitive credentials in `.env` files is not recommended. You can drive secrets via a Secret Manager using two standard patterns:

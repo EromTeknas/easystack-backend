@@ -13,7 +13,7 @@ export const scheduledReleaseQueue = new Queue(SCHEDULED_RELEASE_QUEUE_NAME, {
       type: 'exponential',
       delay: 5000,
     },
-    removeOnComplete: true,
+    removeOnComplete: 100,
     removeOnFail: false,
   },
 });
@@ -22,7 +22,7 @@ export const deploymentQueue = new Queue(DEPLOYMENT_QUEUE_NAME, {
   connection: redisConnectionOptions,
   defaultJobOptions: {
     attempts: 1, // Deployments are managed with state machine
-    removeOnComplete: true,
+    removeOnComplete: 100,
     removeOnFail: false,
   },
 });

@@ -11,6 +11,7 @@ import {
   SCHEDULED_RELEASE_QUEUE_NAME, 
   DEPLOYMENT_QUEUE_NAME 
 } from '../services/releases/infrastructure/queue/scheduled-release.queue';
+import { RELEASES_QUEUE_NAME } from '../services/releases/infrastructure/queue/release.queue';
 
 export const setupBullBoard = (app: any) => {
   const serverAdapter = new ExpressAdapter();
@@ -20,12 +21,10 @@ export const setupBullBoard = (app: any) => {
   const translationQueue = new Queue(TRANSLATION_QUEUE_NAME, { connection: redisConnectionOptions as any });
   const emailQueue = new Queue(EMAIL_QUEUE_NAME, { connection: redisConnectionOptions as any });
   const storageQueue = new Queue(STORAGE_QUEUE_NAME, { connection: redisConnectionOptions as any });
-
   const cleanupQueue = new Queue(CLEANUP_QUEUE_NAME, { connection: redisConnectionOptions as any });
-
   const scheduledReleaseQueue = new Queue(SCHEDULED_RELEASE_QUEUE_NAME, { connection: redisConnectionOptions as any });
-
   const deploymentQueue = new Queue(DEPLOYMENT_QUEUE_NAME, { connection: redisConnectionOptions as any });
+  const releaseQueue = new Queue(RELEASES_QUEUE_NAME, { connection: redisConnectionOptions as any });
 
   createBullBoard({
     queues: [
@@ -34,7 +33,8 @@ export const setupBullBoard = (app: any) => {
       new BullMQAdapter(storageQueue),
       new BullMQAdapter(cleanupQueue),
       new BullMQAdapter(scheduledReleaseQueue),
-      new BullMQAdapter(deploymentQueue)
+      new BullMQAdapter(deploymentQueue),
+      new BullMQAdapter(releaseQueue)
     ],
     serverAdapter: serverAdapter,
   });

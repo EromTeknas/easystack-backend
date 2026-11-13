@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "npm run db:seed:users && npm run queues:register-schedules && concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/services/email --watch src/infrastructure/queue --exec npm run worker:email\" \"nodemon --watch src/services/storage --watch src/infrastructure/queue --exec npm run worker:storage\" \"nodemon --watch src/services/translation --watch src/infrastructure/queue --exec npm run worker:translation\" \"nodemon --watch src/services/cleanup --watch src/infrastructure/queue --exec npm run worker:cleanup\"",
+    "dev": "npm run db:seed:users && npm run queues:register-schedules && concurrently \"nodemon --watch src --exec ts-node src/server.ts\" \"nodemon --watch src/services/email --watch src/infrastructure/queue --exec npm run worker:email\" \"nodemon --watch src/services/storage --watch src/infrastructure/queue --exec npm run worker:storage\" \"nodemon --watch src/services/translation --watch src/infrastructure/queue --exec npm run worker:translation\" \"nodemon --watch src/services/cleanup --watch src/infrastructure/queue --exec npm run worker:cleanup\" \"nodemon --watch src/services/releases --watch src/infrastructure/queue --exec npm run worker:release\"",
     "build": "tsc",
     "start": "node dist/server.js",
     "start:delivery": "node dist/delivery.server.js",

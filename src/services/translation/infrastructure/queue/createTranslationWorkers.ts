@@ -32,18 +32,20 @@ export function createTranslationWorkers(): Worker[] {
       // If tied to a ContentEntry, retrieve and hydrate if content wasn't directly passed
       if (contentEntryId) {
         const { ContentEntry } = await import('../../../../models/content-entry.model');
-        targetContentEntry = await ContentEntry.findById(contentEntryId);
+        const mongoose = (await import('mongoose')).default;
+        if (mongoose.Types.ObjectId.isValid(contentEntryId)) {
+          targetContentEntry = await ContentEntry.findById(contentEntryId);
+        } else if (context.projectId && context.schemaSlug) {
+          targetContentEntry = await ContentEntry.findOne({
+            projectId: context.projectId,
+            schemaSlug: context.schemaSlug,
+            slug: contentEntryId,
+          });
+        }
 
         if (!targetContentEntry) {
           logger.error('ContentEntry not found for translation job', { contentEntryId });
-          return {
-            status: 'failed',
-            targetLang,
-            error: `ContentEntry '${contentEntryId}' not found`,
-            durationMs: Date.now() - startTime,
-            completedAt: new Date(),
-            context,
-          };
+          throw new Error(`ContentEntry '${contentEntryId}' not found for translation job`);
         }
 
         // Set status to processing
@@ -167,14 +169,7 @@ export function createTranslationWorkers(): Worker[] {
           });
         }
 
-        return {
-          status: 'failed',
-          targetLang,
-          error: err.message,
-          durationMs,
-          completedAt: new Date(),
-          context,
-        };
+        throw err;
       }
     },
     {

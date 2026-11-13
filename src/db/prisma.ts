@@ -3,7 +3,7 @@ import logger from '../utils/logger';
 import { mysql } from '../config';
 
 // Single PrismaClient instance for the whole app, sharing MySQL config
-const mysqlUrl = `mysql://${encodeURIComponent(mysql.user)}:${encodeURIComponent(mysql.password)}@${mysql.host}:${mysql.port}/${mysql.database}`;
+const mysqlUrl = process.env.DATABASE_URL || `mysql://${encodeURIComponent(mysql.user)}:${encodeURIComponent(mysql.password)}@${mysql.host}:${mysql.port}/${mysql.database}`;
 
 export const prisma = new PrismaClient({
   datasources: {

@@ -2,11 +2,14 @@ import type { CorsOptions } from "cors";
 import { env } from "./env";
 
 function csv(value: string): string[] {
-  return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (!value) return [];
+  const cleaned = value.trim().replace(/^["']|["']$/g, "");
+  return [...new Set(cleaned.split(",").map((item) => item.trim().replace(/^["']|["']$/g, "")).filter(Boolean))];
 }
 
 function normalizeOrigin(value: string): string {
-  return new URL(value).origin;
+  const cleaned = value.trim().replace(/^["']|["']$/g, "");
+  return new URL(cleaned).origin;
 }
 
 const allowedOrigins = csv(env.CORS_ORIGIN).map(normalizeOrigin);

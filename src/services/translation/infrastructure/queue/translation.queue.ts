@@ -12,7 +12,7 @@ export const translationQueue = new Queue<TranslationJobInput>(TRANSLATION_QUEUE
       type: 'exponential',
       delay: 2000,
     },
-    removeOnComplete: true,
+    removeOnComplete: 100,
     removeOnFail: false,
   },
 });

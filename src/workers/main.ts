@@ -29,6 +29,17 @@ async function main(): Promise<void> {
     selection, groups, workerCount: workers.length, processId: process.pid,
   });
 
+  if (selection === "all" || selection === "storage" || selection === "release") {
+    try {
+      const { registerQueueSchedules } = await import("./register-schedules");
+      await registerQueueSchedules();
+    } catch (scheduleError) {
+      logger.warn("Failed to automatically register queue schedules on startup", {
+        error: scheduleError instanceof Error ? scheduleError.message : String(scheduleError),
+      });
+    }
+  }
+
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = (signal: string): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;

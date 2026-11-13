@@ -7,25 +7,30 @@ import {
 } from "../services/storage/infrastructure/queue/storage.producer";
 import logger from "../utils/logger";
 
+export async function registerQueueSchedules(): Promise<void> {
+  await scheduleHourlyStorageReconciliation();
+  await scheduleDailyCleanedIntentRetention();
+
+  // Add release schedule (run every minute)
+  await releaseQueue.add('execute-scheduled-releases', {}, {
+    repeat: {
+      pattern: '* * * * *',
+    },
+    jobId: 'execute-scheduled-releases-cron'
+  });
+
+  logger.info("Queue schedules registered", {
+    schedules: [
+      "storage-reconciliation-hourly",
+      "storage-cleaned-intent-retention-daily",
+      "execute-scheduled-releases-cron",
+    ],
+  });
+}
+
 async function main(): Promise<void> {
   try {
-    await scheduleHourlyStorageReconciliation();
-        await scheduleDailyCleanedIntentRetention();
-
-    // Add release schedule (run every minute)
-    await releaseQueue.add('execute-scheduled-releases', {}, {
-      repeat: {
-        pattern: '* * * * *',
-      },
-      jobId: 'execute-scheduled-releases-cron'
-    });
-
-    logger.info("Queue schedules registered", {
-      schedules: [
-        "storage-reconciliation-hourly",
-        "storage-cleaned-intent-retention-daily",
-      ],
-    });
+    await registerQueueSchedules();
   } finally {
     await releaseQueue.close();
     await closeQueues();
@@ -33,10 +38,12 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error: unknown) => {
-  logger.error("Queue schedule registration failed", {
-    error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack : undefined,
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    logger.error("Queue schedule registration failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    process.exitCode = 1;
   });
-  process.exitCode = 1;
-});
+}

@@ -36,10 +36,12 @@ echo "[3/5] Validating compose.observability.yaml syntax..."
 (cd "$INFRA_DIR" && $COMPOSE_CMD -f compose.observability.yaml config --quiet)
 echo "✓ compose.observability.yaml is valid."
 
-echo "[4/5] Validating compose.app.yaml (Dev and Prod configurations)..."
+echo "[4/5] Validating compose.app.yaml..."
 (cd "$INFRA_DIR" && $COMPOSE_CMD -f compose.app.yaml --env-file env/.env.dev config --quiet)
-(cd "$INFRA_DIR" && $COMPOSE_CMD -f compose.app.yaml --env-file env/.env.prod config --quiet)
-echo "✓ compose.app.yaml is valid for both Dev and Prod."
+if [[ -f "$INFRA_DIR/env/.env.prod" ]]; then
+  (cd "$INFRA_DIR" && $COMPOSE_CMD -f compose.app.yaml --env-file env/.env.prod config --quiet)
+fi
+echo "✓ compose.app.yaml is valid."
 
 # 3. Validate Jenkins Dockerfile
 echo "[5/5] Validating Jenkins Dockerfile build context..."

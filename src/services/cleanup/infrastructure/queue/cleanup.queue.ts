@@ -11,6 +11,8 @@ export const cleanupQueue = new Queue(CLEANUP_QUEUE_NAME, {
       type: 'exponential',
       delay: 5000,
     },
+    removeOnComplete: 100,
+    removeOnFail: false,
   },
 });
 

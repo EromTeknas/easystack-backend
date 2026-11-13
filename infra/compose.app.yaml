@@ -7,7 +7,7 @@ services:
     ports:
       - "${API_PORT}:3000"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-./env/.env.dev}
     networks:
       - easystack-core-net
       - easystack-edge-net
@@ -26,7 +26,7 @@ services:
     ports:
       - "${DELIVERY_PORT}:3005"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-./env/.env.dev}
     networks:
       - easystack-core-net
       - easystack-edge-net
@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
     command: ["npx", "ts-node", "src/workers/main.ts", "all"]
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-./env/.env.dev}
     networks:
       - easystack-core-net
 
@@ -53,8 +53,10 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT}:3000"
+    environment:
+      - HOSTNAME=0.0.0.0
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-./env/.env.dev}
     networks:
       - easystack-edge-net
     healthcheck:
